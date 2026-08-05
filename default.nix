@@ -4,6 +4,7 @@
   emacs ? pkgs.emacs,
   emacsPackages ? emacs.pkgs,
   melpaBuild ? emacsPackages.melpaBuild,
+  openstackclient-full ? pkgs.openstackclient-full,
 }:
 
 melpaBuild {
@@ -14,6 +15,11 @@ melpaBuild {
   packageRequires = [ ];
 
   turnCompilationWarningToError = true;
+
+  postPatch = ''
+    substituteInPlace openstack-mode.el \
+      --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe openstackclient-full}"'
+  '';
 
   doCheck = true;
 
@@ -51,6 +57,12 @@ melpaBuild {
       command.  Future resource-specific modes (servers, volumes,
       images, networks, ...) derive from this mode and inherit the
       ID handling.
+
+      The package interfaces with OpenStack through the
+      python-openstackclient command line program (nixpkgs package
+      openstackclient-full).  The build substitutes the default
+      value of openstack-program with the store path of that
+      program.
     '';
     license = lib.licenses.agpl3Plus;
     homepage = "https://github.com/nagy/emacs-openstack-modes";

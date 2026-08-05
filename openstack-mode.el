@@ -44,6 +44,13 @@
 ;; Derived modes inherit the ID handling, the keymap, and the
 ;; bookmark support; they only need to render their fields.
 ;;
+;; The package talks to OpenStack through the =openstack= command
+;; line client (the python-openstackclient from nixpkgs, package
+;; =openstackclient-full=), configured with
+;; `openstack-program'.  The Nix build substitutes the default value
+;; with the store path of that package, so users do not need to
+;; customize it.
+;;
 ;; `openstack--id' and `openstack--origin-buffer'
 ;; are marked permanent-local so they survive the
 ;; `kill-all-local-variables' that `define-derived-mode' runs when
@@ -91,6 +98,15 @@ The resource ID is appended to this URL."
 (defcustom openstack-id-prefix "resource"
   "Path segment identifying the resource type in the dashboard URL."
   :type 'string
+  :group 'openstack)
+
+(defcustom openstack-program "openstack"
+  "Path to the OpenStack command line client executable.
+
+This is the python-openstackclient program, normally installed
+via Nix as the =openstackclient-full= package.  The Nix build
+substitutes this default with the store path of that package."
+  :type 'file
   :group 'openstack)
 
 

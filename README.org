@@ -42,6 +42,18 @@ Customization (=M-x customize-group openstack=):
   dashboard
 - =openstack-id-prefix= -- resource type path segment in the
   dashboard URL
+- =openstack-program= -- path to the =openstack= command line
+  client (python-openstackclient)
+
+* OpenStack CLI
+
+The package interfaces with OpenStack through the
+=python-openstackclient= command line program (nixpkgs package
+=openstackclient-full=).  The Nix build substitutes the default
+value of =openstack-program= with the store path of that program,
+so users do not need to customize it.  The client needs standard
+OpenStack authentication (e.g. an =openrc= file or environment
+variables).
 
 * Design
 

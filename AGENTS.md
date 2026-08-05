@@ -14,7 +14,7 @@ their own rendering.
 |---|---|
 | `openstack-mode.el` | Base major mode, handles the resource ID |
 | `openstack-mode-tests.el` | ERT test suite |
-| `default.nix` | Nix build with `melpaBuild` |
+| `default.nix` | Nix build with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
 | `README.org` | Project README |
 | `LICENSE` | AGPLv3 |
 
@@ -26,6 +26,9 @@ nix-build default.nix
 
 The `checkPhase` byte-compiles both `.el` files with warnings as
 errors, runs the ERT suite, and runs checkdoc over the package file.
+The `postPatch` phase substitutes `openstack-program` with the store
+path of the nixpkgs `openstackclient-full` package, so the client
+works out of the box.
 
 Without Nix:
 
@@ -58,3 +61,5 @@ emacs --batch -L . -l openstack-mode-tests.el \
 
 - Derived modes for specific resource types (servers, volumes,
   images, networks, …).
+- Commands that run `openstack-program` to fetch real resource data
+  (e.g. `openstack server show <id> --format json`) and render it.
