@@ -1,0 +1,70 @@
+#+title:    emacs-openstack-modes - OpenStack resource modes for Emacs
+#+author:   Daniel Nagy
+#+language: en
+
+Emacs major modes for displaying OpenStack resources.
+
+Every OpenStack resource has a unique ID.  This repository starts
+with one base mode that handles the ID, so that future
+resource-specific modes can depend on it.
+
+* Files
+
+| File                               | Purpose                                                  |
+|------------------------------------+----------------------------------------------------------|
+| =openstack-mode.el=       | Base major mode for OpenStack resources (ID handling)    |
+| =openstack-mode-tests.el= | ERT test suite                                           |
+| =default.nix=                      | Nix build with =melpaBuild=, runs ERT tests and checkdoc |
+| =LICENSE=                          | AGPLv3                                                   |
+
+* Usage
+
+#+begin_src elisp
+(require 'openstack-mode)
+#+end_src
+
+Commands:
+
+- =M-x openstack-mode= -- put the current buffer into the mode
+- =M-x openstack-display= -- display a resource by ID in a
+  dedicated buffer
+- =M-x openstack-copy-id= (=c=) -- copy the resource ID to
+  the kill ring
+- =M-x openstack-open-web= (=w=) -- open the dashboard page
+  for the resource
+- =M-x openstack-pop= (=p=) -- pop back to the buffer the
+  resource was displayed from
+
+Customization (=M-x customize-group openstack=):
+
+- =openstack-buffer-name= -- name of the display buffer
+- =openstack-web-base-url= -- base URL of the OpenStack
+  dashboard
+- =openstack-id-prefix= -- resource type path segment in the
+  dashboard URL
+
+* Design
+
+=openstack-mode= is the base mode.  It keeps a buffer-local
+=openstack--id=, renders a minimal view of the resource, and
+provides ID handling.  Future modes (servers, volumes, images,
+networks, ...) should derive from it:
+
+#+begin_src elisp
+(define-derived-mode openstack-server-mode openstack-mode
+  "OpenStack Server"
+  "Render server-specific fields, inheriting ID handling.")
+#+end_src
+
+* Building
+
+#+begin_src sh
+nix-build default.nix
+#+end_src
+
+The build byte-compiles with warnings as errors, runs the ERT test
+suite, and runs checkdoc.
+
+* License
+
+[[./LICENSE][AGPL3+]]
