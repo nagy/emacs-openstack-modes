@@ -60,6 +60,10 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-mode`.  Add a new `default.nix`-only package
   entry per mode (one `melpaBuild` per `.el` package) when a mode is
   added.
+- Derived modes override rendering by setting the
+  `openstack-render-function` defcustom to their own renderer
+  (buffer-locally in the mode body, or globally).  Never advise
+  private functions like `openstack--render-error`.
 - `checkdoc` must pass; docstrings follow the imperative style.
 - Tests use `unwind-protect` around temporary buffers.
 

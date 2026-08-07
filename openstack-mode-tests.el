@@ -32,7 +32,7 @@ The buffer is put into `openstack-mode' with ID
       (setq-local openstack--origin-buffer (current-buffer))
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (openstack--render "res-123")))
+        (funcall openstack-render-function "res-123")))
     buf))
 
 ;;; Tests

@@ -83,12 +83,18 @@ or calls =error-fn= (async).
 =openstack-mode= is the base mode.  It keeps a buffer-local
 =openstack--id=, renders a minimal view of the resource, and
 provides ID handling.  Future modes (servers, volumes, images,
-networks, ...) should derive from it:
+networks, ...) should derive from it and set
+=openstack-render-function= to their own renderer:
 
 #+begin_src elisp
-(define-derived-mode openstack-server-mode openstack-mode
-  "OpenStack Server"
-  "Render server-specific fields, inheriting ID handling.")
+  (defun openstack-server-render (id)
+    "Render a server resource."
+    ...)
+
+  (define-derived-mode openstack-server-mode openstack-mode
+    "OpenStack Server"
+    "Render server-specific fields, inheriting ID handling."
+    (setq-local openstack-render-function #'openstack-server-render))
 #+end_src
 
 * Building

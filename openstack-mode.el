@@ -42,7 +42,8 @@
 ;;     "Render server-specific fields.")
 ;;
 ;; Derived modes inherit the ID handling, the keymap, and the
-;; bookmark support; they only need to render their fields.
+;; bookmark support; they only need to render their fields by
+;; setting `openstack-render-function' to their own renderer.
 ;;
 ;; The package talks to OpenStack through the =openstack= command
 ;; line client (the python-openstackclient from nixpkgs, package
@@ -92,6 +93,15 @@
 (defcustom openstack-buffer-name "*OpenStack Resource*"
   "Name of the buffer used to display an OpenStack resource."
   :type 'string
+  :group 'openstack)
+
+(defcustom openstack-render-function #'openstack-render-default
+  "Function used to render an OpenStack resource into the current buffer.
+It is called with the resource ID as its only argument, in the
+display buffer with `inhibit-read-only' bound to t.  Derived
+resource modes should set this (buffer-locally or globally) to
+their own renderer instead of advising a private function."
+  :type 'function
   :group 'openstack)
 
 (defcustom openstack-web-base-url "https://horizon.example.org"
@@ -184,17 +194,17 @@ BOOKMARK is a bookmark record as created by
 
 ;;; Commands
 
-(defun openstack--render (id)
-  "Insert the display of resource ID into the current buffer.
-This is the default rendering; derived modes should override it
-with their own resource-specific layout."
+(defun openstack-render-default (id)
+  "Insert the default display of resource ID into the current buffer.
+This is the default value of `openstack-render-function'; derived
+modes provide their own renderer by setting that variable."
   (insert (format "OpenStack resource\n\nID: %s\n" id)))
 
 (defun openstack-display (id)
   "Display the OpenStack resource with ID in a dedicated buffer.
 The buffer is named `openstack-buffer-name' and put into
-`openstack-mode'.  The rendering is done by
-`openstack--render'."
+`openstack-mode'.  The rendering is done by calling
+`openstack-render-function' with ID."
   (interactive "sOpenStack resource ID: ")
   (let* ((buf (get-buffer-create openstack-buffer-name))
          (origin (current-buffer)))
@@ -204,7 +214,7 @@ The buffer is named `openstack-buffer-name' and put into
       (setq-local openstack--origin-buffer origin)
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (openstack--render id)))
+        (funcall openstack-render-function id)))
     (pop-to-buffer buf)))
 
 (defun openstack-copy-id ()
@@ -247,7 +257,8 @@ pop back to the origin buffer.
 
 This mode is intended as a parent for resource-specific derived
 modes; they inherit the ID handling and only override the
-rendering, for example by advising `openstack--render'."
+rendering by setting `openstack-render-function' to their own
+renderer."
   :group 'openstack
   (setq-local revert-buffer-function #'openstack--revert-buffer)
   (setq-local bookmark-make-record-function
@@ -260,7 +271,7 @@ Ignoring ARGS, as required by `revert-buffer-function'."
     (when id
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (openstack--render id)))))
+        (funcall openstack-render-function id)))))
 
 (provide 'openstack-mode)
 ;;; openstack-mode.el ends here
