@@ -46,10 +46,10 @@
 ;;
 ;; The package talks to OpenStack through the =openstack= command
 ;; line client (the python-openstackclient from nixpkgs, package
-;; =openstackclient-full=), configured with
-;; `openstack-program'.  The Nix build substitutes the default value
-;; with the store path of that package, so users do not need to
-;; customize it.
+;; =openstackclient-full=), configured with `openstack-program'
+;; (defined in openstack-cli.el).  The Nix build substitutes the
+;; default value with the store path of that package, so users do
+;; not need to customize it.
 ;;
 ;; `openstack--id' and `openstack--origin-buffer'
 ;; are marked permanent-local so they survive the
@@ -70,10 +70,15 @@
 ;;
 ;; The buffer name is `openstack-buffer-name' by default and
 ;; the dashboard URL template is `openstack-web-base-url'.
+;;
+;; Talking to OpenStack goes through the `openstack-cli' library
+;; (see openstack-cli.el), which wraps `openstack-program' with
+;; synchronous and asynchronous request functions.
 
 ;;; Code:
 
 (require 'bookmark)
+(require 'openstack-cli)
 (eval-when-compile (require 'cl-lib))
 
 
@@ -98,15 +103,6 @@ The resource ID is appended to this URL."
 (defcustom openstack-id-prefix "resource"
   "Path segment identifying the resource type in the dashboard URL."
   :type 'string
-  :group 'openstack)
-
-(defcustom openstack-program "openstack"
-  "Path to the OpenStack command line client executable.
-
-This is the python-openstackclient program, normally installed
-via Nix as the =openstackclient-full= package.  The Nix build
-substitutes this default with the store path of that package."
-  :type 'file
   :group 'openstack)
 
 
@@ -137,6 +133,18 @@ resource modes.  `q' and `g' are inherited from `special-mode'.")
 
 (defconst openstack--saved-id-suffix " ::OpenStack"
   "Suffix appended to the ID in the bookmark record.")
+
+(defun openstack--render-error (err)
+  "Insert an error message for CLI condition ERR into the buffer.
+ERR is an `openstack-cli-error' condition.  The message is
+inserted in the error face so the user can see why a resource
+failed to load."
+  (let* ((msg (condition-case nil
+                  (let ((data (cdr err)))
+                    (format "%s" (plist-get data :stderr)))
+                (error nil)))
+         (text (or msg "Unknown OpenStack CLI error")))
+    (insert (propertize text 'face 'error))))
 
 
 ;;; Helper functions

@@ -10,12 +10,14 @@ resource-specific modes can depend on it.
 
 * Files
 
-| File                               | Purpose                                                  |
-|------------------------------------+----------------------------------------------------------|
+| File                      | Purpose                                                  |
+|---------------------------+----------------------------------------------------------|
 | =openstack-mode.el=       | Base major mode for OpenStack resources (ID handling)    |
-| =openstack-mode-tests.el= | ERT test suite                                           |
-| =default.nix=                      | Nix build with =melpaBuild=, runs ERT tests and checkdoc |
-| =LICENSE=                          | AGPLv3                                                   |
+| =openstack-cli.el=        | CLI layer: sync/async access to =openstack-program=      |
+| =openstack-mode-tests.el= | ERT test suite for the mode                              |
+| =openstack-cli-tests.el=  | ERT test suite for the CLI layer (mocked)                |
+| =default.nix=             | Nix build with =melpaBuild=, runs ERT tests and checkdoc |
+| =LICENSE=                 | AGPLv3                                                   |
 
 * Usage
 
@@ -54,6 +56,27 @@ value of =openstack-program= with the store path of that program,
 so users do not need to customize it.  The client needs standard
 OpenStack authentication (e.g. an =openrc= file or environment
 variables).
+
+All CLI access goes through the =openstack-cli= library, which
+mirrors the =jsonrpc= library's design: a synchronous
+=openstack-cli-request= and an asynchronous
+=openstack-cli-async-request=.
+
+#+begin_src elisp
+  ;; Synchronous: returns parsed JSON (hash table or list)
+  (openstack-cli-request '("server" "show" "some-id"))
+
+  ;; Asynchronous: callbacks when the process finishes
+  (openstack-cli-async-request
+   '("server" "list")
+   :success-fn (lambda (result) ...)
+   :error-fn (lambda (err) ...))
+#+end_src
+
+The =--format json= option is appended automatically.  Commands
+that produce no output (e.g. =delete=) parse to nil; non-zero
+exit or unparseable output signals =openstack-cli-error= (sync)
+or calls =error-fn= (async).
 
 * Design
 

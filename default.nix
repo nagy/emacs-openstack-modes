@@ -17,7 +17,7 @@ melpaBuild {
   turnCompilationWarningToError = true;
 
   postPatch = ''
-    substituteInPlace openstack-mode.el \
+    substituteInPlace openstack-cli.el \
       --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe openstackclient-full}"'
   '';
 
@@ -30,11 +30,14 @@ melpaBuild {
     emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
       -f batch-byte-compile openstack-mode.el
     emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
+      -f batch-byte-compile openstack-cli.el
+    emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
       -f batch-byte-compile openstack-mode-tests.el
 
     echo '=== ERT tests ==='
     emacs --batch -L . \
       -l openstack-mode-tests.el \
+      -l openstack-cli-tests.el \
       -f ert-run-tests-batch-and-exit
 
     echo '=== checkdoc ==='
@@ -42,7 +45,7 @@ melpaBuild {
       -l checkdoc \
       --eval "(setq checkdoc-arguments-in-order-flag t)" \
       --eval "(mapc #'checkdoc-file command-line-args-left)" \
-      openstack-mode.el
+      openstack-mode.el openstack-cli.el
 
     runHook postCheck
   '';

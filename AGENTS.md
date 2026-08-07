@@ -13,7 +13,9 @@ their own rendering.
 | File | Purpose |
 |---|---|
 | `openstack-mode.el` | Base major mode, handles the resource ID |
-| `openstack-mode-tests.el` | ERT test suite |
+| `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
+| `openstack-mode-tests.el` | ERT tests for the mode |
+| `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `default.nix` | Nix build with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
 | `README.org` | Project README |
 | `LICENSE` | AGPLv3 |
@@ -24,8 +26,9 @@ their own rendering.
 nix-build default.nix
 ```
 
-The `checkPhase` byte-compiles both `.el` files with warnings as
-errors, runs the ERT suite, and runs checkdoc over the package file.
+The `checkPhase` byte-compiles all `.el` files with warnings as
+errors, runs the ERT suite (both test files), and runs checkdoc over
+both package files.
 The `postPatch` phase substitutes `openstack-program` with the store
 path of the nixpkgs `openstackclient-full` package, so the client
 works out of the box.
@@ -39,16 +42,19 @@ emacs --batch -L . -l openstack-mode-tests.el \
 
 ## Conventions
 
-- Single base mode `openstack-mode` in one file; tests in a
-  separate `-tests.el` file; nothing else yet.
-- The resource ID lives in the buffer-local `openstack--id`.
-  Derived modes inherit ID handling; they never touch this variable
-  directly except via `openstack-set-id`.
-- `openstack-display` is the single entry point: it creates
-  the display buffer, records the origin buffer, sets the ID, enters
-  the mode, and renders the resource.  Derived modes should override
-  the rendering part.
-- Interactive commands signal `user-error` when no ID is set; helper
+- CLI access goes through `openstack-cli.el`: `openstack-cli-request`
+  for synchronous calls, `openstack-cli-async-request` for
+  asynchronous ones (mirrors the `jsonrpc` library's sync/async
+  split).  Derived modes never call `openstack-program` directly.
+- `openstack-cli` appends `--format json` automatically; commands
+  that produce no output (e.g. `delete`) parse to nil.  Non-zero
+  exit or unparseable output signals `openstack-cli-error` (sync) or
+  calls `error-fn` (async).
+- CLI tests mock at the process level with `cl-letf` on
+  `openstack-cli--run` (sync) and `make-process`/
+  `set-process-sentinel` (async); they never hit a real OpenStack.
+- The `openstack-program` defcustom lives in `openstack-cli.el`
+  (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
 - Derived modes go in their own file and require
   `openstack-mode`.  Add a new `default.nix`-only package
