@@ -142,6 +142,23 @@ its stdout buffer.  SUCCESS-FN and ERROR-FN are passed through."
     (should called)
     (should (eq (car err) 'openstack-cli-error))))
 
+(ert-deftest openstack-cli-async-request-requires-callbacks ()
+  "Omitting or misspelling either callback signals `user-error' early.
+Without this check the sentinel would `funcall' nil, surfacing much
+later as an unrelated error inside the process sentinel."
+  (should-error (openstack-cli-async-request '("server" "list"))
+                :type 'user-error)
+  (should-error (openstack-cli-async-request '("server" "list")
+                                             :success-fn #'ignore)
+                :type 'user-error)
+  (should-error (openstack-cli-async-request '("server" "list")
+                                             :error-fn #'ignore)
+                :type 'user-error)
+  (should-error (openstack-cli-async-request '("server" "list")
+                                             :success-fn "not-a-function"
+                                             :error-fn #'ignore)
+                :type 'user-error))
+
 (ert-deftest openstack-cli-autoloads ()
   "Both request entry points carry an autoload cookie."
   (let ((source (with-temp-buffer

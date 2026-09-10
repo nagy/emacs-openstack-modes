@@ -53,7 +53,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
 - `openstack-cli` appends `--format json` automatically; commands
   that produce no output (e.g. `delete`) parse to nil.  Non-zero
   exit or unparseable output signals `openstack-cli-error` (sync) or
-  calls `error-fn` (async).
+  calls `error-fn` (async).  `openstack-cli-async-request` requires
+  both callbacks and signals `user-error' if either is missing or
+  is not a function.
 - CLI tests mock at the process level with `cl-letf` on
   `openstack-cli--run` (sync) and `make-process`/
   `set-process-sentinel` (async); they never hit a real OpenStack.

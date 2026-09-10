@@ -122,6 +122,14 @@ process to finish and report via their callbacks."
     (user-error "openstack-cli: ARGS must be a non-empty list of strings"))
   args)
 
+(defun openstack-cli--check-callbacks (success-fn error-fn)
+  "Signal `user-error' unless SUCCESS-FN and ERROR-FN are functions.
+Both callbacks are mandatory: the sentinel would otherwise fail with
+`funcall' on nil, far away from the call site that omitted one."
+  (dolist (pair `((success-fn . ,success-fn) (error-fn . ,error-fn)))
+    (unless (functionp (cdr pair))
+      (user-error "openstack-cli: %s must be a function" (car pair)))))
+
 ;;; Process helpers
 
 (defun openstack-cli--command (args)
@@ -203,13 +211,16 @@ ARGS is a list of command line arguments, as in
 
 On success, call SUCCESS-FN with the parsed JSON result (a hash
 table or vector).  On failure, call ERROR-FN with an
-`openstack-cli-error' condition.
+`openstack-cli-error' condition.  Both callbacks are required and
+must be functions.
 
-If the process cannot be started at all, signal `user-error'.
+If the process cannot be started at all, or a callback is missing,
+signal `user-error'.
 Otherwise this function returns immediately; the process runs in
 the background and the appropriate callback is invoked when it
 finishes."
   (openstack-cli--check-args args)
+  (openstack-cli--check-callbacks success-fn error-fn)
   (let* ((cmd (openstack-cli--command args))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
