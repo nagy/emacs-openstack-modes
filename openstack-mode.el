@@ -69,7 +69,8 @@
 ;;   openstack-open-web      - open the dashboard URL
 ;;   openstack-pop           - pop back to the origin buffer
 ;;
-;; The buffer name is `openstack-buffer-name' by default and
+;; The display buffer name is built from `openstack-buffer-name'
+;; and the resource ID, so each resource has its own buffer;
 ;; the dashboard URL template is `openstack-web-base-url'.
 ;;
 ;; Talking to OpenStack goes through the `openstack-cli' library
@@ -91,7 +92,9 @@
   :group 'tools)
 
 (defcustom openstack-buffer-name "*OpenStack Resource*"
-  "Name of the buffer used to display an OpenStack resource."
+  "Name prefix of the buffer used to display an OpenStack resource.
+`openstack-display' appends the resource ID, so each resource gets
+its own buffer; the same ID always reuses its buffer."
   :type 'string
   :group 'openstack)
 
@@ -169,6 +172,12 @@ and ID."
           openstack-id-prefix
           id))
 
+(defun openstack--buffer-name-for-id (id)
+  "Return the display buffer name for resource ID.
+The name is `openstack-buffer-name' with ID appended, so distinct
+resources do not overwrite each other's buffers."
+  (format "%s <%s>" openstack-buffer-name id))
+
 (defun openstack--resource-id (&optional errorp)
   "Return the ID of the resource in the current buffer.
 Signal an error if ERRORP is non-nil and no ID is set."
@@ -206,11 +215,11 @@ modes provide their own renderer by setting that variable."
 ;;;###autoload
 (defun openstack-display (id)
   "Display the OpenStack resource with ID in a dedicated buffer.
-The buffer is named `openstack-buffer-name' and put into
+The buffer is named by `openstack--buffer-name-for-id' and put into
 `openstack-mode'.  The rendering is done by calling
 `openstack-render-function' with ID."
   (interactive "sOpenStack resource ID: ")
-  (let* ((buf (get-buffer-create openstack-buffer-name))
+  (let* ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
          (origin (current-buffer)))
     (with-current-buffer buf
       (openstack-mode)

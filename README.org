@@ -40,7 +40,8 @@ Commands:
 
 Customization (=M-x customize-group openstack=):
 
-- =openstack-buffer-name= -- name of the display buffer
+- =openstack-buffer-name= -- prefix of the display buffer name;
+  the resource ID is appended
 - =openstack-web-base-url= -- base URL of the OpenStack
   dashboard
 - =openstack-id-prefix= -- resource type path segment in the

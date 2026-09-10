@@ -64,6 +64,26 @@ an explicit `require'."
           (should (string-match-p "^OpenStack resource" (buffer-string))))
       (kill-buffer buf))))
 
+(ert-deftest openstack-mode-display-per-resource-buffer ()
+  "Each resource ID gets its own buffer; the same ID reuses it."
+  (let ((openstack-buffer-name "*OpenStack test*")
+        (buf-a nil) (buf-b nil))
+    (unwind-protect
+        (progn
+          (openstack-display "id-a")
+          (setq buf-a (current-buffer))
+          (should (equal (buffer-name buf-a) "*OpenStack test* <id-a>"))
+          (openstack-display "id-b")
+          (setq buf-b (current-buffer))
+          (should (equal (buffer-name buf-b) "*OpenStack test* <id-b>"))
+          (should-not (eq buf-a buf-b))
+          ;; Re-displaying id-a must return to the same buffer, not
+          ;; create a second one.
+          (openstack-display "id-a")
+          (should (eq (current-buffer) buf-a))
+          (should-not (get-buffer "*OpenStack test* <id-b>3")))
+      (dolist (b (list buf-a buf-b))
+        (when (buffer-live-p b) (kill-buffer b))))))
 (ert-deftest openstack-mode-copy-id ()
   "`openstack-copy-id' puts the ID on the kill ring."
   (let ((buf (openstack-test--make-resource-buffer)))
