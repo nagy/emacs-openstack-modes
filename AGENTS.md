@@ -16,14 +16,18 @@ their own rendering.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
-| `default.nix` | Nix build with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
+| `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
 | `README.org` | Project README |
+| `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |
 
 ## Build & test
 
 ```sh
-nix-build default.nix
+nix build          # package; its checkPhase runs the tests
+nix flake check    # evaluate/verify all flake outputs
+nix fmt            # nixfmt via treefmt
+nix develop        # emacs + openstackclient-full
 ```
 
 The `checkPhase` byte-compiles all `.el` files with warnings as
@@ -57,9 +61,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
 - Derived modes go in their own file and require
-  `openstack-mode`.  Add a new `default.nix`-only package
-  entry per mode (one `melpaBuild` per `.el` package) when a mode is
-  added.
+  `openstack-mode`.  Add a package entry per `.el` package
+  (one `melpaBuild` per mode) to `flake.nix` when a mode is added.
 - Derived modes override rendering by setting the
   `openstack-render-function` defcustom to their own renderer
   (buffer-locally in the mode body, or globally).  Never advise

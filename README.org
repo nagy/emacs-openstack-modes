@@ -16,7 +16,8 @@ resource-specific modes can depend on it.
 | =openstack-cli.el=        | CLI layer: sync/async access to =openstack-program=      |
 | =openstack-mode-tests.el= | ERT test suite for the mode                              |
 | =openstack-cli-tests.el=  | ERT test suite for the CLI layer (mocked)                |
-| =default.nix=             | Nix build with =melpaBuild=, runs ERT tests and checkdoc |
+| =flake.nix=               | Nix flake with =melpaBuild=, runs ERT tests and checkdoc  |
+| =flake.lock=              | Pinned flake inputs                                      |
 | =LICENSE=                 | AGPLv3                                                   |
 
 * Usage
@@ -104,7 +105,8 @@ nix-build default.nix
 #+end_src
 
 The build byte-compiles with warnings as errors, runs the ERT test
-suite, and runs checkdoc.
+suite, and runs checkdoc.  `postPatch` rewrites `openstack-program`
+to the store path of the nixpkgs `openstackclient-full` binary.
 
 * License
 
