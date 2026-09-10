@@ -142,5 +142,17 @@ its stdout buffer.  SUCCESS-FN and ERROR-FN are passed through."
     (should called)
     (should (eq (car err) 'openstack-cli-error))))
 
+(ert-deftest openstack-cli-autoloads ()
+  "Both request entry points carry an autoload cookie."
+  (let ((source (with-temp-buffer
+                  (insert-file-contents
+                   (expand-file-name "openstack-cli.el"))
+                  (buffer-string))))
+    (dolist (entry '("openstack-cli-request" "openstack-cli-async-request"))
+      (should (string-match-p
+               (format "^;;;###autoload\n(\\(?:defun\\|cl-defun\\) %s\\b"
+                       (regexp-quote entry))
+               source)))))
+
 (provide 'openstack-cli-tests)
 ;;; openstack-cli-tests.el ends here

@@ -184,6 +184,7 @@ Signal an error if ERRORP is non-nil and no ID is set."
       (openstack-id . ,id)
       (handler . ,openstack-bookmark-handler))))
 
+;;;###autoload
 (defun openstack-bookmark-jump (bookmark)
   "Jump to the OpenStack resource described by BOOKMARK.
 BOOKMARK is a bookmark record as created by
@@ -200,6 +201,7 @@ This is the default value of `openstack-render-function'; derived
 modes provide their own renderer by setting that variable."
   (insert (format "OpenStack resource\n\nID: %s\n" id)))
 
+;;;###autoload
 (defun openstack-display (id)
   "Display the OpenStack resource with ID in a dedicated buffer.
 The buffer is named `openstack-buffer-name' and put into
@@ -217,6 +219,7 @@ The buffer is named `openstack-buffer-name' and put into
         (funcall openstack-render-function id)))
     (pop-to-buffer buf)))
 
+;;;###autoload
 (defun openstack-copy-id ()
   "Copy the ID of the current OpenStack resource to the kill ring."
   (interactive)
@@ -224,12 +227,14 @@ The buffer is named `openstack-buffer-name' and put into
     (kill-new id)
     (message "Copied OpenStack resource ID: %s" id)))
 
+;;;###autoload
 (defun openstack-open-web ()
   "Open the dashboard page for the current OpenStack resource."
   (interactive)
   (browse-url (openstack--format-url
                (openstack--resource-id t))))
 
+;;;###autoload
 (defun openstack-pop ()
   "Pop back to the buffer the resource was displayed from."
   (interactive)
@@ -239,6 +244,7 @@ The buffer is named `openstack-buffer-name' and put into
           (t
            (user-error "The origin buffer for this resource is gone")))))
 
+;;;###autoload
 (defun openstack-set-id (id)
   "Set the ID of the current buffer's OpenStack resource to ID."
   (interactive "sOpenStack resource ID: ")
@@ -248,6 +254,7 @@ The buffer is named `openstack-buffer-name' and put into
 
 ;;; Major mode
 
+;;;###autoload
 (define-derived-mode openstack-mode special-mode
   "OpenStack Resource"
   "Display an OpenStack resource in the current buffer.

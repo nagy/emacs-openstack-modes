@@ -37,6 +37,22 @@ The buffer is put into `openstack-mode' with ID
 
 ;;; Tests
 
+(ert-deftest openstack-mode-autoloads ()
+  "Every user-facing entry point carries an autoload cookie.
+A fresh install must reach `openstack-display' and friends without
+an explicit `require'."
+  (let ((source (with-temp-buffer
+                  (insert-file-contents
+                   (expand-file-name "openstack-mode.el"))
+                  (buffer-string))))
+    (dolist (entry '("openstack-display" "openstack-copy-id"
+                     "openstack-open-web" "openstack-pop"
+                     "openstack-set-id" "openstack-mode"))
+      (should (string-match-p
+               (format "^;;;###autoload\n(\\(?:defun\\|define-derived-mode\\) %s\\b"
+                       (regexp-quote entry))
+               source)))))
+
 (ert-deftest openstack-mode-basic ()
   "Buffer gets the mode with a read-only, dedicated buffer."
   (let ((buf (openstack-test--make-resource-buffer)))

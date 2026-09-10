@@ -158,6 +158,7 @@ success with empty stderr."
 
 ;;; Synchronous API
 
+;;;###autoload
 (defun openstack-cli-request (args)
   "Run the OpenStack client synchronously with ARGS, return parsed JSON.
 ARGS is a list of command line arguments, e.g.
@@ -194,6 +195,7 @@ client's error text, if any) and `:args'."
 
 ;;; Asynchronous API
 
+;;;###autoload
 (cl-defun openstack-cli-async-request (args &key success-fn error-fn)
   "Run the OpenStack client asynchronously with ARGS.
 ARGS is a list of command line arguments, as in

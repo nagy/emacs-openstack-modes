@@ -68,6 +68,10 @@ emacs --batch -L . -l openstack-mode-tests.el \
   (buffer-locally in the mode body, or globally).  Never advise
   private functions like `openstack--render-error`.
 - `checkdoc` must pass; docstrings follow the imperative style.
+- Interactive entry points carry `;;;###autoload` cookies;
+  `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
+  exist.  Add new commands to those tests when adding them to the
+  files.
 - Tests use `unwind-protect` around temporary buffers.
 
 ## TODO
