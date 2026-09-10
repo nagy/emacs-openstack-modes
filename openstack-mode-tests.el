@@ -131,7 +131,24 @@ an explicit `require'."
           (let ((record (openstack--bookmark-make-record)))
             (should (equal (bookmark-prop-get record 'openstack-id)
                            "res-123"))
-            (should (equal (car record) "res-123 ::OpenStack"))))
+            (should (equal (car record) "res-123 ::OpenStack"))
+            ;; A live buffer object in the record dies with the session.
+            (should-not (assq 'buffer (cdr record)))
+            (should (equal (bookmark-prop-get record 'handler)
+                           'openstack-bookmark-jump))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-bookmark-jump ()
+  "Jumping to a bookmark displays the recorded resource ID."
+  (let ((buf (openstack-test--make-resource-buffer))
+        displayed)
+    (unwind-protect
+        (let ((record (with-current-buffer buf
+                        (openstack--bookmark-make-record))))
+          (cl-letf (((symbol-function 'openstack-display)
+                     (lambda (id) (setq displayed id))))
+            (openstack-bookmark-jump record))
+          (should (equal displayed "res-123")))
       (kill-buffer buf))))
 
 (ert-deftest openstack-mode-revert ()

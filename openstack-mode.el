@@ -180,7 +180,9 @@ Signal an error if ERRORP is non-nil and no ID is set."
   "Return a bookmark record for the current resource buffer."
   (let ((id (openstack--resource-id t)))
     `(,(concat id openstack--saved-id-suffix)
-      (buffer . ,(current-buffer))
+      ;; The live buffer object must not be stored: bookmark.el
+      ;; warns against it (it dies with the session) and the jump
+      ;; handler rebuilds the buffer from `openstack-id' anyway.
       (openstack-id . ,id)
       (handler . ,openstack-bookmark-handler))))
 
