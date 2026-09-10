@@ -91,16 +91,25 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
 (cl-defstruct openstack-cli-test--fake-process
   status exit-status buffer)
 
-(defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn)
+(defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr)
   "Run ARGS through `openstack-cli-async-request' with a fake process.
-Simulate a process exiting with EXIT-STATUS and writing OUTPUT to
-its stdout buffer.  SUCCESS-FN and ERROR-FN are passed through."
-  (let ((output-buffer (generate-new-buffer " *openstack-cli-async-out*")))
+Simulate a process exiting with EXIT-STATUS, writing OUTPUT to its
+stdout buffer and STDERR to the shared stderr buffer.  SUCCESS-FN and
+ERROR-FN are passed through.
+
+The fake process buffer is named like the real one (`openstack-cli-N')
+so tests can assert that the sentinel kills it."
+  (let ((proc-buffer (generate-new-buffer "openstack-cli-")))
     (unwind-protect
         (cl-letf (((symbol-function 'make-process)
-                   (lambda (&rest _)
+                   (lambda (&rest plist)
+                     (with-current-buffer proc-buffer
+                       (insert output))
+                     (when stderr
+                       (with-current-buffer (plist-get plist :stderr)
+                         (insert stderr)))
                      (make-openstack-cli-test--fake-process
-                      :status 'run :exit-status 0 :buffer output-buffer)))
+                      :status 'run :exit-status 0 :buffer proc-buffer)))
                   ((symbol-function 'process-status)
                    (lambda (proc) (openstack-cli-test--fake-process-status proc)))
                   ((symbol-function 'process-exit-status)
@@ -109,7 +118,6 @@ its stdout buffer.  SUCCESS-FN and ERROR-FN are passed through."
                    (lambda (proc) (openstack-cli-test--fake-process-buffer proc)))
                   ((symbol-function 'set-process-sentinel)
                    (lambda (proc sentinel)
-                     (with-current-buffer output-buffer (insert output))
                      (setf (openstack-cli-test--fake-process-status proc) 'exit
                            (openstack-cli-test--fake-process-exit-status proc) exit-status)
                      (funcall sentinel proc 'exit))))
@@ -117,7 +125,8 @@ its stdout buffer.  SUCCESS-FN and ERROR-FN are passed through."
            args
            :success-fn (or success-fn (lambda (_r) nil))
            :error-fn (or error-fn (lambda (_e) nil))))
-      (kill-buffer output-buffer))))
+      (when (buffer-live-p proc-buffer)
+        (kill-buffer proc-buffer)))))
 
 (ert-deftest openstack-cli-async-request-success ()
   "Async success invokes SUCCESS-FN with the parsed JSON."
@@ -158,6 +167,35 @@ later as an unrelated error inside the process sentinel."
                                              :success-fn "not-a-function"
                                              :error-fn #'ignore)
                 :type 'user-error))
+
+(ert-deftest openstack-cli-async-request-buffer-lifecycle ()
+  "Async runs leave no stderr accumulation and no process buffers.
+The stderr buffer is shared by every request, so it must be erased
+before each run; `make-process' also leaves one `openstack-cli-N'
+buffer per call unless the sentinel kills it."
+  (let ((openstack-cli-buffer-name "*openstack-cli-test-stderr*"))
+    (unwind-protect
+        (progn
+          (openstack-cli-test--run-async
+           '("server" "list") 1 "[]" nil nil "first failure")
+          (should (equal (with-current-buffer (get-buffer openstack-cli-buffer-name)
+                           (buffer-string))
+                         "first failure"))
+          ;; The second run must replace, not append to, that content.
+          (let (reported)
+            (openstack-cli-test--run-async
+             '("server" "list") 1 "[]"
+             nil (lambda (e) (setq reported (plist-get (cdr e) :stderr)))
+             "second failure")
+            (should (equal reported "second failure")))
+          (should (equal (with-current-buffer (get-buffer openstack-cli-buffer-name)
+                           (buffer-string))
+                         "second failure"))
+          (should-not (seq-some (lambda (b) (string-prefix-p "openstack-cli-"
+                                                             (buffer-name b)))
+                                (buffer-list))))
+      (when (get-buffer openstack-cli-buffer-name)
+        (kill-buffer openstack-cli-buffer-name)))))
 
 (ert-deftest openstack-cli-autoloads ()
   "Both request entry points carry an autoload cookie."

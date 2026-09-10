@@ -224,37 +224,47 @@ finishes."
   (let* ((cmd (openstack-cli--command args))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
-         (stderr-buffer (get-buffer-create openstack-cli-buffer-name))
-         (proc (make-process
-                :name name
-                :command cmd
-                :connection-type 'pipe
-                :stderr stderr-buffer
-                :noquery t)))
-    (set-process-sentinel
-     proc
-     (lambda (proc _event)
-       (when (eq (process-status proc) 'exit)
-         (let* ((code (process-exit-status proc))
-                (stderr (with-current-buffer stderr-buffer
-                          (let ((s (buffer-string)))
-                            (unless (string-empty-p s) s))))
-                (output (with-current-buffer (process-buffer proc)
-                          (buffer-string))))
-           (if (zerop code)
-               (condition-case err
-                   (funcall success-fn
-                            (openstack-cli--parse-json output))
-                 (error
-                  (funcall error-fn
-                           (cons 'openstack-cli-error
-                                 (list :args args :stderr stderr
-                                       :reason err)))))
-             (funcall error-fn
-                      (cons 'openstack-cli-error
-                            (list :args args :exit-code code
-                                  :stderr stderr))))))))
-    proc))
+         (stderr-buffer (get-buffer-create openstack-cli-buffer-name)))
+    ;; The stderr buffer is shared by every async request, so its
+    ;; previous content must go before the process starts writing;
+    ;; otherwise a later failure reports an earlier call's errors.
+    (with-current-buffer stderr-buffer
+      (erase-buffer))
+    (let ((proc (make-process
+                 :name name
+                 :command cmd
+                 :connection-type 'pipe
+                 :stderr stderr-buffer
+                 :noquery t)))
+      (set-process-sentinel
+       proc
+       (lambda (proc _event)
+         (when (eq (process-status proc) 'exit)
+           (let* ((code (process-exit-status proc))
+                  (stderr (with-current-buffer stderr-buffer
+                            (let ((s (buffer-string)))
+                              (unless (string-empty-p s) s))))
+                  ;; make-process creates a per-call buffer named
+                  ;; `openstack-cli-N'; read the output before killing it.
+                  (proc-buffer (process-buffer proc))
+                  (output (with-current-buffer proc-buffer
+                            (buffer-string))))
+             (when (buffer-live-p proc-buffer)
+               (kill-buffer proc-buffer))
+             (if (zerop code)
+                 (condition-case err
+                     (funcall success-fn
+                              (openstack-cli--parse-json output))
+                   (error
+                    (funcall error-fn
+                             (cons 'openstack-cli-error
+                                   (list :args args :stderr stderr
+                                         :reason err)))))
+               (funcall error-fn
+                        (cons 'openstack-cli-error
+                              (list :args args :exit-code code
+                                    :stderr stderr))))))))
+      proc)))
 
 (defun openstack-cli--parse-json (text)
   "Parse TEXT as a JSON object or array.
