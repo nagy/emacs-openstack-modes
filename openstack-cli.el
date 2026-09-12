@@ -147,22 +147,33 @@ contains `--format' or `-f')."
 
 (defun openstack-cli--run (args)
   "Run `openstack-program' with ARGS synchronously.
-Return (STATUS . STDERR-TEXT) where STATUS is the process exit
-code and STDERR-TEXT is the text written to stderr, or nil on
-success with empty stderr."
-  (let* ((cmd (openstack-cli--command args))
-         (stderr-buffer (get-buffer-create openstack-cli-buffer-name))
-         (stdout-buffer (get-buffer-create " *openstack-cli-stdout*"))
-         (status (apply #'call-process
-                        (car cmd) nil (list stdout-buffer nil) nil
-                        (cdr cmd))))
-    (let ((stdout (with-current-buffer stdout-buffer
-                    (buffer-string))))
-      (with-current-buffer stderr-buffer
-        (let ((err (buffer-string)))
-          (when (string-empty-p err)
-            (setq err nil))
-          (cons status (if (string-empty-p stdout) nil stdout)))))))
+Return (STATUS . OUTPUT) where STATUS is the process exit code.
+On success OUTPUT is the process stdout; on a non-zero exit it is
+the process stderr instead, because the caller reports that text
+as the error's `:stderr' and the stdout of a failed command is
+untrustworthy anyway.  Each call starts from fresh stdout and
+stderr sinks, so repeated calls never see earlier output."
+  (let ((cmd (openstack-cli--command args))
+        (stderr-file (make-temp-file "openstack-cli-stderr")))
+    (unwind-protect
+        (let* ((stdout
+                (with-temp-buffer
+                  ;; `call-process' writes stdout into this fresh
+                  ;; temp buffer and stderr into STDERR-FILE, so no
+                  ;; output can leak in from (or out to) earlier or
+                  ;; later calls.
+                  (let ((status (apply #'call-process
+                                       (car cmd) nil
+                                       (list (current-buffer) stderr-file)
+                                       nil (cdr cmd))))
+                    (if (zerop status)
+                        (cons status (buffer-string))
+                      (cons status
+                            (with-temp-buffer
+                              (insert-file-contents stderr-file)
+                              (buffer-string))))))))
+          stdout)
+      (delete-file stderr-file))))
 
 ;;; Synchronous API
 

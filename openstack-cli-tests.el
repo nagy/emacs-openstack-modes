@@ -24,9 +24,22 @@
 (defun openstack-cli-test--mock-run (args status stdout)
   "Mock `openstack-cli--run' to return STATUS and STDERR.
 ARGS is the argument list; it is validated to be a non-empty
-list of strings.  Returns (STATUS . STDERR) for the caller."
+list of strings.  Returns (STATUS . OUTPUT) for the caller."
   (openstack-cli--check-args args)
   (cons status stdout))
+
+(defun openstack-cli-test--with-fixture-program (script fn)
+  "Run FN with a fixture executable running SCRIPT as the client.
+SCRIPT is the shell body of a fake `openstack-program'; the script
+is made executable and passed to FN as its only argument.  The
+fixture is deleted afterwards."
+  (let* ((program (make-temp-file "openstack-cli-fixture-" nil nil
+                                  (concat "#!/bin/sh\n" script))))
+    (unwind-protect
+        (progn
+          (set-file-modes program #o755)
+          (funcall fn program))
+      (delete-file program))))
 
 (defmacro openstack-cli-test--with-mock-run (status stdout &rest body)
   "Run BODY with `openstack-cli--run' mocked to return STATUS/STDOUT.
@@ -87,6 +100,44 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
   (should-error (openstack-cli-request nil) :type 'user-error)
   (should-error (openstack-cli-request '("x" 42)) :type 'user-error)
   (should-error (openstack-cli-request '()) :type 'user-error))
+
+(ert-deftest openstack-cli-request-real-process-fresh-output ()
+  "Each real-process run parses only its own output.
+Regression test for the shared stdout buffer: before the fix,
+output accumulated across calls, so a no-output command (delete)
+returned the previous command's object instead of nil."
+  (openstack-cli-test--with-fixture-program
+   "if [ \"$2\" = delete ]; then :; else echo '{\"id\": \"abc\"}'; fi\n"
+   (lambda (program)
+     (let ((openstack-program program))
+       (let ((result (openstack-cli-request '("server" "show" "abc"))))
+         (should (hash-table-p result))
+         (should (equal (gethash "id" result) "abc")))
+       ;; A no-output command must not see the earlier object.
+       (should (null (openstack-cli-request '("server" "delete" "abc"))))
+       ;; And a later show must still work.
+       (should (equal (gethash "id"
+                               (openstack-cli-request '("server" "show" "abc")))
+                      "abc"))))))
+
+(ert-deftest openstack-cli-request-real-process-reports-stderr ()
+  "A real-process failure carries the client's stderr, not stdout.
+Regression test for the stderr loss: the destination list form of
+`call-process' without a stderr file discarded stderr and the old
+code reported stdout as the error's `:stderr'."
+  (openstack-cli-test--with-fixture-program
+   "echo '{\"id\": \"abc\"}'\necho \"real error text\" >&2\nexit 1\n"
+   (lambda (program)
+     (let ((openstack-program program))
+       (condition-case err
+           (openstack-cli-request '("server" "show" "abc"))
+         (openstack-cli-error
+          (let ((data (cdr err)))
+            (should (equal (plist-get data :exit-code) 1))
+            (should (equal (plist-get data :stderr)
+                           "real error text\n"))
+            (should (equal (plist-get data :args)
+                           '("server" "show" "abc"))))))))))
 
 (cl-defstruct openstack-cli-test--fake-process
   status exit-status buffer)
