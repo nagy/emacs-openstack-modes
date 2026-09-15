@@ -169,7 +169,7 @@ callers catching the general error also catch the timeout."
                       "abc"))))))
 
 (cl-defstruct openstack-cli-test--fake-process
-  status exit-status buffer)
+  status exit-status buffer plist)
 
 (defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr)
   "Run ARGS through `openstack-cli-async-request' with a fake process.
@@ -177,25 +177,36 @@ Simulate a process exiting with EXIT-STATUS, writing OUTPUT to its
 stdout buffer and STDERR to the shared stderr buffer.  SUCCESS-FN and
 ERROR-FN are passed through.
 
-The fake process buffer is named like the real one (`openstack-cli-N')
-so tests can assert that the sentinel kills it."
+The fake process honors the real :buffer argument, so tests can
+assert that the sentinel kills the process buffers."
   (let ((proc-buffer (generate-new-buffer "openstack-cli-")))
     (unwind-protect
         (cl-letf (((symbol-function 'make-process)
                    (lambda (&rest plist)
-                     (with-current-buffer proc-buffer
-                       (insert output))
-                     (when stderr
-                       (with-current-buffer (plist-get plist :stderr)
-                         (insert stderr)))
-                     (make-openstack-cli-test--fake-process
-                      :status 'run :exit-status 0 :buffer proc-buffer)))
+                     (let ((real-buffer (or (plist-get plist :buffer)
+                                            proc-buffer)))
+                       (with-current-buffer real-buffer
+                         (insert output))
+                       (when stderr
+                         (with-current-buffer (plist-get plist :stderr)
+                           (insert stderr)))
+                       (make-openstack-cli-test--fake-process
+                        :status 'run :exit-status 0 :buffer real-buffer))))
                   ((symbol-function 'process-status)
                    (lambda (proc) (openstack-cli-test--fake-process-status proc)))
                   ((symbol-function 'process-exit-status)
                    (lambda (proc) (openstack-cli-test--fake-process-exit-status proc)))
                   ((symbol-function 'process-buffer)
                    (lambda (proc) (openstack-cli-test--fake-process-buffer proc)))
+                  ((symbol-function 'process-get)
+                   (lambda (proc prop)
+                     (plist-get (openstack-cli-test--fake-process-plist proc)
+                                prop)))
+                  ((symbol-function 'process-put)
+                   (lambda (proc prop value)
+                     (setf (openstack-cli-test--fake-process-plist proc)
+                           (plist-put (openstack-cli-test--fake-process-plist proc)
+                                      prop value))))
                   ((symbol-function 'set-process-sentinel)
                    (lambda (proc sentinel)
                      (setf (openstack-cli-test--fake-process-status proc) 'exit

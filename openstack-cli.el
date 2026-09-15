@@ -278,6 +278,10 @@ finishes."
                     (make-process
                      :name name
                      :command cmd
+                     ;; `make-process' with no :buffer associates no
+                     ;; buffer at all, silently discarding the output;
+                     ;; give each request its own stdout buffer.
+                     :buffer (generate-new-buffer name)
                      :connection-type 'pipe
                      :stderr stderr-buffer
                      :noquery t)
@@ -293,20 +297,24 @@ finishes."
        proc
        (lambda (proc _event)
          (when (eq (process-status proc) 'exit)
-           (let* ((code (process-exit-status proc))
-                  (stderr (with-current-buffer stderr-buffer
-                            (let ((s (buffer-string)))
-                              (unless (string-empty-p s) s))))
-                  ;; make-process creates a per-call buffer named
-                  ;; `openstack-cli-N'; read the output before killing it.
-                  (proc-buffer (process-buffer proc))
-                  (output (with-current-buffer proc-buffer
-                            (buffer-string))))
-             (when (buffer-live-p proc-buffer)
-               (kill-buffer proc-buffer))
-             (when (buffer-live-p stderr-buffer)
-               (kill-buffer stderr-buffer))
-             (if (zerop code)
+           ;; Run exactly once per process, even if the sentinel is
+           ;; invoked again for a later status change.
+           (unless (process-get proc 'openstack-cli--handled)
+             (process-put proc 'openstack-cli--handled t)
+             (let* ((code (process-exit-status proc))
+                    (stderr (with-current-buffer stderr-buffer
+                              (let ((s (buffer-string)))
+                                (unless (string-empty-p s) s))))
+                    (proc-buffer (process-buffer proc))
+                    (output (when (buffer-live-p proc-buffer)
+                              (with-current-buffer proc-buffer
+                                (buffer-string))))
+                    (output (or output "")))
+               (when (buffer-live-p proc-buffer)
+                 (kill-buffer proc-buffer))
+               (when (buffer-live-p stderr-buffer)
+                 (kill-buffer stderr-buffer))
+               (if (zerop code)
                  (condition-case err
                      (funcall success-fn
                               (openstack-cli--parse-json output))
@@ -318,7 +326,7 @@ finishes."
                (funcall error-fn
                         (cons 'openstack-cli-error
                               (list :args args :exit-code code
-                                    :stderr stderr))))))))
+                                    :stderr stderr)))))))))
       proc)))
 
 (defun openstack-cli--parse-json (text)
