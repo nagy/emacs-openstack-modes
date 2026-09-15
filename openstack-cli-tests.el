@@ -139,6 +139,35 @@ code reported stdout as the error's `:stderr'."
             (should (equal (plist-get data :args)
                            '("server" "show" "abc"))))))))))
 
+(ert-deftest openstack-cli-request-timeout-signals ()
+  "A hung client gets killed and signals `openstack-cli-timeout'.
+`openstack-cli-timeout' subclasses `openstack-cli-error', so
+callers catching the general error also catch the timeout."
+  (openstack-cli-test--with-fixture-program
+   "exec sleep 5\n"
+   (lambda (program)
+     (let ((openstack-program program)
+           (openstack-cli-timeout 0.5))
+       (condition-case err
+           (openstack-cli-request '("server" "list"))
+         (openstack-cli-timeout
+          (let ((data (cdr err)))
+            (should (= (plist-get data :timeout) 0.5))
+            (should (equal (plist-get data :args) '("server" "list")))))
+         (openstack-cli-error
+          (ert-fail "timeout signaled the wrong error subtype")))))))
+
+(ert-deftest openstack-cli-request-timeout-slow-but-fitting-ok ()
+  "A client finishing before the deadline still returns its output."
+  (openstack-cli-test--with-fixture-program
+   "sleep 0.3\necho '{\"id\": \"abc\"}'\n"
+   (lambda (program)
+     (let ((openstack-program program)
+           (openstack-cli-timeout 5))
+       (should (equal (gethash "id"
+                               (openstack-cli-request '("server" "show" "abc")))
+                      "abc"))))))
+
 (cl-defstruct openstack-cli-test--fake-process
   status exit-status buffer)
 
@@ -221,27 +250,36 @@ later as an unrelated error inside the process sentinel."
 
 (ert-deftest openstack-cli-async-request-buffer-lifecycle ()
   "Async runs leave no stderr accumulation and no process buffers.
-The stderr buffer is shared by every request, so it must be erased
-before each run; `make-process' also leaves one `openstack-cli-N'
-buffer per call unless the sentinel kills it."
+Each request gets its own stderr buffer, killed by the sentinel
+after the callbacks run; concurrent requests therefore cannot
+clobber each other's stderr, and no buffer survives the run."
   (let ((openstack-cli-buffer-name "*openstack-cli-test-stderr*"))
     (unwind-protect
         (progn
-          (openstack-cli-test--run-async
-           '("server" "list") 1 "[]" nil nil "first failure")
-          (should (equal (with-current-buffer (get-buffer openstack-cli-buffer-name)
-                           (buffer-string))
-                         "first failure"))
-          ;; The second run must replace, not append to, that content.
+          ;; Two failing runs must each report their own stderr.
+          (let (reported)
+            (openstack-cli-test--run-async
+             '("server" "list") 1 "[]"
+             nil (lambda (e) (setq reported (plist-get (cdr e) :stderr)))
+             "first failure")
+            (should (equal reported "first failure")))
           (let (reported)
             (openstack-cli-test--run-async
              '("server" "list") 1 "[]"
              nil (lambda (e) (setq reported (plist-get (cdr e) :stderr)))
              "second failure")
             (should (equal reported "second failure")))
-          (should (equal (with-current-buffer (get-buffer openstack-cli-buffer-name)
-                           (buffer-string))
-                         "second failure"))
+          ;; A successful run leaves no stderr buffer behind either.
+          (let (called)
+            (openstack-cli-test--run-async
+             '("server" "list") 0 "[]"
+             (lambda (_r) (setq called t)) (lambda (_e) nil))
+            (should called))
+          (should-not (seq-some
+                       (lambda (b)
+                         (string-prefix-p "*openstack-cli-test-stderr"
+                                          (buffer-name b)))
+                       (buffer-list)))
           (should-not (seq-some (lambda (b) (string-prefix-p "openstack-cli-"
                                                              (buffer-name b)))
                                 (buffer-list))))

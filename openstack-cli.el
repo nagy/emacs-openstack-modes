@@ -95,13 +95,20 @@ substitutes this default with the store path of that package."
 
 (defcustom openstack-cli-timeout 30
   "Timeout in seconds for synchronous OpenStack CLI calls.
-Asynchronous calls do not use a timeout; they wait for the
-process to finish and report via their callbacks."
+A synchronous call that has not finished after this many seconds
+gets its process killed and signals `openstack-cli-timeout' (a
+subclass of `openstack-cli-error').  Asynchronous calls do not
+use a timeout; they wait for the process to finish and report
+via their callbacks."
   :type 'number
   :group 'openstack-cli)
 
 (defcustom openstack-cli-buffer-name "*openstack-cli-stderr*"
-  "Name of the buffer receiving stderr from `openstack-program'."
+  "Base name of the stderr buffer for each async OpenStack CLI call.
+Every asynchronous request gets its own buffer named after this
+variable (with a uniqueness suffix when needed); the sentinel
+kills the buffer once the callbacks have run, so concurrent
+requests cannot clobber each other's stderr."
   :type 'string
   :group 'openstack-cli)
 
@@ -113,6 +120,9 @@ process to finish and report via their callbacks."
 ;;; Conditions
 
 (define-error 'openstack-cli-error "OpenStack CLI error")
+
+(define-error 'openstack-cli-timeout "OpenStack CLI call timed out"
+              'openstack-cli-error)
 
 ;;; Argument validation
 
@@ -151,29 +161,54 @@ Return (STATUS . OUTPUT) where STATUS is the process exit code.
 On success OUTPUT is the process stdout; on a non-zero exit it is
 the process stderr instead, because the caller reports that text
 as the error's `:stderr' and the stdout of a failed command is
-untrustworthy anyway.  Each call starts from fresh stdout and
-stderr sinks, so repeated calls never see earlier output."
-  (let ((cmd (openstack-cli--command args))
-        (stderr-file (make-temp-file "openstack-cli-stderr")))
+untrustworthy anyway.  Wait at most `openstack-cli-timeout'
+seconds; on timeout, kill the process and signal
+`openstack-cli-timeout'.  Each call starts from fresh stdout and
+stderr buffers, so repeated calls never see earlier output."
+  (let* ((cmd (openstack-cli--command args))
+         (stdout-buffer (generate-new-buffer " *openstack-cli*"))
+         (stderr-buffer (generate-new-buffer " *openstack-cli-stderr*"))
+         (deadline (+ (float-time) openstack-cli-timeout))
+         proc)
     (unwind-protect
-        (let* ((stdout
-                (with-temp-buffer
-                  ;; `call-process' writes stdout into this fresh
-                  ;; temp buffer and stderr into STDERR-FILE, so no
-                  ;; output can leak in from (or out to) earlier or
-                  ;; later calls.
-                  (let ((status (apply #'call-process
-                                       (car cmd) nil
-                                       (list (current-buffer) stderr-file)
-                                       nil (cdr cmd))))
-                    (if (zerop status)
-                        (cons status (buffer-string))
-                      (cons status
-                            (with-temp-buffer
-                              (insert-file-contents stderr-file)
-                              (buffer-string))))))))
-          stdout)
-      (delete-file stderr-file))))
+        (progn
+          (setq proc (make-process
+                      :name "openstack-cli"
+                      :command cmd
+                      :buffer stdout-buffer
+                      :stderr stderr-buffer
+                      :connection-type 'pipe
+                      :noquery t))
+          ;; The default sentinel would insert "Process ... finished"
+          ;; into the output buffers, corrupting the captured stdout;
+          ;; the stderr pump's default sentinel would also flash a
+          ;; message in the echo area.  Polling drives this function,
+          ;; so both sentinels do nothing.
+          (set-process-sentinel proc #'ignore)
+          (let ((stderr-proc (get-buffer-process stderr-buffer)))
+            (when stderr-proc
+              (set-process-sentinel stderr-proc #'ignore)))
+          (while (and (process-live-p proc)
+                      (< (float-time) deadline))
+            (accept-process-output proc 0.25))
+          (cond
+           ((process-live-p proc)
+            (delete-process proc)
+            (signal 'openstack-cli-timeout
+                    (list :args args :timeout openstack-cli-timeout)))
+           (t
+            (let ((status (process-exit-status proc))
+                  (output (with-current-buffer stdout-buffer
+                            (buffer-string)))
+                  (stderr (with-current-buffer stderr-buffer
+                            (buffer-string))))
+              (if (zerop status)
+                  (cons status output)
+                (cons status stderr))))))
+      (when (and proc (process-live-p proc))
+        (delete-process proc))
+      (kill-buffer stdout-buffer)
+      (kill-buffer stderr-buffer))))
 
 ;;; Synchronous API
 
@@ -235,18 +270,25 @@ finishes."
   (let* ((cmd (openstack-cli--command args))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
-         (stderr-buffer (get-buffer-create openstack-cli-buffer-name)))
-    ;; The stderr buffer is shared by every async request, so its
-    ;; previous content must go before the process starts writing;
-    ;; otherwise a later failure reports an earlier call's errors.
-    (with-current-buffer stderr-buffer
-      (erase-buffer))
-    (let ((proc (make-process
-                 :name name
-                 :command cmd
-                 :connection-type 'pipe
-                 :stderr stderr-buffer
-                 :noquery t)))
+         ;; Each request gets its own stderr buffer, killed by the
+         ;; sentinel once the callbacks have run; concurrent requests
+         ;; therefore cannot clobber each other's stderr.
+         (stderr-buffer (generate-new-buffer openstack-cli-buffer-name)))
+    (let ((proc (condition-case err
+                    (make-process
+                     :name name
+                     :command cmd
+                     :connection-type 'pipe
+                     :stderr stderr-buffer
+                     :noquery t)
+                  (error
+                   (kill-buffer stderr-buffer)
+                   (signal (car err) (cdr err))))))
+      ;; Silence the stderr pump's default sentinel; its "finished"
+      ;; message would otherwise clutter the echo area.
+      (let ((stderr-proc (get-buffer-process stderr-buffer)))
+        (when stderr-proc
+          (set-process-sentinel stderr-proc #'ignore)))
       (set-process-sentinel
        proc
        (lambda (proc _event)
@@ -262,6 +304,8 @@ finishes."
                             (buffer-string))))
              (when (buffer-live-p proc-buffer)
                (kill-buffer proc-buffer))
+             (when (buffer-live-p stderr-buffer)
+               (kill-buffer stderr-buffer))
              (if (zerop code)
                  (condition-case err
                      (funcall success-fn

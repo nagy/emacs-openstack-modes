@@ -16,6 +16,7 @@ their own rendering.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
+| `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
@@ -47,7 +48,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
 ## Conventions
 
 - CLI access goes through `openstack-cli.el`: `openstack-cli-request`
-  for synchronous calls, `openstack-cli-async-request` for
+  for synchronous calls (timing out after `openstack-cli-timeout`
+  seconds with `openstack-cli-timeout`, a subclass of
+  `openstack-cli-error`), `openstack-cli-async-request` for
   asynchronous ones (mirrors the `jsonrpc` library's sync/async
   split).  Derived modes never call `openstack-program` directly.
 - `openstack-cli` appends `--format json` automatically; commands

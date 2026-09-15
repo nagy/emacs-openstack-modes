@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Fake `openstack` client for demoing/testing without a real cloud.
+# Emits canned JSON in the exact shape python-openstackclient prints
+# with --format json.  Set `openstack-program' to this file's path.
+
+# Strip trailing "--format json" that openstack-cli appends.
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --format) shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+cmd="${args[*]}"
+
+die() {
+    echo "openstack: $1 (NotFound): $2 not found (HTTP 404)" >&2
+    exit 1
+}
+
+case "$cmd" in
+    "server list")
+        cat <<'EOF'
+[
+  {
+    "ID": "b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01",
+    "Name": "web-1",
+    "Status": "ACTIVE",
+    "Networks": "provider=10.0.0.11, 2001:db8::11",
+    "Image": "ubuntu-24.04",
+    "Flavor": "m1.small",
+    "Server Name": ""
+  },
+  {
+    "ID": "7c1a5f24-93a2-4f0e-b5df-8f5c2b9e4a02",
+    "Name": "web-2",
+    "Status": "SHUTOFF",
+    "Networks": "provider=10.0.0.12",
+    "Image": "ubuntu-24.04",
+    "Flavor": "m1.small",
+    "Server Name": ""
+  }
+]
+EOF
+        ;;
+    "server show b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01"*)
+        cat <<'EOF'
+{
+  "accessIPv4": "10.0.0.11",
+  "accessIPv6": "2001:db8::11",
+  "addresses": {
+    "provider": [
+      {"OS-EXT-IPS-MAC:mac_addr": "fa:16:3e:aa:00:01",
+       "OS-EXT-IPS:type": "fixed", "addr": "10.0.0.11", "version": 4},
+      {"OS-EXT-IPS-MAC:mac_addr": "fa:16:3e:aa:00:01",
+       "OS-EXT-IPS:type": "fixed", "addr": "2001:db8::11", "version": 6}
+    ]
+  },
+  "config_drive": "",
+  "created": "2026-08-07T12:00:00Z",
+  "flavor": {"disk": 20, "ephemeral": 0, "extra_specs": {},
+             "original_name": "m1.small", "ram": 2048, "swap": "",
+             "vcpus": 1},
+  "hostId": "0e2d1a4f9b8c7d6e5a4b3c2d1e0f9a8b",
+  "id": "b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01",
+  "image": {"id": "5a3b2c1d-0000-4000-8000-000000000001",
+            "name": "ubuntu-24.04"},
+  "key_name": "demo-key",
+  "name": "web-1",
+  "progress": 0,
+  "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "properties": {"some_meta": "value"},
+  "security_groups": [{"name": "default"}],
+  "status": "ACTIVE",
+  "tags": [],
+  "tenant_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "updated": "2026-08-07T12:05:00Z",
+  "user_id": "99887766554433221100ffeeddccbbaa",
+  "vm_state": "active",
+  "volumes_attached": []
+}
+EOF
+        ;;
+    "server show"*)
+        die "server" "No server with a name or ID of '${args[2]}' exists." ;;
+    "server list"*)
+        echo "[]" ;;
+    "server delete"*|"volume delete"*|"image delete"*)
+        exit 0 ;;
+    "server stop"*|"server start"*)
+        exit 0 ;;
+    "volume list")
+        cat <<'EOF'
+[
+  {"ID": "5d1a2b3c-0000-4000-8000-0000000000aa",
+   "Name": "data-1", "Status": "in-use", "Size": 20,
+   "Attached to": "web-1 on /dev/vdb"},
+  {"ID": "5d1a2b3c-0000-4000-8000-0000000000bb",
+   "Name": "", "Status": "available", "Size": 10,
+   "Attached to": ""}
+]
+EOF
+        ;;
+    "image list")
+        cat <<'EOF'
+[
+  {"ID": "5a3b2c1d-0000-4000-8000-000000000001",
+   "Name": "ubuntu-24.04", "Status": "active", "Size": "234881024"},
+  {"ID": "5a3b2c1d-0000-4000-8000-000000000002",
+   "Name": "debian-12", "Status": "active", "Size": "117440512"}
+]
+EOF
+        ;;
+    "host list")
+        cat <<'EOF'
+[
+  {"ID": "compute-01", "Host Name": "compute-01", "Service": "compute",
+   "Zone": "nova"},
+  {"ID": "compute-02", "Host Name": "compute-02", "Service": "compute",
+   "Zone": "nova"}
+]
+EOF
+        ;;
+    "flavor list")
+        cat <<'EOF'
+[
+  {"ID": "1", "Name": "m1.tiny", "VCPUs": 1, "RAM": 512,
+   "Disk": 1, "Ephemeral": 0},
+  {"ID": "2", "Name": "m1.small", "VCPUs": 1, "RAM": 2048,
+   "Disk": 20, "Ephemeral": 0}
+]
+EOF
+        ;;
+    "token issue")
+        cat <<'EOF'
+{"expires": "2026-09-15T17:00:00+0000", "id": "gAAAAABm",
+ "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+ "user_id": "99887766554433221100ffeeddccbbaa"}
+EOF
+        ;;
+    *)
+        die "resource" "Unknown command: $cmd" ;;
+esac
