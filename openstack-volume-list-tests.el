@@ -44,6 +44,9 @@ sorting of unlisted columns.")
                       #'openstack-volume-list--fetch))
           (should (eq openstack-render-function
                       #'openstack-volume-list--render))
+          ;; RET on a row opens the volume's show buffer.
+          (should (eq openstack-show-command
+                      #'openstack-volume-display))
           ;; A collection has no resource ID: the ID commands error.
           (should-error (openstack--resource-id t) :type 'user-error))
       (kill-buffer buf))))

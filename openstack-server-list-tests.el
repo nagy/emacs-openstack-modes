@@ -44,6 +44,9 @@ sorting of unlisted columns.")
                       #'openstack-server-list--fetch))
           (should (eq openstack-render-function
                       #'openstack-server-list--render))
+          ;; RET on a row opens the server's show buffer.
+          (should (eq openstack-show-command
+                      #'openstack-server-display))
           ;; A collection has no resource ID: the ID commands error.
           (should-error (openstack--resource-id t) :type 'user-error))
       (kill-buffer buf))))
@@ -137,6 +140,50 @@ refresh pipeline runs without a resource ID."
                  (should (null openstack--last-error)))))
          (let ((buf (get-buffer openstack-server-list-buffer-name)))
            (when buf (kill-buffer buf))))))))
+
+(ert-deftest openstack-server-list-RET-opens-server-show ()
+  "RET on a row opens the server's show buffer for the row's ID."
+  (openstack-cli-test--with-fixture-program
+   (concat "if [ \"$2\" = list ]; then "
+           "echo '" openstack-server-list-test--list-json "'; "
+           "elif [ \"$2\" = show ]; then "
+           "echo '{\"id\": \"id-1\", \"name\": \"web-1\", "
+           "\"status\": \"ACTIVE\"}'; fi\n")
+   (lambda (program)
+     (let ((openstack-program program)
+           (openstack-cli-use-token nil)
+           (openstack-cli-timeout 5))
+       (unwind-protect
+           (progn
+             (openstack-server-list-display)
+             (let ((list-buf (get-buffer
+                              openstack-server-list-buffer-name)))
+               (should list-buf)
+               (openstack-cli-test--wait-until
+                (lambda ()
+                  (and (buffer-live-p list-buf)
+                       (with-current-buffer list-buf
+                         (and openstack--rendered
+                              (not openstack--pending))))))
+               (with-current-buffer list-buf
+                 (re-search-forward "id-1")
+                 (goto-char (match-beginning 0))
+                 (openstack-display-at-point))
+               (let ((show-buf (get-buffer "*OpenStack Server* <id-1>")))
+                 (should show-buf)
+                 (openstack-cli-test--wait-until
+                  (lambda ()
+                    (and (buffer-live-p show-buf)
+                         (with-current-buffer show-buf
+                           (and openstack--rendered
+                                (not openstack--pending))))))
+                 (with-current-buffer show-buf
+                   (should (string-match-p "web-1" (buffer-string)))
+                   (should (null openstack--last-error))))))
+         (dolist (name (list openstack-server-list-buffer-name
+                             "*OpenStack Server* <id-1>"))
+           (let ((buf (get-buffer name)))
+             (when buf (kill-buffer buf)))))))))
 
 (ert-deftest openstack-server-list-autoloads ()
   "The entry points carry autoload cookies."

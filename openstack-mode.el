@@ -167,6 +167,15 @@ The resource ID is appended to this URL."
   :type 'string
   :group 'openstack)
 
+(defcustom openstack-show-command #'openstack-display
+  "Command used by `openstack-display-at-point' to display a resource.
+It is called with one argument, the resource ID at point.
+Collection modes bind this buffer-locally to their resource's
+display command (e.g. `openstack-server-display'), so a row in a
+list buffer opens the right kind of show buffer."
+  :type 'function
+  :group 'openstack)
+
 
 ;;; Mode variables
 
@@ -227,12 +236,16 @@ mode switch back to a single-resource view must clear it.")
     (define-key map (kbd "c") #'openstack-copy-id)
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "p") #'openstack-pop)
+    (define-key map (kbd "RET") #'openstack-display-at-point)
+    (define-key map [mouse-2] #'openstack-mouse-display-at-point)
     map)
   "Keymap for `openstack-mode'.
 
 This keymap is used as the parent of the keymap installed by
 `openstack-mode', which itself is a parent for derived
-resource modes.  `q' and `g' are inherited from `special-mode'.")
+resource modes.  `q' and `g' are inherited from `special-mode'.
+RET and `mouse-2' open the resource at point (a row in a
+collection buffer).")
 
 (defvar openstack-bookmark-handler 'openstack-bookmark-jump
   "Symbol of the bookmark handler for resource buffers.")
@@ -505,6 +518,34 @@ in which case the buffer fills in asynchronously."
   (setq-local openstack--id id)
   (message "Set OpenStack resource ID: %s" id))
 
+;;;###autoload
+(defun openstack-display-at-point ()
+  "Display the OpenStack resource whose ID is at point.
+The ID is read from the `openstack-id' text property, which the
+generic renderers attach to the ID field line and to the rows of
+collection buffers.  The resource is opened with the buffer-local
+`openstack-show-command' (a collection mode binds it to its
+resource's display command), defaulting to `openstack-display'."
+  (interactive)
+  (let ((id (get-char-property (point) 'openstack-id)))
+    (unless id
+      (user-error "No OpenStack resource ID at point"))
+    (funcall openstack-show-command id)))
+
+;;;###autoload
+(defun openstack-mouse-display-at-point (event)
+  "Display the OpenStack resource at the position of mouse EVENT.
+Like `openstack-display-at-point', but takes the position from
+the click, which need not be point."
+  (interactive "e")
+  (let* ((position (event-end event))
+         (window (posn-window position))
+         (pos (posn-point position)))
+    (with-current-buffer (window-buffer window)
+      (save-excursion
+        (goto-char pos)
+        (openstack-display-at-point)))))
+
 
 ;;; Generic resource fetch and render
 
@@ -534,10 +575,17 @@ back to their JSON encoding."
    ((eq value t) "true")
    (t (json-encode value))))
 
-(defun openstack--insert-field (field value)
-  "Insert one FIELD of a resource with its VALUE into the buffer."
-  (insert (propertize field 'face 'font-lock-variable-name-face)
-          ": " (openstack--format-value value) "\n"))
+(defun openstack--insert-field (field value &optional id)
+  "Insert one FIELD of a resource with its VALUE into the buffer.
+When ID is non-nil, the value is propertized with `openstack-id'
+and `mouse-face', so `openstack-display-at-point' can open the
+resource from the ID field line."
+  (let ((text (openstack--format-value value)))
+    (when id
+      (setq text (propertize text 'openstack-id id
+                             'mouse-face 'highlight)))
+    (insert (propertize field 'face 'font-lock-variable-name-face)
+            ": " text "\n")))
 
 (defun openstack-render-fields (title id data fields)
   "Insert a field table titled TITLE into the current buffer.
@@ -548,10 +596,13 @@ from the data are skipped; every remaining field follows,
 sorted by name, and nested values render as JSON.  Derived
 resource modes call this from their
 `openstack-render-function' with their own field order."
-  (insert (format "%s: %s\nID: %s\n\n" title
+  (insert (format "%s: %s\n" title
                   (or (and (hash-table-p data) (gethash "name" data))
-                      id)
-                  id))
+                      id)))
+  (when id
+    (insert "ID: " (propertize id 'openstack-id id
+                                'mouse-face 'highlight)
+            "\n\n"))
   (when (hash-table-p data)
     (let ((unshown (make-hash-table :test #'equal)))
       (maphash (lambda (key _value) (puthash key t unshown)) data)
@@ -559,12 +610,14 @@ resource modes call this from their
         (remhash field unshown)
         (let ((value (gethash field data)))
           (when value
-            (openstack--insert-field field value))))
+            (openstack--insert-field field value
+                                     (and id (string= field "id") id)))))
       (let ((remaining nil))
         (maphash (lambda (key _value) (push key remaining)) unshown)
         (dolist (field (sort remaining #'string<))
           (openstack--insert-field
-           field (gethash field data)))))))
+           field (gethash field data)
+           (and id (string= field "id") id)))))))
 
 ;;; Generic collection fetch and render
 
@@ -602,11 +655,17 @@ for example `ID' or `Volume Type'."
       (maphash (lambda (key _value) (push key remaining)) unseen)
       (nconc (nreverse columns) (sort remaining #'string<)))))
 
-(defun openstack-list--insert-row (cells widths &optional face)
+(defun openstack-list--insert-row (cells widths &optional face id)
   "Insert CELLS as one padded table row of column widths WIDTHS.
-When FACE is non-nil, the cells are drawn in that face."
+When FACE is non-nil, the cells are drawn in that face.  When ID
+is non-nil, the cells carry the `openstack-id' text property with
+ID and `mouse-face' for click feedback, so
+`openstack-display-at-point' can open the resource of the row."
   (cl-loop for cell in cells
            for width in widths
+           when id
+             do (setq cell (propertize cell 'openstack-id id
+                                       'mouse-face 'highlight))
            do (insert (if face (propertize cell 'face face) cell))
               (insert (make-string (- width (string-width cell)) ?\s)
                       "  "))
@@ -643,8 +702,13 @@ Collection modes call this from their
                                 (* 2 (length widths)))
                              ?-)
                 "\n")
-        (dolist (cells cell-rows)
-          (openstack-list--insert-row cells widths))))))
+        ;; The `ID' column carries the resource ID: propertize every
+        ;; data row with it, so RET opens the row's resource.
+        (let ((id-column (cl-position "ID" columns :test #'string=)))
+          (dolist (cells cell-rows)
+            (openstack-list--insert-row
+             cells widths nil
+             (and id-column (nth id-column cells)))))))))
 
 ;;; Major mode
 
@@ -659,7 +723,12 @@ pop back to the origin buffer.
 This mode is intended as a parent for resource-specific derived
 modes; they inherit the ID handling and only override fetching
 and rendering by setting `openstack-fetch-function' and
-`openstack-render-function' to their own functions."
+`openstack-render-function' to their own functions.
+
+The renderers attach an `openstack-id' text property to the ID
+field lines and to the rows of collection buffers: RET or
+`mouse-2' there opens the resource with the buffer-local
+`openstack-show-command' (`openstack-display-at-point')."
   :group 'openstack
   ;; Entering the mode again (a derived mode superseding this one,
   ;; or `openstack-display' on an existing buffer) replaces the

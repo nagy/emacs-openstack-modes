@@ -123,10 +123,13 @@ Derives from `openstack-mode' as a collection view: the buffer
 has no resource ID (`openstack-collection' is set) and the
 ID commands do not apply.  The servers are fetched with
 `openstack server list' through the asynchronous CLI layer and
-rendered as a padded table."
+rendered as a padded table; RET or `mouse-2' on a row opens the
+server's show buffer (`openstack-server-display')."
   (setq-local openstack-fetch-function #'openstack-server-list--fetch)
   (setq-local openstack-render-function #'openstack-server-list--render)
-  (setq-local openstack-id-prefix "compute"))
+  (setq-local openstack-id-prefix "compute")
+  ;; RET on a row opens the server's show buffer.
+  (setq-local openstack-show-command #'openstack-server-display))
 
 (provide 'openstack-server-list)
 ;;; openstack-server-list.el ends here

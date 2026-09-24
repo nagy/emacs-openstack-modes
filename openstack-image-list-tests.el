@@ -44,6 +44,9 @@ sorting of unlisted columns.")
                       #'openstack-image-list--fetch))
           (should (eq openstack-render-function
                       #'openstack-image-list--render))
+          ;; RET on a row opens the image's show buffer.
+          (should (eq openstack-show-command
+                      #'openstack-image-display))
           ;; A collection has no resource ID: the ID commands error.
           (should-error (openstack--resource-id t) :type 'user-error))
       (kill-buffer buf))))

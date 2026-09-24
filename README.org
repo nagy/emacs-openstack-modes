@@ -104,6 +104,11 @@ single resource; the server list mode is the reference:
 - =M-x openstack-image-list-display= -- list all images
   (=openstack image list=)
 
+RET or =mouse-2= on a row opens the resource's show buffer: list
+modes bind =openstack-show-command= to their resource's display
+command (e.g. =openstack-server-display=).  The ID field line in
+show buffers works the same way.
+
 The list buffer has no resource ID: the ID commands (=c=, =w=)
 do not apply there.  Columns come from the mode's =-fields=
 defcustom (=openstack-server-list-fields=,

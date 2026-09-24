@@ -122,10 +122,13 @@ Derives from `openstack-mode' as a collection view: the buffer
 has no resource ID (`openstack-collection' is set) and the
 ID commands do not apply.  The images are fetched with
 `openstack image list' through the asynchronous CLI layer and
-rendered as a padded table."
+rendered as a padded table; RET or `mouse-2' on a row opens the
+image's show buffer (`openstack-image-display')."
   (setq-local openstack-fetch-function #'openstack-image-list--fetch)
   (setq-local openstack-render-function #'openstack-image-list--render)
-  (setq-local openstack-id-prefix "images"))
+  (setq-local openstack-id-prefix "images")
+  ;; RET on a row opens the image's show buffer.
+  (setq-local openstack-show-command #'openstack-image-display))
 
 (provide 'openstack-image-list)
 ;;; openstack-image-list.el ends here

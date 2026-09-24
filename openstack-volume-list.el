@@ -122,10 +122,13 @@ Derives from `openstack-mode' as a collection view: the buffer
 has no resource ID (`openstack-collection' is set) and the
 ID commands do not apply.  The volumes are fetched with
 `openstack volume list' through the asynchronous CLI layer and
-rendered as a padded table."
+rendered as a padded table; RET or `mouse-2' on a row opens the
+volume's show buffer (`openstack-volume-display')."
   (setq-local openstack-fetch-function #'openstack-volume-list--fetch)
   (setq-local openstack-render-function #'openstack-volume-list--render)
-  (setq-local openstack-id-prefix "volumes"))
+  (setq-local openstack-id-prefix "volumes")
+  ;; RET on a row opens the volume's show buffer.
+  (setq-local openstack-show-command #'openstack-volume-display))
 
 (provide 'openstack-volume-list)
 ;;; openstack-volume-list.el ends here

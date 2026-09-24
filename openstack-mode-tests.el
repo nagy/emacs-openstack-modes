@@ -49,7 +49,9 @@ an explicit `require'."
                   (buffer-string))))
     (dolist (entry '("openstack-display" "openstack-copy-id"
                      "openstack-open-web" "openstack-pop"
-                     "openstack-set-id" "openstack-mode"))
+                     "openstack-set-id" "openstack-mode"
+                     "openstack-display-at-point"
+                     "openstack-mouse-display-at-point"))
       (should (string-match-p
                (format "^;;;###autoload\n(\\(?:defun\\|define-derived-mode\\) %s\\b"
                        (regexp-quote entry))
@@ -526,6 +528,92 @@ The fetcher receives nil as the ID; without the
             (should (equal ids-seen '(nil)))
             (should openstack--rendered)))
       (kill-buffer buf))))
+
+;;; Navigation
+
+(ert-deftest openstack-list-render-propertizes-rows-with-id ()
+  "Data rows carry `openstack-id' and `mouse-face'; the header does not."
+  (let ((data (with-temp-buffer
+                (insert "[{\"ID\": \"id-1\", \"Name\": \"web-1\"}, "
+                        "{\"ID\": \"id-2\", \"Name\": \"web-2\"}]")
+                (goto-char (point-min))
+                (json-parse-buffer :object-type 'hash-table
+                                   :array-type 'list
+                                   :null-object nil
+                                   :false-object nil)))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-list-render "(none)" data '("ID" "Name"))
+      (goto-char (point-min))
+      (should (null (get-text-property (point) 'openstack-id)))
+      (search-forward "id-1")
+      (should (equal (get-text-property (match-beginning 0) 'openstack-id)
+                     "id-1"))
+      (should (eq (get-text-property (match-beginning 0) 'mouse-face)
+                  'highlight))
+      (search-forward "web-1")
+      ;; The whole row carries the property, not just the ID cell.
+      (should (equal (get-text-property (match-beginning 0) 'openstack-id)
+                     "id-1"))
+      (search-forward "id-2")
+      (should (equal (get-text-property (match-beginning 0) 'openstack-id)
+                     "id-2")))))
+
+(ert-deftest openstack-render-fields-propertizes-id ()
+  "The header ID and the `id' field line carry `openstack-id'."
+  (let ((data (with-temp-buffer
+                (insert "{\"id\": \"vol-1\", \"name\": \"data-1\", "
+                        "\"size\": 20}")
+                (goto-char (point-min))
+                (json-parse-buffer :object-type 'hash-table
+                                   :array-type 'list
+                                   :null-object nil
+                                   :false-object nil)))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Volume" "vol-1" data '("name"))
+      (goto-char (point-min))
+      (search-forward "vol-1")
+      (should (equal (get-text-property (match-beginning 0) 'openstack-id)
+                     "vol-1"))
+      ;; The `id' field line, too.
+      (re-search-forward "^id: \\(vol-1\\)$")
+      (should (equal (get-text-property (match-beginning 1) 'openstack-id)
+                     "vol-1"))
+      ;; Other fields do not carry it.
+      (search-backward "data-1")
+      (should (null (get-text-property (point) 'openstack-id))))))
+
+(ert-deftest openstack-display-at-point-needs-id ()
+  "Point without an `openstack-id' property signals a user-error."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t))
+      (insert "no id here"))
+    (goto-char (point-min))
+    (should-error (openstack-display-at-point) :type 'user-error)))
+
+(ert-deftest openstack-display-at-point-opens-resource ()
+  "The resource at point is opened via `openstack-show-command'."
+  (let ((shown nil))
+    (with-temp-buffer
+      (openstack-mode)
+      (let ((inhibit-read-only t))
+        (insert "ID: " (propertize "res-9" 'openstack-id "res-9") "\n"))
+      (goto-char (point-min))
+      (search-forward "res-9")
+      (goto-char (match-beginning 0))
+      (let ((openstack-show-command
+             (lambda (id) (setq shown id))))
+        (openstack-display-at-point)))
+    (should (equal shown "res-9"))))
+
+(ert-deftest openstack-mode-keymap-navigation ()
+  "RET and `mouse-2' open the resource at point."
+  (should (eq (lookup-key openstack-mode-map (kbd "RET"))
+              #'openstack-display-at-point))
+  (should (eq (lookup-key openstack-mode-map [mouse-2])
+              #'openstack-mouse-display-at-point)))
 
 (provide 'openstack-mode-tests)
 ;;; openstack-mode-tests.el ends here

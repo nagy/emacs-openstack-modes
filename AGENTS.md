@@ -118,6 +118,12 @@ emacs --batch -L . -l openstack-mode-tests.el \
   CLI layer) and a render wrapper over `openstack-list-render`
   (placeholder for an empty list; column ordering via
   `openstack-list-columns`), plus display command and mode.
+- Navigation: the renderers attach an `openstack-id` text
+  property to ID field lines and list rows; RET and `mouse-2`
+  (`openstack-display-at-point`) open the resource at point with
+  the buffer-local `openstack-show-command`, which list modes
+  bind to their resource's display command (default
+  `openstack-display`).
 - Display buffers refresh themselves: `openstack-mode` wires
   `revert-buffer-function`, `buffer-stale-function` and
   `auto-revert-mode` into the async pipeline
@@ -149,4 +155,5 @@ emacs --batch -L . -l openstack-mode-tests.el \
   flavors, hosts, …); servers, volumes and images exist.
 - Collection modes for more resource types (networks, flavors,
   hosts, …); server, volume and image lists exist.
-- Navigation from list rows to the corresponding show mode.
+- Dashboard deep links per resource type (networks need a
+  project-scoped URL, unlike the current `openstack-id-prefix`).
