@@ -444,18 +444,20 @@ the fetcher's process running."
 (put 'openstack--kill-pending 'permanent-local-hook t)
 
 ;;;###autoload
-(defun openstack-display (id)
+(defun openstack-display (id &optional mode)
   "Display the OpenStack resource with ID in a dedicated buffer.
 The buffer is named by `openstack--buffer-name-for-id' and put into
-`openstack-mode'.  The content is fetched with
-`openstack-fetch-function' and rendered with
-`openstack-render-function'; the fetch may complete later, in
-which case the buffer fills in asynchronously."
+MODE, defaulting to `openstack-mode'.  Derived modes are entered
+by passing their symbol, which activates their specialized
+fetcher and renderer (see `openstack-server-display').  The
+content is fetched with `openstack-fetch-function' and rendered
+with `openstack-render-function'; the fetch may complete later,
+in which case the buffer fills in asynchronously."
   (interactive "sOpenStack resource ID: ")
   (let* ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
          (origin (current-buffer)))
     (with-current-buffer buf
-      (openstack-mode)
+      (funcall (or mode #'openstack-mode))
       (setq-local openstack--id id)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))

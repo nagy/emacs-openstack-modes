@@ -49,6 +49,36 @@
           # runtime; bake its store path in so the installed package works
           # without anything on $PATH.
           openstackclient = pkgs.openstackclient-full;
+
+          # Every Elisp source in the repo, compiled with warnings as
+          # errors in the check phase, followed by the full ERT suite.
+          # Both packages share one source tree and one gate.
+          elispFiles = [
+            "openstack-mode.el"
+            "openstack-cli.el"
+            "openstack-server.el"
+            "openstack-mode-tests.el"
+            "openstack-cli-tests.el"
+            "openstack-server-tests.el"
+          ];
+          elispCheckPhase = ''
+            runHook preCheck
+
+            echo '=== byte-compile ==='
+            ${lib.concatMapStringsSep "\n" (file: ''
+              emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
+                -f batch-byte-compile ${file}
+            '') elispFiles}
+
+            echo '=== ERT tests ==='
+            emacs --batch -L . \
+              -l openstack-mode-tests.el \
+              -l openstack-cli-tests.el \
+              -l openstack-server-tests.el \
+              -f ert-run-tests-batch-and-exit
+
+            runHook postCheck
+          '';
         in
         {
           packages.openstack-mode = melpaBuild {
@@ -82,25 +112,7 @@
             # `nix build` gates the package on the ERT suite, so broken
             # rendering never reaches $out.  Docstring and ELPA-policy
             # linting lives in `checks.lint` below.
-            checkPhase = ''
-              runHook preCheck
-
-              echo '=== byte-compile ==='
-              emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
-                -f batch-byte-compile openstack-mode.el
-              emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
-                -f batch-byte-compile openstack-cli.el
-              emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
-                -f batch-byte-compile openstack-mode-tests.el
-
-              echo '=== ERT tests ==='
-              emacs --batch -L . \
-                -l openstack-mode-tests.el \
-                -l openstack-cli-tests.el \
-                -f ert-run-tests-batch-and-exit
-
-              runHook postCheck
-            '';
+            checkPhase = elispCheckPhase;
 
             meta = {
               description = "Base major mode for displaying OpenStack resources";
@@ -128,7 +140,53 @@
             };
           };
 
-          packages.default = config.packages.openstack-mode;
+          packages.openstack-server = melpaBuild {
+            pname = "openstack-server";
+            version = "0.1.0-unstable-${commitDate}";
+
+            src = lib.cleanSource ./.;
+
+            packageRequires = [ ];
+
+            # Same runtime dependency as the base mode: the shared
+            # openstack-cli.el shells out to the client, so its default
+            # program path is baked in here too.
+            postPatch = ''
+              substituteInPlace openstack-cli.el \
+                --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+            '';
+
+            turnCompilationWarningToError = true;
+
+            doCheck = true;
+            checkPhase = elispCheckPhase;
+
+            meta = {
+              description = "Display OpenStack servers in Emacs";
+              longDescription = ''
+                The first resource-specific mode derived from
+                openstack-mode.  It fetches a server with
+                `openstack server show' through the asynchronous CLI
+                layer and renders the server's fields, inheriting the
+                ID handling, refresh pipeline and bookmark support of
+                the base mode.
+              '';
+              license = lib.licenses.agpl3Plus;
+              homepage = "https://github.com/nagy/emacs-openstack-modes";
+              maintainers = with lib.maintainers; [ nagy ];
+              platforms = lib.platforms.unix;
+            };
+          };
+
+          # `nix build` installs every mode of the repo: the base mode
+          # package plus one package per derived mode.
+          packages.default = pkgs.symlinkJoin {
+            name = "emacs-openstack-modes";
+            paths = [
+              config.packages.openstack-mode
+              config.packages.openstack-server
+            ];
+          };
 
           # Lint gate: checkdoc + package-lint.  They catch what
           # byte-compilation cannot — docstring conventions and ELPA
@@ -143,7 +201,8 @@
               }
               ''
                 export HOME=$TMPDIR
-                cp "$src"/openstack-mode.el "$src"/openstack-cli.el .
+                cp "$src"/openstack-mode.el "$src"/openstack-cli.el \
+                  "$src"/openstack-server.el .
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -154,13 +213,14 @@
                 # `package-initialize' (it nils `package-alist' on every call).
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
-                  -f package-lint-batch-and-exit openstack-mode.el openstack-cli.el
+                  -f package-lint-batch-and-exit \
+                  openstack-mode.el openstack-cli.el openstack-server.el
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                  openstack-mode.el openstack-cli.el 2>&1)
+                  openstack-mode.el openstack-cli.el openstack-server.el 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';

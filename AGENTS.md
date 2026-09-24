@@ -14,8 +14,10 @@ their own rendering.
 |---|---|
 | `openstack-mode.el` | Base major mode, handles the resource ID |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
+| `openstack-server.el` | First derived mode: fetches `openstack server show` (async), renders server fields; `openstack-server-display` entry point |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
+| `openstack-server-tests.el` | ERT tests for the server mode |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
 | `README.org` | Project README |
@@ -31,10 +33,11 @@ nix fmt            # nixfmt via treefmt
 nix develop        # emacs + openstackclient-full
 ```
 
-The `checkPhase` byte-compiles all `.el` files with warnings as
-errors and runs the ERT suite (both test files).
+The `checkPhase` (shared by both packages) byte-compiles all `.el`
+files with warnings as errors and runs the ERT suite (all test
+files).
 Linting lives in `checks.lint` (`nix flake check` builds it):
-`package-lint` plus a `checkdoc` gate over both package files.
+`package-lint` plus a `checkdoc` gate over all package files.
 The `postPatch` phase substitutes `openstack-program` with the store
 path of the nixpkgs `openstackclient-full` package, so the client
 works out of the box.
@@ -43,6 +46,7 @@ Without Nix:
 
 ```sh
 emacs --batch -L . -l openstack-mode-tests.el \
+  -l openstack-cli-tests.el -l openstack-server-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -71,7 +75,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
   functions return nil unless called with the `errorp` argument.
 - Derived modes go in their own file and require
   `openstack-mode`.  Add a package entry per `.el` package
-  (one `melpaBuild` per mode) to `flake.nix` when a mode is added.
+  (one `melpaBuild` per mode) to `flake.nix` when a mode is added;
+  `packages.default` symlink-joins all of them.  Flakes copy only
+  git-tracked files, so `git add` new files before `nix build`.
 - Derived modes override fetching and rendering by setting the
   `openstack-fetch-function` and `openstack-render-function`
   defcustoms (buffer-locally in the mode body, or globally).
@@ -79,6 +85,10 @@ emacs --batch -L . -l openstack-mode-tests.el \
   must eventually call exactly one of them, and returns its
   process object so the mode can cancel it.  Never advise private
   functions like `openstack--render-error`.
+- `openstack-display` takes an optional MODE argument (a derived
+  mode's symbol); derived-mode entry points such as
+  `openstack-server-display` bind their own `openstack-buffer-name`
+  and call it, so the refresh starts inside the derived mode.
 - Display buffers refresh themselves: `openstack-mode` wires
   `revert-buffer-function`, `buffer-stale-function` and
   `auto-revert-mode` into the async pipeline
@@ -106,7 +116,5 @@ emacs --batch -L . -l openstack-mode-tests.el \
 
 ## TODO
 
-- Derived modes for specific resource types (servers, volumes,
-  images, networks, …).
-- Commands that run `openstack-program` to fetch real resource data
-  (e.g. `openstack server show <id> --format json`) and render it.
+- Derived modes for more resource types (volumes, images,
+  networks, …); servers exist as the reference implementation.

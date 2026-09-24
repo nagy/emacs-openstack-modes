@@ -14,8 +14,10 @@ resource-specific modes can depend on it.
 |---------------------------+----------------------------------------------------------|
 | =openstack-mode.el=       | Base major mode for OpenStack resources (ID handling)    |
 | =openstack-cli.el=        | CLI layer: sync/async access to =openstack-program=      |
+| =openstack-server.el=     | Server mode: fetches and renders =openstack server show= |
 | =openstack-mode-tests.el= | ERT test suite for the mode                              |
 | =openstack-cli-tests.el=  | ERT test suite for the CLI layer (mocked)                |
+| =openstack-server-tests.el= | ERT test suite for the server mode                     |
 | =flake.nix=               | Nix flake with =melpaBuild=, runs ERT tests and checkdoc  |
 | =flake.lock=              | Pinned flake inputs                                      |
 | =LICENSE=                 | AGPLv3                                                   |
@@ -48,6 +50,24 @@ Customization (=M-x customize-group openstack=):
   dashboard URL
 - =openstack-program= -- path to the =openstack= command line
   client (python-openstackclient)
+
+* Servers
+
+=openstack-server-mode= is the first resource-specific mode
+derived from the base mode.  It fetches the server with
+=openstack server show= through the asynchronous CLI layer and
+renders the server's fields, inheriting the ID handling, the
+refresh pipeline and bookmark support:
+
+- =M-x openstack-server-display= -- display a server by ID in a
+  dedicated buffer
+
+Customization (=M-x customize-group openstack-server=):
+
+- =openstack-server-buffer-name= -- prefix of the server display
+  buffer name; the server ID is appended
+- =openstack-server-fields= -- fields shown first, in this
+  order; all remaining fields follow, sorted by name
 
 * OpenStack CLI
 
@@ -84,28 +104,27 @@ or calls =error-fn= (async).
 
 =openstack-mode= is the base mode.  It keeps a buffer-local
 =openstack--id=, renders a minimal view of the resource, and
-provides ID handling.  Future modes (servers, volumes, images,
-networks, ...) should derive from it and set
+provides ID handling.  Resource-specific modes (servers,
+volumes, images, networks, ...) derive from it and set
 =openstack-fetch-function= and =openstack-render-function= to
-their own fetcher and renderer:
+their own fetcher and renderer.  The =openstack-server= package
+is the reference implementation of that contract:
 
 #+begin_src elisp
-  (defun openstack-server-fetch (id success-fn error-fn)
-    "Fetch server ID, calling SUCCESS-FN with the parsed JSON."
+  ;; openstack-server.el (excerpt)
+  (defun openstack-server--fetch (id success-fn error-fn)
+    "Fetch the data of server ID."
     (openstack-cli-async-request
      (list "server" "show" id)
      :success-fn success-fn
      :error-fn error-fn))
 
-  (defun openstack-server-render (id data)
-    "Render server ID from DATA."
-    ...)
-
   (define-derived-mode openstack-server-mode openstack-mode
     "OpenStack Server"
-    "Render server-specific fields, inheriting ID handling."
-    (setq-local openstack-fetch-function #'openstack-server-fetch)
-    (setq-local openstack-render-function #'openstack-server-render))
+    "Major mode for displaying an OpenStack server resource."
+    (setq-local openstack-fetch-function #'openstack-server--fetch)
+    (setq-local openstack-render-function #'openstack-server--render)
+    (setq-local openstack-id-prefix "compute"))
 #+end_src
 
 The fetch runs asynchronously, so Emacs never blocks on the
@@ -119,7 +138,7 @@ and reused across calls (see =openstack-cli-use-token=).
 * Building
 
 #+begin_src sh
-nix-build default.nix
+nix build
 #+end_src
 
 The build byte-compiles with warnings as errors and runs the ERT
