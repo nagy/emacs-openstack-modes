@@ -18,12 +18,16 @@ resource-specific modes can depend on it.
 | =openstack-server-list.el= | Server list mode: renders =openstack server list= as a table |
 | =openstack-volume.el=     | Volume mode: fetches and renders =openstack volume show= |
 | =openstack-image.el=      | Image mode: fetches and renders =openstack image show=   |
+| =openstack-volume-list.el= | Volume list mode: renders =openstack volume list= as a table |
+| =openstack-image-list.el= | Image list mode: renders =openstack image list= as a table |
 | =openstack-mode-tests.el= | ERT test suite for the mode                              |
 | =openstack-cli-tests.el=  | ERT test suite for the CLI layer (mocked)                |
 | =openstack-server-tests.el= | ERT test suite for the server mode                     |
 | =openstack-server-list-tests.el= | ERT test suite for the server list mode           |
 | =openstack-volume-tests.el= | ERT test suite for the volume mode                     |
 | =openstack-image-tests.el= | ERT test suite for the image mode                      |
+| =openstack-volume-list-tests.el= | ERT test suite for the volume list mode           |
+| =openstack-image-list-tests.el= | ERT test suite for the image list mode             |
 | =flake.nix=               | Nix flake with =melpaBuild=, runs ERT tests and checkdoc  |
 | =flake.lock=              | Pinned flake inputs                                      |
 | =LICENSE=                 | AGPLv3                                                   |
@@ -88,18 +92,27 @@ like the server mode, for block storage volumes and disk images:
 Each has its own =openstack-volume-buffer-name= /
 =openstack-image-buffer-name= and =-fields= defcustoms.
 
-* Server lists
+* Collection lists
 
-=openstack-server-list-mode= displays a collection instead of a
-single resource:
+Collection modes display a list of resources instead of a
+single resource; the server list mode is the reference:
 
 - =M-x openstack-server-list-display= -- list all servers in a
   padded table (=openstack server list=)
+- =M-x openstack-volume-list-display= -- list all volumes
+  (=openstack volume list=)
+- =M-x openstack-image-list-display= -- list all images
+  (=openstack image list=)
 
 The list buffer has no resource ID: the ID commands (=c=, =w=)
-do not apply there.  Columns come from
-=openstack-server-list-fields= first; all remaining fields
-follow, sorted by name.
+do not apply there.  Columns come from the mode's =-fields=
+defcustom (=openstack-server-list-fields=,
+=openstack-volume-list-fields=, =openstack-image-list-fields=)
+first; all remaining fields follow, sorted by name.  The padded
+table logic lives in the base mode
+(=openstack-list-fetch=, =openstack-list-columns=,
+=openstack-list-render=); list modes are thin wrappers over it,
+like the show modes over =openstack-show-fetch=.
 
 * OpenStack CLI
 

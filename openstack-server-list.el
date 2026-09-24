@@ -45,7 +45,6 @@
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'openstack-mode)
 
 (defgroup openstack-server-list nil
@@ -72,45 +71,22 @@ every remaining field is appended, sorted by name."
 
 ;;; Fetcher and renderer
 
-(defun openstack-server-list--fetch (_id success-fn error-fn)
+(defun openstack-server-list--fetch (id success-fn error-fn)
   "Fetch all servers with `openstack server list' asynchronously.
-Call SUCCESS-FN with the parsed JSON (a list of server hash
-tables), or ERROR-FN with an `openstack-cli-error' condition.
-Return the client process, so the display machinery can cancel
-the fetch.  The ID argument is ignored: a collection buffer has
-no single resource ID.  This is the value of
+The ID argument is ignored: a collection buffer has no single
+resource ID.  Call SUCCESS-FN with the parsed JSON (a list of
+server hash tables), or ERROR-FN with an `openstack-cli-error'
+condition.  Return the client process, so the display machinery
+can cancel the fetch.  This is the value of
 `openstack-fetch-function' in `openstack-server-list-mode'."
-  (openstack-cli-async-request
-   (list "server" "list")
-   :success-fn success-fn
-   :error-fn error-fn))
+  (openstack-list-fetch "server" id success-fn error-fn))
 
 (defun openstack-server-list--columns (rows)
   "Return the table columns of ROWS in display order.
 The fields of `openstack-server-list-fields' present in the data
 come first, in that order; every remaining field of ROWS follows,
 sorted by name."
-  (let ((unseen (make-hash-table :test #'equal))
-        (columns nil))
-    (dolist (row rows)
-      (maphash (lambda (key _value) (puthash key t unseen)) row))
-    (dolist (field openstack-server-list-fields)
-      (when (gethash field unseen)
-        (remhash field unseen)
-        (push field columns)))
-    (let ((remaining nil))
-      (maphash (lambda (key _value) (push key remaining)) unseen)
-      (nconc (nreverse columns) (sort remaining #'string<)))))
-
-(defun openstack-server-list--insert-row (cells widths &optional face)
-  "Insert CELLS as one padded table row of column widths WIDTHS.
-When FACE is non-nil, the cells are drawn in that face."
-  (cl-loop for cell in cells
-           for width in widths
-           do (insert (if face (propertize cell 'face face) cell))
-              (insert (make-string (- width (string-width cell)) ?\s)
-                      "  "))
-  (insert "\n"))
+  (openstack-list-columns rows openstack-server-list-fields))
 
 (defun openstack-server-list--render (_id data)
   "Insert the table of servers DATA into the current buffer.
@@ -118,31 +94,8 @@ DATA is the parsed `openstack server list' JSON, a list of hash
 tables.  The columns come from `openstack-server-list--columns',
 padded to the widest cell in each column.  This is the value of
 `openstack-render-function' in `openstack-server-list-mode'."
-  (let ((rows (cl-remove-if-not #'hash-table-p
-                                (if (listp data) data (list data)))))
-    (if (null rows)
-        (insert "(no servers)\n")
-      (let* ((columns (openstack-server-list--columns rows))
-             (cell-rows
-              (mapcar (lambda (row)
-                        (mapcar (lambda (column)
-                                  (openstack--format-value
-                                   (gethash column row)))
-                                columns))
-                      rows))
-             (widths (let ((ws (mapcar #'string-width columns)))
-                       (dolist (cells cell-rows ws)
-                         (setq ws (cl-mapcar
-                                   (lambda (width cell)
-                                     (max width (string-width cell)))
-                                   ws cells))))))
-        (openstack-server-list--insert-row columns widths 'bold)
-        (insert (make-string (+ (apply #'+ widths)
-                                (* 2 (length widths)))
-                             ?-)
-                "\n")
-        (dolist (cells cell-rows)
-          (openstack-server-list--insert-row cells widths))))))
+  (openstack-list-render "(no servers)" data
+                         openstack-server-list-fields))
 
 ;;;###autoload
 (defun openstack-server-list-display ()

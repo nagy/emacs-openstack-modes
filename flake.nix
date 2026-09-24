@@ -60,10 +60,14 @@
             "openstack-server-list.el"
             "openstack-volume.el"
             "openstack-image.el"
+            "openstack-volume-list.el"
+            "openstack-image-list.el"
             "openstack-mode-tests.el"
             "openstack-cli-tests.el"
             "openstack-server-tests.el"
             "openstack-server-list-tests.el"
+            "openstack-volume-list-tests.el"
+            "openstack-image-list-tests.el"
           ];
           elispCheckPhase = ''
             runHook preCheck
@@ -82,6 +86,8 @@
               -l openstack-server-list-tests.el \
               -l openstack-volume-tests.el \
               -l openstack-image-tests.el \
+              -l openstack-volume-list-tests.el \
+              -l openstack-image-list-tests.el \
               -f ert-run-tests-batch-and-exit
 
             runHook postCheck
@@ -197,6 +203,32 @@
             '';
           };
 
+          packages.openstack-volume-list = mkOpenstackPackage {
+            pname = "openstack-volume-list";
+            description = "List OpenStack volumes";
+            longDescription = ''
+              A collection view derived from openstack-mode: it
+              fetches all volumes with `openstack volume list'
+              through the asynchronous CLI layer and renders them
+              as a padded table in a self-refreshing buffer.  The
+              buffer has no resource ID (`openstack-collection' is
+              set), so the ID commands do not apply.
+            '';
+          };
+
+          packages.openstack-image-list = mkOpenstackPackage {
+            pname = "openstack-image-list";
+            description = "List OpenStack images";
+            longDescription = ''
+              A collection view derived from openstack-mode: it
+              fetches all images with `openstack image list'
+              through the asynchronous CLI layer and renders them
+              as a padded table in a self-refreshing buffer.  The
+              buffer has no resource ID (`openstack-collection' is
+              set), so the ID commands do not apply.
+            '';
+          };
+
           # `nix build` installs every mode of the repo: the base mode
           # package plus one package per derived mode.
           packages.default = pkgs.symlinkJoin {
@@ -207,6 +239,8 @@
               config.packages.openstack-server-list
               config.packages.openstack-volume
               config.packages.openstack-image
+              config.packages.openstack-volume-list
+              config.packages.openstack-image-list
             ];
           };
 
@@ -225,7 +259,8 @@
                 export HOME=$TMPDIR
                 cp "$src"/openstack-mode.el "$src"/openstack-cli.el \
                   "$src"/openstack-server.el "$src"/openstack-server-list.el \
-                  "$src"/openstack-volume.el "$src"/openstack-image.el .
+                  "$src"/openstack-volume.el "$src"/openstack-image.el \
+                  "$src"/openstack-volume-list.el "$src"/openstack-image-list.el .
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -238,14 +273,16 @@
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
                   openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el openstack-volume.el openstack-image.el
+                  openstack-server-list.el openstack-volume.el openstack-image.el \
+                  openstack-volume-list.el openstack-image-list.el
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
                   openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el openstack-volume.el openstack-image.el 2>&1)
+                  openstack-server-list.el openstack-volume.el openstack-image.el \
+                  openstack-volume-list.el openstack-image-list.el 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';

@@ -89,8 +89,8 @@
 
 (require 'bookmark)
 (require 'autorevert)
+(require 'cl-lib)
 (require 'openstack-cli)
-(eval-when-compile (require 'cl-lib))
 
 
 ;;; Customization
@@ -565,6 +565,86 @@ resource modes call this from their
         (dolist (field (sort remaining #'string<))
           (openstack--insert-field
            field (gethash field data)))))))
+
+;;; Generic collection fetch and render
+
+(defun openstack-list-fetch (resource _id success-fn error-fn)
+  "Fetch all resources of RESOURCE type for a collection buffer.
+RESOURCE is the client's resource command name, e.g. `server' or
+`volume'.  Run `RESOURCE list' through
+`openstack-cli-async-request' and call SUCCESS-FN with the
+parsed JSON (a list of resource hash tables), or ERROR-FN with
+an `openstack-cli-error' condition.  Return the client process,
+so the display machinery can cancel the fetch.  The ID argument
+is ignored: a collection buffer has no single resource ID.
+Collection modes wrap this with their own resource name as their
+`openstack-fetch-function'."
+  (openstack-cli-async-request
+   (list resource "list")
+   :success-fn success-fn
+   :error-fn error-fn))
+
+(defun openstack-list-columns (rows fields)
+  "Return the table columns of ROWS in display order.
+FIELDS names the columns shown first, in that order; every
+remaining field of ROWS follows, sorted by name.  The field
+names are the title-case names the client prints for lists,
+for example `ID' or `Volume Type'."
+  (let ((unseen (make-hash-table :test #'equal))
+        (columns nil))
+    (dolist (row rows)
+      (maphash (lambda (key _value) (puthash key t unseen)) row))
+    (dolist (field fields)
+      (when (gethash field unseen)
+        (remhash field unseen)
+        (push field columns)))
+    (let ((remaining nil))
+      (maphash (lambda (key _value) (push key remaining)) unseen)
+      (nconc (nreverse columns) (sort remaining #'string<)))))
+
+(defun openstack-list--insert-row (cells widths &optional face)
+  "Insert CELLS as one padded table row of column widths WIDTHS.
+When FACE is non-nil, the cells are drawn in that face."
+  (cl-loop for cell in cells
+           for width in widths
+           do (insert (if face (propertize cell 'face face) cell))
+              (insert (make-string (- width (string-width cell)) ?\s)
+                      "  "))
+  (insert "\n"))
+
+(defun openstack-list-render (placeholder rows fields)
+  "Insert PLACEHOLDER or the table of collection ROWS.
+PLACEHOLDER is inserted when ROWS is empty, e.g. `(no
+servers)'; ROWS is the parsed `RESOURCE list' JSON, a list of
+hash tables.  The columns come from `openstack-list-columns'
+with FIELDS first, padded to the widest cell in each column.
+Collection modes call this from their
+`openstack-render-function' with their own field order."
+  (let ((rows (cl-remove-if-not #'hash-table-p
+                                (if (listp rows) rows (list rows)))))
+    (if (null rows)
+        (insert placeholder "\n")
+      (let* ((columns (openstack-list-columns rows fields))
+             (cell-rows
+              (mapcar (lambda (row)
+                        (mapcar (lambda (column)
+                                  (openstack--format-value
+                                   (gethash column row)))
+                                columns))
+                      rows))
+             (widths (let ((ws (mapcar #'string-width columns)))
+                       (dolist (cells cell-rows ws)
+                         (setq ws (cl-mapcar
+                                   (lambda (width cell)
+                                     (max width (string-width cell)))
+                                   ws cells))))))
+        (openstack-list--insert-row columns widths 'bold)
+        (insert (make-string (+ (apply #'+ widths)
+                                (* 2 (length widths)))
+                             ?-)
+                "\n")
+        (dolist (cells cell-rows)
+          (openstack-list--insert-row cells widths))))))
 
 ;;; Major mode
 

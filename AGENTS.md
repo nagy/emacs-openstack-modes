@@ -18,12 +18,16 @@ their own rendering.
 | `openstack-server-list.el` | Collection mode: `openstack server list` as a padded table; `openstack-server-list-display` |
 | `openstack-volume.el` | Volume mode: `openstack volume show` via the generic helpers |
 | `openstack-image.el` | Image mode: `openstack image show` via the generic helpers |
+| `openstack-volume-list.el` | Volume list mode: `openstack volume list` as a padded table; `openstack-volume-list-display` |
+| `openstack-image-list.el` | Image list mode: `openstack image list` as a padded table; `openstack-image-list-display` |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-server-tests.el` | ERT tests for the server mode |
 | `openstack-server-list-tests.el` | ERT tests for the server list mode |
 | `openstack-volume-tests.el` | ERT tests for the volume mode |
 | `openstack-image-tests.el` | ERT tests for the image mode |
+| `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
+| `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
 | `README.org` | Project README |
@@ -54,7 +58,8 @@ Without Nix:
 emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-cli-tests.el -l openstack-server-tests.el \
   -l openstack-server-list-tests.el -l openstack-volume-tests.el \
-  -l openstack-image-tests.el \
+  -l openstack-image-tests.el -l openstack-volume-list-tests.el \
+  -l openstack-image-list-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -108,6 +113,11 @@ emacs --batch -L . -l openstack-mode-tests.el \
   sets the buffer-local `openstack-collection` flag, so
   `openstack--refresh` runs and the fetcher receives nil as the
   ID.  The ID commands user-error on collection buffers.
+- List modes are thin like show modes: a fetch wrapper over
+  `openstack-list-fetch` (generic `RESOURCE list` via the async
+  CLI layer) and a render wrapper over `openstack-list-render`
+  (placeholder for an empty list; column ordering via
+  `openstack-list-columns`), plus display command and mode.
 - Display buffers refresh themselves: `openstack-mode` wires
   `revert-buffer-function`, `buffer-stale-function` and
   `auto-revert-mode` into the async pipeline
@@ -137,5 +147,6 @@ emacs --batch -L . -l openstack-mode-tests.el \
 
 - Derived modes for more resource types (networks, routers,
   flavors, hosts, …); servers, volumes and images exist.
-- Collection modes for volumes and images (the server list mode
-  is the reference).
+- Collection modes for more resource types (networks, flavors,
+  hosts, …); server, volume and image lists exist.
+- Navigation from list rows to the corresponding show mode.
