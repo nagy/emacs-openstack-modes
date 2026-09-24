@@ -86,7 +86,7 @@ Strings and numbers are shown as they are; booleans, lists,
 hash tables and anything else fall back to their JSON encoding."
   (cond
    ((null value) "-")
-   ((stringp value) value)
+   ((stringp value) (if (string-empty-p value) "-" value))
    ((numberp value) (number-to-string value))
    ((eq value t) "true")
    (t (json-encode value))))

@@ -135,6 +135,18 @@ forces a refresh.  Unchanged data is not re-rendered, so point
 and marks survive a refresh.  Authentication tokens are cached
 and reused across calls (see =openstack-cli-use-token=).
 
+* Demo
+
+The repository ships =mock-openstack=, a fake =openstack= client
+emitting canned JSON, so the modes can be tried without a cloud:
+
+#+begin_src elisp
+  (require \='openstack-server)
+  (setq openstack-program
+        (expand-file-name "mock-openstack" "/path/to/repo"))
+  (openstack-server-display "b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01")
+#+end_src
+
 * Building
 
 #+begin_src sh
