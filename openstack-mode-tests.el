@@ -30,10 +30,12 @@ The buffer is put into `openstack-mode' with ID
       (openstack-mode)
       (setq-local openstack--id "res-123")
       (setq-local openstack--origin-buffer (current-buffer))
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (funcall openstack-render-function "res-123")))
+      (openstack--refresh))
     buf))
+
+(define-derived-mode openstack-test-child-mode openstack-mode
+  "OpenStack Test Child"
+  "Minimal derived mode, used to test mode switches.")
 
 ;;; Tests
 
@@ -179,6 +181,174 @@ an explicit `require'."
           (revert-buffer)
           (should (string-match-p "ID: res-123" (buffer-string))))
       (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-async-render ()
+  "Delivered data renders asynchronously through the fetch pipeline.
+The fetch callback renders into the buffer after the fetch
+returned; until then the old content stays."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let (success-fn)
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data) (insert (format "%s|%s" id data))))
+            (openstack--refresh)
+            (should success-fn)
+            (should (string-match-p "ID: res-123" (buffer-string)))
+            (funcall success-fn "data-1")
+            (should (equal (buffer-string) "res-123|data-1"))
+            (should-not openstack--pending)))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-skips-in-flight-fetch ()
+  "A second refresh while one runs starts no new fetch."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((calls 0))
+            (setq-local openstack-fetch-function
+                        (lambda (_id _success _error)
+                          (setq calls (1+ calls))))
+            (openstack--refresh)
+            (openstack--refresh)
+            (should (= calls 1))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-unchanged-data-keeps-point ()
+  "Unchanged data leaves the buffer, point and marks alone."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil)
+                (renders 0))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (_id data)
+                          (setq renders (1+ renders))
+                          (insert data)))
+            (openstack--refresh)
+            (funcall success-fn "same")
+            (should (= renders 1))
+            (goto-char (point-min))
+            (forward-char 2)
+            (let ((point (point)))
+              (openstack--refresh)
+              (funcall success-fn "same")
+              (should (= renders 1))
+              (should (= (point) point)))
+            ;; Fresh data re-renders.
+            (openstack--refresh)
+            (funcall success-fn "other")
+            (should (= renders 2))
+            (should (equal (buffer-string) "other"))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-error-keeps-content ()
+  "A failed fetch keeps the old content and reports in the header line."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil)
+                (error-fn nil)
+                (content (buffer-string)))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success error)
+                          (setq success-fn success error-fn error)))
+            (openstack--refresh)
+            (funcall error-fn '(openstack-cli-error :stderr "auth failed"))
+            (should (equal (buffer-string) content))
+            (should (string-match-p "auth failed" header-line-format))
+            (should openstack--last-error)
+            ;; The next successful fetch clears the error.
+            (openstack--refresh)
+            (funcall success-fn "fine")
+            (should-not header-line-format)
+            (should-not openstack--last-error)))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-kill-buffer-cancels-fetch ()
+  "Killing the buffer deletes an in-flight fetch process."
+  (let ((buf (openstack-test--make-resource-buffer))
+        (proc nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq-local openstack-fetch-function
+                      (lambda (_id _success _error)
+                        (setq proc (start-process
+                                    "openstack-test-fetch" nil
+                                    "sleep" "60"))))
+          (openstack--refresh)
+          (should (processp openstack--pending))
+          (kill-buffer buf)
+          (should-not (process-live-p proc)))
+      (when (buffer-live-p buf)
+        (kill-buffer buf))
+      (when (process-live-p proc)
+        (delete-process proc)))))
+
+(ert-deftest openstack-mode-stale-p-throttles-refreshes ()
+  "`openstack--buffer-stale-p' throttles to `openstack-refresh-interval'."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((openstack-refresh-interval 30))
+            (setq-local openstack--last-fetch-time (float-time))
+            (should-not (openstack--buffer-stale-p))
+            (setq-local openstack--last-fetch-time (- (float-time) 31))
+            (should (openstack--buffer-stale-p))
+            ;; An in-flight fetch is never interrupted.
+            (setq-local openstack--pending t)
+            (should-not (openstack--buffer-stale-p))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-auto-revert-wiring ()
+  "`openstack-mode' hands refreshing to `auto-revert-mode'."
+  (dolist (setting '(t nil))
+    (let ((buf (generate-new-buffer " *openstack-test*")))
+      (unwind-protect
+          (with-current-buffer buf
+            (let ((openstack-auto-revert setting))
+              (openstack-mode)
+              (should (eq buffer-stale-function
+                          #'openstack--buffer-stale-p))
+              (if setting
+                  (should auto-revert-mode)
+                (should-not auto-revert-mode))))
+        (kill-buffer buf)))))
+
+(ert-deftest openstack-mode-switch-cancels-in-flight-fetch ()
+  "A derived mode superseding this one starts from a clean slate.
+`openstack--pending' is permanent-local, so the new mode body
+sees the old mode's fetch and can kill its process; the cached view resets, so the new renderer draws its own."
+  (let ((buf (openstack-test--make-resource-buffer))
+        (proc nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq-local openstack-fetch-function
+                      (lambda (_id _success _error)
+                        (setq proc (start-process
+                                    "openstack-test-fetch" nil
+                                    "sleep" "60"))))
+          (openstack--refresh)
+          (should (processp openstack--pending))
+          (openstack-test-child-mode)
+          (should-not (process-live-p proc))
+          (should-not openstack--pending)
+          ;; The resource identity survives the switch, and the new
+          ;; mode renders its own view immediately (auto-revert sees
+          ;; an empty fetch history and reverts at once).
+          (should (equal openstack--id "res-123"))
+          (should openstack--rendered)
+          (should (string-match-p "ID: res-123" (buffer-string))))
+      (when (buffer-live-p buf)
+        (kill-buffer buf))
+      (when (process-live-p proc)
+        (delete-process proc)))))
 
 (provide 'openstack-mode-tests)
 ;;; openstack-mode-tests.el ends here

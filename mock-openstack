@@ -132,11 +132,11 @@ EOF
 EOF
         ;;
     "token issue")
-        cat <<'EOF'
-{"expires": "2026-09-15T17:00:00+0000", "id": "gAAAAABm",
- "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
- "user_id": "99887766554433221100ffeeddccbbaa"}
-EOF
+        # A real token carries an expiry in the near future; compute
+        # one so token caching behaves like against a real cloud.
+        expires=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%S%z 2>/dev/null \
+                      || date -u -v+1H +%Y-%m-%dT%H:%M:%S%z)
+        printf '{"expires": "%s", "id": "gAAAAABm",\n "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",\n "user_id": "99887766554433221100ffeeddccbbaa"}\n' "$expires"
         ;;
     *)
         die "resource" "Unknown command: $cmd" ;;

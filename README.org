@@ -86,18 +86,35 @@ or calls =error-fn= (async).
 =openstack--id=, renders a minimal view of the resource, and
 provides ID handling.  Future modes (servers, volumes, images,
 networks, ...) should derive from it and set
-=openstack-render-function= to their own renderer:
+=openstack-fetch-function= and =openstack-render-function= to
+their own fetcher and renderer:
 
 #+begin_src elisp
-  (defun openstack-server-render (id)
-    "Render a server resource."
+  (defun openstack-server-fetch (id success-fn error-fn)
+    "Fetch server ID, calling SUCCESS-FN with the parsed JSON."
+    (openstack-cli-async-request
+     (list "server" "show" id)
+     :success-fn success-fn
+     :error-fn error-fn))
+
+  (defun openstack-server-render (id data)
+    "Render server ID from DATA."
     ...)
 
   (define-derived-mode openstack-server-mode openstack-mode
     "OpenStack Server"
     "Render server-specific fields, inheriting ID handling."
+    (setq-local openstack-fetch-function #'openstack-server-fetch)
     (setq-local openstack-render-function #'openstack-server-render))
 #+end_src
+
+The fetch runs asynchronously, so Emacs never blocks on the
+client.  Display buffers refresh themselves through
+=auto-revert-mode=, one fetch per =openstack-refresh-interval=
+seconds (see =openstack-auto-revert=); =revert-buffer= (=g=)
+forces a refresh.  Unchanged data is not re-rendered, so point
+and marks survive a refresh.  Authentication tokens are cached
+and reused across calls (see =openstack-cli-use-token=).
 
 * Building
 
@@ -105,8 +122,9 @@ networks, ...) should derive from it and set
 nix-build default.nix
 #+end_src
 
-The build byte-compiles with warnings as errors, runs the ERT test
-suite, and runs checkdoc.  `postPatch` rewrites `openstack-program`
+The build byte-compiles with warnings as errors and runs the ERT
+test suite.  =nix flake check= additionally builds =checks.lint=
+(checkdoc + package-lint).  `postPatch` rewrites `openstack-program`
 to the store path of the nixpkgs `openstackclient-full` binary.
 
 * License

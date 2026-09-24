@@ -42,8 +42,15 @@
 ;;     "Render server-specific fields.")
 ;;
 ;; Derived modes inherit the ID handling, the keymap, and the
-;; bookmark support; they only need to render their fields by
-;; setting `openstack-render-function' to their own renderer.
+;; bookmark support; they only need to fetch and render their data
+;; by setting `openstack-fetch-function' and
+;; `openstack-render-function'.
+;;
+;; Display buffers keep themselves up to date through
+;; `auto-revert-mode': the refresh runs
+;; `openstack-fetch-function' asynchronously, so Emacs never
+;; blocks on the client.  Fetches are throttled to one per
+;; `openstack-refresh-interval' seconds (see `openstack-auto-revert').
 ;;
 ;; The package talks to OpenStack through the =openstack= command
 ;; line client (the python-openstackclient from nixpkgs, package
@@ -75,11 +82,13 @@
 ;;
 ;; Talking to OpenStack goes through the `openstack-cli' library
 ;; (see openstack-cli.el), which wraps `openstack-program' with
-;; synchronous and asynchronous request functions.
+;; synchronous and asynchronous request functions and caches
+;; authentication tokens across calls.
 
 ;;; Code:
 
 (require 'bookmark)
+(require 'autorevert)
 (require 'openstack-cli)
 (eval-when-compile (require 'cl-lib))
 
@@ -100,11 +109,42 @@ its own buffer; the same ID always reuses its buffer."
 
 (defcustom openstack-render-function #'openstack-render-default
   "Function used to render an OpenStack resource into the current buffer.
-It is called with the resource ID as its only argument, in the
-display buffer with `inhibit-read-only' bound to t.  Derived
-resource modes should set this (buffer-locally or globally) to
-their own renderer instead of advising a private function."
+It is called with two arguments, the resource ID and the fetched
+data, in the display buffer with `inhibit-read-only' bound to t.
+Derived resource modes should set this (buffer-locally or
+globally) to their own renderer instead of advising a private
+function."
   :type 'function
+  :group 'openstack)
+
+(defcustom openstack-fetch-function #'openstack-fetch-default
+  "Function used to fetch the data of the current buffer's resource.
+It is called with three arguments: the resource ID, a success
+callback and an error callback.  It must eventually call exactly
+one of them: the success callback with the fetched data, or the
+error callback with an error condition.  The fetch may complete
+asynchronously; when it does, return its process object so that
+killing the buffer can cancel the fetch.  Derived resource modes
+should set this to their own fetcher, typically wrapping
+`openstack-cli-async-request'."
+  :type 'function
+  :group 'openstack)
+
+(defcustom openstack-auto-revert t
+  "Whether resource buffers refresh themselves with `auto-revert-mode'.
+When non-nil, `openstack-mode' enables `auto-revert-mode', which
+re-fetches the resource through `openstack-fetch-function' and
+re-renders the buffer when the data changed.  The fetch is
+asynchronous, so the refresh never blocks Emacs."
+  :type 'boolean
+  :group 'openstack)
+
+(defcustom openstack-refresh-interval 30
+  "Minimum seconds between automatic refreshes of a resource buffer.
+Automatic refreshing (see `openstack-auto-revert') re-fetches a
+buffer only when the last fetch is at least this old.  A manual
+\\[revert-buffer] always fetches."
+  :type 'number
   :group 'openstack)
 
 (defcustom openstack-web-base-url "https://horizon.example.org"
@@ -128,6 +168,37 @@ The resource ID is appended to this URL."
 (defvar-local openstack--origin-buffer nil
   "Buffer to return to with `openstack-pop'.")
 (put 'openstack--origin-buffer 'permanent-local t)
+
+(defvar-local openstack--pending nil
+  "In-flight fetch of the current buffer, or nil when idle.
+Non-nil while a fetch runs: t when the fetcher returned no
+process handle, the process object otherwise (see
+`openstack-fetch-function').")
+;; `openstack--pending' survives `kill-all-local-variables' (run by
+;; `define-derived-mode' when a derived mode supersedes this one) so
+;; the new mode can cancel the old mode's fetch.  The cached view
+;; below deliberately does not survive: the new mode's renderer must
+;; draw its own.
+(put 'openstack--pending 'permanent-local t)
+
+(defvar-local openstack--fetch-marker nil
+  "Identity marker of the fetch currently in flight.
+The callbacks of `openstack--refresh' capture it and drop out
+when it no longer matches: a fetch superseded by a mode change
+must not render through the new mode's renderer nor clear its
+state.")
+
+(defvar-local openstack--last-data nil
+  "Data rendered into the current buffer by the last refresh.")
+
+(defvar-local openstack--rendered nil
+  "Non-nil once `openstack-render-function' ran in this buffer.")
+
+(defvar-local openstack--last-fetch-time nil
+  "Time of the last fetch of the current buffer as a `float-time'.")
+
+(defvar-local openstack--last-error nil
+  "Error condition reported by the last fetch, or nil when none.")
 
 (defvar openstack-mode-map
   (let ((map (make-sparse-keymap)))
@@ -206,18 +277,116 @@ BOOKMARK is a bookmark record as created by
 
 ;;; Commands
 
-(defun openstack-render-default (id)
+(defun openstack-render-default (id data)
   "Insert the default display of resource ID into the current buffer.
-This is the default value of `openstack-render-function'; derived
-modes provide their own renderer by setting that variable."
+DATA is ignored: the default renderer shows only the ID.  This is
+the default value of `openstack-render-function'; derived modes
+provide their own renderer by setting that variable."
+  (ignore data)
   (insert (format "OpenStack resource\n\nID: %s\n" id)))
+
+(defun openstack-fetch-default (_id success-fn _error-fn)
+  "Fetch nothing and complete immediately with nil data.
+This is the default value of `openstack-fetch-function'; derived
+resource modes provide their own fetcher to pull resource data
+with `openstack-cli-async-request'.  SUCCESS-FN is called with
+nil; ERROR-FN is unused."
+  (funcall success-fn nil))
+
+(defun openstack--refresh ()
+  "Fetch fresh data for the current buffer and render it.
+Runs `openstack-fetch-function' with the resource ID and the two
+callbacks that finish the refresh; the fetch may complete later
+and must then call exactly one of them.  Nothing happens when no
+ID is set or when a fetch is already in flight.  When the fetcher
+returns a process object, it is remembered so
+`openstack--kill-pending' can cancel it."
+  (when (and openstack--id (not openstack--pending))
+    (let* ((buf (current-buffer))
+           (id openstack--id)
+           (marker (list nil))
+           (settled nil))
+      (setq openstack--pending t
+            openstack--fetch-marker marker)
+      (let ((handle
+             (funcall openstack-fetch-function
+                      id
+                      (lambda (data)
+                        (setq settled t)
+                        (openstack--refresh-done buf marker id data nil))
+                      (lambda (err)
+                        (setq settled t)
+                        (openstack--refresh-done buf marker id nil err)))))
+        (setq openstack--pending (and (not settled) (or handle t)))))))
+
+(defun openstack--refresh-done (buf marker id data err)
+  "Complete the fetch of BUF marked MARKER for ID with DATA or ERR.
+Called by the callbacks of `openstack--refresh'.  ERR is the error
+condition of a failed fetch: the last good content stays in the
+buffer and the error goes to the header line.  Rendering is
+skipped when DATA equals the previously rendered data, keeping
+point, marks and window start intact.  Do nothing when BUF is
+already dead or when MARKER is stale, i.e. when the fetch was
+superseded while it ran."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (when (eq marker openstack--fetch-marker)
+        (setq openstack--pending nil
+              openstack--fetch-marker nil
+              openstack--last-fetch-time (float-time))
+        (if err
+            (setq openstack--last-error err
+                  header-line-format
+                  (propertize
+                   (format "OpenStack error: %s"
+                           (or (plist-get (cdr err) :stderr)
+                               (error-message-string err)))
+                   'face 'error))
+          (setq openstack--last-error nil
+                header-line-format nil)
+          (unless (and openstack--rendered (equal data openstack--last-data))
+            (setq openstack--last-data data
+                  openstack--rendered t)
+            (let* ((window (get-buffer-window buf 0))
+                   (point (point))
+                   (start (and (window-live-p window) (window-start window))))
+              (let ((inhibit-read-only t))
+                (erase-buffer)
+                (funcall openstack-render-function id data))
+              (goto-char (min point (point-max)))
+              (when (window-live-p window)
+                (set-window-start window (min start (point-max)))))))))))
+
+(defun openstack--buffer-stale-p (&optional _noconfirm)
+  "Return non-nil when the resource display is due for a refresh.
+Used as `buffer-stale-function' by `auto-revert-mode'.  A refresh
+is due when none ran yet or when the last one is older than
+`openstack-refresh-interval' seconds.  An in-flight fetch is never
+interrupted."
+  (and (not openstack--pending)
+       (or (null openstack--last-fetch-time)
+           (>= (- (float-time) openstack--last-fetch-time)
+               openstack-refresh-interval))))
+
+(defun openstack--kill-pending ()
+  "Cancel an in-flight fetch and forget its handle.
+Called from `kill-buffer-hook' and when entering the mode: a dead
+buffer, or a new fetcher superseding the old one, must not leave
+the fetcher's process running."
+  (when (processp openstack--pending)
+    (delete-process openstack--pending))
+  (setq openstack--pending nil
+        openstack--fetch-marker nil))
+(put 'openstack--kill-pending 'permanent-local-hook t)
 
 ;;;###autoload
 (defun openstack-display (id)
   "Display the OpenStack resource with ID in a dedicated buffer.
 The buffer is named by `openstack--buffer-name-for-id' and put into
-`openstack-mode'.  The rendering is done by calling
-`openstack-render-function' with ID."
+`openstack-mode'.  The content is fetched with
+`openstack-fetch-function' and rendered with
+`openstack-render-function'; the fetch may complete later, in
+which case the buffer fills in asynchronously."
   (interactive "sOpenStack resource ID: ")
   (let* ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
          (origin (current-buffer)))
@@ -225,9 +394,7 @@ The buffer is named by `openstack--buffer-name-for-id' and put into
       (openstack-mode)
       (setq-local openstack--id id)
       (setq-local openstack--origin-buffer origin)
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (funcall openstack-render-function id)))
+      (openstack--refresh))
     (pop-to-buffer buf)))
 
 ;;;###autoload
@@ -274,22 +441,32 @@ provides ID handling: copy the ID, open the dashboard page, and
 pop back to the origin buffer.
 
 This mode is intended as a parent for resource-specific derived
-modes; they inherit the ID handling and only override the
-rendering by setting `openstack-render-function' to their own
-renderer."
+modes; they inherit the ID handling and only override fetching
+and rendering by setting `openstack-fetch-function' and
+`openstack-render-function' to their own functions."
   :group 'openstack
+  ;; Entering the mode again (a derived mode superseding this one,
+  ;; or `openstack-display' on an existing buffer) replaces the
+  ;; fetcher and renderer: cancel any in-flight fetch so the buffer
+  ;; starts from a clean slate.
+  (openstack--kill-pending)
   (setq-local revert-buffer-function #'openstack--revert-buffer)
+  (setq-local buffer-stale-function #'openstack--buffer-stale-p)
   (setq-local bookmark-make-record-function
-              #'openstack--bookmark-make-record))
+              #'openstack--bookmark-make-record)
+  (add-hook 'kill-buffer-hook #'openstack--kill-pending nil t)
+  (when openstack-auto-revert
+    ;; A refresh is asynchronous and invisible: the auto-revert
+    ;; "Reverting buffer ..." message would only spam the echo area.
+    (setq-local auto-revert-verbose nil)
+    (auto-revert-mode 1)))
 
 (defun openstack--revert-buffer (&rest _args)
-  "Re-display the current OpenStack resource.
-Ignoring ARGS, as required by `revert-buffer-function'."
-  (let ((id openstack--id))
-    (when id
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (funcall openstack-render-function id)))))
+  "Re-fetch and re-render the current OpenStack resource.
+Ignoring ARGS, as required by `revert-buffer-function'.  The
+refresh is asynchronous: this function returns immediately and
+the buffer updates when `openstack-fetch-function' delivers data."
+  (openstack--refresh))
 
 (provide 'openstack-mode)
 ;;; openstack-mode.el ends here

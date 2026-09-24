@@ -54,6 +54,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-cli-error`), `openstack-cli-async-request` for
   asynchronous ones (mirrors the `jsonrpc` library's sync/async
   split).  Derived modes never call `openstack-program` directly.
+  Async calls warm a token cache (`openstack-cli-use-token`) and
+  pass the token via `OS_TOKEN`; an authentication failure retries
+  once without the token.
 - `openstack-cli` appends `--format json` automatically; commands
   that produce no output (e.g. `delete`) parse to nil.  Non-zero
   exit or unparseable output signals `openstack-cli-error` (sync) or
@@ -69,10 +72,27 @@ emacs --batch -L . -l openstack-mode-tests.el \
 - Derived modes go in their own file and require
   `openstack-mode`.  Add a package entry per `.el` package
   (one `melpaBuild` per mode) to `flake.nix` when a mode is added.
-- Derived modes override rendering by setting the
-  `openstack-render-function` defcustom to their own renderer
-  (buffer-locally in the mode body, or globally).  Never advise
-  private functions like `openstack--render-error`.
+- Derived modes override fetching and rendering by setting the
+  `openstack-fetch-function` and `openstack-render-function`
+  defcustoms (buffer-locally in the mode body, or globally).
+  `openstack-fetch-function` receives (ID SUCCESS-FN ERROR-FN),
+  must eventually call exactly one of them, and returns its
+  process object so the mode can cancel it.  Never advise private
+  functions like `openstack--render-error`.
+- Display buffers refresh themselves: `openstack-mode` wires
+  `revert-buffer-function`, `buffer-stale-function` and
+  `auto-revert-mode` into the async pipeline
+  (`openstack--refresh` / `openstack--refresh-done`), throttled by
+  `openstack-refresh-interval` (see `openstack-auto-revert`).
+  Unchanged data is not re-rendered, keeping point and marks.
+  Errors keep the last good content and go to the header line.
+- Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
+  and `openstack--pending` are `permanent-local` (entering a mode
+  cancels any in-flight fetch via `openstack--kill-pending`);
+  `openstack--last-data`, `openstack--rendered`,
+  `openstack--last-fetch-time`, `openstack--last-error` and
+  `openstack--fetch-marker` deliberately are not, so a new mode's
+  renderer draws its own view.
 - `checkdoc` and `package-lint` must pass via `checks.lint`;
   docstrings follow the imperative style.
 - Interactive entry points carry `;;;###autoload` cookies;
