@@ -57,9 +57,11 @@
             "openstack-mode.el"
             "openstack-cli.el"
             "openstack-server.el"
+            "openstack-server-list.el"
             "openstack-mode-tests.el"
             "openstack-cli-tests.el"
             "openstack-server-tests.el"
+            "openstack-server-list-tests.el"
           ];
           elispCheckPhase = ''
             runHook preCheck
@@ -75,107 +77,94 @@
               -l openstack-mode-tests.el \
               -l openstack-cli-tests.el \
               -l openstack-server-tests.el \
+              -l openstack-server-list-tests.el \
               -f ert-run-tests-batch-and-exit
 
             runHook postCheck
           '';
+
+          # Per-mode packages: one melpaBuild each.  All share the
+          # same source tree and the same check gate.
+          mkOpenstackPackage =
+            {
+              pname,
+              description,
+              longDescription,
+            }:
+            melpaBuild {
+              inherit pname;
+              version = "0.1.0-unstable-${commitDate}";
+
+              src = lib.cleanSource ./.;
+
+              packageRequires = [ ];
+
+              # The shared openstack-cli.el shells out to the client;
+              # bake its store path in so the default value works.
+              postPatch = ''
+                substituteInPlace openstack-cli.el \
+                  --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+              '';
+
+              turnCompilationWarningToError = true;
+
+              doCheck = true;
+              checkPhase = elispCheckPhase;
+
+              meta = {
+                inherit description longDescription;
+                license = lib.licenses.agpl3Plus;
+                homepage = "https://github.com/nagy/emacs-openstack-modes";
+                maintainers = with lib.maintainers; [ nagy ];
+                platforms = lib.platforms.unix;
+              };
+            };
         in
         {
-          packages.openstack-mode = melpaBuild {
+          packages.openstack-mode = mkOpenstackPackage {
             pname = "openstack-mode";
-            # Nix rejects versions Nixpkgs cannot parse. Convention for
-            # unreleased packages: <upstream-version>-unstable-<YYYY-MM-DD>,
-            # where the date is the last commit touching the source. Derived
-            # from the flake's source info above, so it never goes stale.
-            version = "0.1.0-unstable-${commitDate}";
+            description = "Base major mode for displaying OpenStack resources";
+            longDescription = ''
+              Base major mode for displaying OpenStack resources in Emacs
+              buffers.  Every OpenStack resource has a unique ID, so this
+              mode handles the ID: a buffer-local copy, a command to copy
+              it to the kill ring, a dashboard URL command, and a pop-back
+              command.  Future resource-specific modes (servers, volumes,
+              images, networks, ...) derive from this mode and inherit the
+              ID handling.
 
-            src = lib.cleanSource ./.;
-
-            # Elisp dependencies from the Package-Requires header that
-            # already exist in nixpkgs.
-            packageRequires = [ ];
-
-            # Rewrite the default executable path to the Nix store path.
-            # Interpolating the derivation bakes the store path in;
-            # `lib.getExe'` picks the exact binary name inside the package.
-            postPatch = ''
-              substituteInPlace openstack-cli.el \
-                --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+              The package interfaces with OpenStack through the
+              python-openstackclient command line program (nixpkgs package
+              openstackclient-full).  The build substitutes the default
+              value of openstack-program with the store path of that
+              program.
             '';
-
-            # Byte-compilation warnings fail the build. Keep it on: it is
-            # the cheapest lint the package will ever get.
-            turnCompilationWarningToError = true;
-
-            doCheck = true;
-
-            # `nix build` gates the package on the ERT suite, so broken
-            # rendering never reaches $out.  Docstring and ELPA-policy
-            # linting lives in `checks.lint` below.
-            checkPhase = elispCheckPhase;
-
-            meta = {
-              description = "Base major mode for displaying OpenStack resources";
-              longDescription = ''
-                Base major mode for displaying OpenStack resources in Emacs
-                buffers.  Every OpenStack resource has a unique ID, so this
-                mode handles the ID: a buffer-local copy, a command to copy
-                it to the kill ring, a dashboard URL command, and a pop-back
-                command.  Future resource-specific modes (servers, volumes,
-                images, networks, ...) derive from this mode and inherit the
-                ID handling.
-
-                The package interfaces with OpenStack through the
-                python-openstackclient command line program (nixpkgs package
-                openstackclient-full).  The build substitutes the default
-                value of openstack-program with the store path of that
-                program.
-              '';
-              # Read the license from the file header — Elisp packages
-              # conventionally declare it after ";;; Code:".
-              license = lib.licenses.agpl3Plus;
-              homepage = "https://github.com/nagy/emacs-openstack-modes";
-              maintainers = with lib.maintainers; [ nagy ];
-              platforms = lib.platforms.unix;
-            };
           };
 
-          packages.openstack-server = melpaBuild {
+          packages.openstack-server = mkOpenstackPackage {
             pname = "openstack-server";
-            version = "0.1.0-unstable-${commitDate}";
-
-            src = lib.cleanSource ./.;
-
-            packageRequires = [ ];
-
-            # Same runtime dependency as the base mode: the shared
-            # openstack-cli.el shells out to the client, so its default
-            # program path is baked in here too.
-            postPatch = ''
-              substituteInPlace openstack-cli.el \
-                --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+            description = "Display OpenStack servers";
+            longDescription = ''
+              The first resource-specific mode derived from
+              openstack-mode.  It fetches a server with
+              `openstack server show' through the asynchronous CLI
+              layer and renders the server's fields, inheriting the
+              ID handling, refresh pipeline and bookmark support of
+              the base mode.
             '';
+          };
 
-            turnCompilationWarningToError = true;
-
-            doCheck = true;
-            checkPhase = elispCheckPhase;
-
-            meta = {
-              description = "Display OpenStack servers in Emacs";
-              longDescription = ''
-                The first resource-specific mode derived from
-                openstack-mode.  It fetches a server with
-                `openstack server show' through the asynchronous CLI
-                layer and renders the server's fields, inheriting the
-                ID handling, refresh pipeline and bookmark support of
-                the base mode.
-              '';
-              license = lib.licenses.agpl3Plus;
-              homepage = "https://github.com/nagy/emacs-openstack-modes";
-              maintainers = with lib.maintainers; [ nagy ];
-              platforms = lib.platforms.unix;
-            };
+          packages.openstack-server-list = mkOpenstackPackage {
+            pname = "openstack-server-list";
+            description = "List OpenStack servers";
+            longDescription = ''
+              A collection view derived from openstack-mode: it
+              fetches all servers with `openstack server list'
+              through the asynchronous CLI layer and renders them as
+              a padded table in a self-refreshing buffer.  The
+              buffer has no resource ID (`openstack-collection' is
+              set), so the ID commands do not apply.
+            '';
           };
 
           # `nix build` installs every mode of the repo: the base mode
@@ -185,6 +174,7 @@
             paths = [
               config.packages.openstack-mode
               config.packages.openstack-server
+              config.packages.openstack-server-list
             ];
           };
 
@@ -202,7 +192,7 @@
               ''
                 export HOME=$TMPDIR
                 cp "$src"/openstack-mode.el "$src"/openstack-cli.el \
-                  "$src"/openstack-server.el .
+                  "$src"/openstack-server.el "$src"/openstack-server-list.el .
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -214,13 +204,15 @@
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
-                  openstack-mode.el openstack-cli.el openstack-server.el
+                  openstack-mode.el openstack-cli.el openstack-server.el \
+                  openstack-server-list.el
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                  openstack-mode.el openstack-cli.el openstack-server.el 2>&1)
+                  openstack-mode.el openstack-cli.el openstack-server.el \
+                  openstack-server-list.el 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';

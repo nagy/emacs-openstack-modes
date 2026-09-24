@@ -541,12 +541,14 @@ back to their JSON encoding."
 
 (defun openstack-render-fields (title id data fields)
   "Insert a field table of resource ID with DATA into the current buffer.
-TITLE labels the header (e.g. `Server'); DATA is the parsed
-`RESOURCE show' JSON and FIELDS the list of fields shown first,
-in that order.  Fields missing from the data are skipped; every
-remaining field follows, sorted by name, and nested values
-render as JSON.  Derived resource modes call this from their
-`openstack-render-function' with their own field order."
+TITLE labels the header (e.g. `Server').  ID identifies the
+resource in the header (nil in collection buffers); DATA is the
+parsed `RESOURCE show' JSON and FIELDS the list of fields shown
+first, in that order.  Fields missing from the data are
+skipped; every remaining field follows, sorted by name, and
+nested values render as JSON.  Derived resource modes call this
+from their `openstack-render-function' with their own field
+order."
   (insert (format "%s: %s\nID: %s\n\n" title
                   (or (and (hash-table-p data) (gethash "name" data))
                       id)
