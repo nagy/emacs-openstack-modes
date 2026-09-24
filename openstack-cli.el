@@ -125,7 +125,11 @@ the background with `token issue' and passes the cached token to
 later calls via the OS_TOKEN environment variable, sparing each
 call a trip through the identity server.  A call that fails with
 an authentication error drops the token and retries once without
-it.  See `openstack-cli-token-invalidate'."
+it.  See `openstack-cli-token-invalidate'.
+
+The cache holds a single token: sessions that talk to several
+clouds or projects must set this to nil, or invalidate between
+them."
   :type 'boolean
   :group 'openstack-cli)
 
@@ -272,18 +276,18 @@ skip authentication; nil returns the environment unchanged."
 (defun openstack-cli--token-store (result)
   "Cache the token from RESULT, the parsed output of `token issue'.
 RESULT is a hash table with the \=`id' and \=`expires' entries of
-the client output.
-An unparseable expiry is remembered as already expired, so the
-token serves exactly this moment's callers and is then replaced."
+the client output.  A token whose expiry cannot be parsed is
+dropped instead of cached: it would count as permanently stale
+and churn `token issue' calls without ever serving one."
   (when (hash-table-p result)
-    (let ((token (gethash "id" result))
-          (expires (gethash "expires" result)))
-      (when (stringp token)
+    (let* ((token (gethash "id" result))
+           (expires-at
+            (condition-case nil
+                (float-time (date-to-time (gethash "expires" result)))
+              (error nil))))
+      (when (and (stringp token) expires-at)
         (setq openstack-cli--token token
-              openstack-cli--token-expires
-              (condition-case nil
-                  (float-time (date-to-time expires))
-                (error 0)))))))
+              openstack-cli--token-expires expires-at)))))
 
 (defun openstack-cli--token-prefetch ()
   "Fetch a fresh token into the cache in the background.
@@ -306,11 +310,13 @@ or when another token fetch already runs."
   "Return non-nil when ERR reports an authentication failure.
 ERR is an `openstack-cli-error' condition.  Only the client's
 message (the `:stderr' text) can be inspected, so match the usual
-authentication failure wording."
+authentication failure wording.  403 is deliberately not
+matched: quota and ACL denials report it too, and a token retry
+would only mask their message."
   (let ((stderr (plist-get (cdr err) :stderr)))
     (and (stringp stderr)
          (string-match-p
-          (concat "\\(?:401\\|403\\|[Uu]nauthorized\\|"
+          (concat "\\(?:401\\|[Uu]nauthorized\\|"
                   "[Ii]nvalid token\\|[Ee]xpired\\|[Aa]uthenticat\\)")
           stderr))))
 
@@ -325,13 +331,33 @@ ARGS is a list of command line arguments, e.g.
 The client is run with `--format json', so the output is parsed
 with `json-parse-buffer' and returned as a hash table or vector.
 
+A cached authentication token (see `openstack-cli-use-token') is
+passed to the client when one is available; the cache is warmed
+by asynchronous calls only.  A call that fails with an
+authentication error drops the token and retries once without it.
+
 If the client exits non-zero, or the output cannot be parsed,
 signal an `openstack-cli-error' condition.  The condition data
 is a plist with keys `:exit-code' (if any), `:stderr' (the
 client's error text, if any) and `:args'."
   (openstack-cli--check-args args)
-  (let* ((process-environment
-          (openstack-cli--token-env (openstack-cli--cached-token)))
+  (let ((token (and openstack-cli-use-token (openstack-cli--cached-token))))
+    (condition-case err
+        (openstack-cli--sync-start args token)
+      (openstack-cli-error
+       (if (and token (openstack-cli--auth-error-p err))
+           (progn
+             (openstack-cli-token-invalidate)
+             (openstack-cli--sync-start args nil))
+         (signal (car err) (cdr err)))))))
+
+(defun openstack-cli--sync-start (args token)
+  "Run the OpenStack client with ARGS synchronously, return parsed JSON.
+TOKEN, when a string, is passed to the client as OS_TOKEN so it
+can skip authentication.  Signal `openstack-cli-error' on a
+non-zero exit or unparseable output, as described in
+`openstack-cli-request'."
+  (let* ((process-environment (openstack-cli--token-env token))
          (result (openstack-cli--run args)))
     (if (zerop (car result))
         (let ((output (cdr result)))

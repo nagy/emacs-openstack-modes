@@ -147,6 +147,15 @@ buffer only when the last fetch is at least this old.  A manual
   :type 'number
   :group 'openstack)
 
+(defcustom openstack-refresh-visible-only t
+  "Whether automatic refreshes skip buffers no window displays.
+When non-nil (the default), `auto-revert-mode' re-fetches a
+resource buffer only while it is visible somewhere; buried
+buffers cost no API calls and refresh when next displayed.  A
+manual \\[revert-buffer] always fetches."
+  :type 'boolean
+  :group 'openstack)
+
 (defcustom openstack-web-base-url "https://horizon.example.org"
   "Base URL of the OpenStack dashboard for `openstack-open-web'.
 The resource ID is appended to this URL."
@@ -187,6 +196,11 @@ The callbacks of `openstack--refresh' capture it and drop out
 when it no longer matches: a fetch superseded by a mode change
 must not render through the new mode's renderer nor clear its
 state.")
+
+(defvar-local openstack--refresh-requested nil
+  "Non-nil when a refresh was requested while one was already running.
+The request is served as soon as the running fetch completes, so
+a manual refresh is never silently swallowed.")
 
 (defvar-local openstack--last-data nil
   "Data rendered into the current buffer by the last refresh.")
@@ -293,15 +307,44 @@ with `openstack-cli-async-request'.  SUCCESS-FN is called with
 nil; ERROR-FN is unused."
   (funcall success-fn nil))
 
+(defun openstack--data-equal-p (a b)
+  "Return non-nil when fetch results A and B have the same content.
+Fetch results are parsed JSON: hash tables, lists, strings and
+numbers.  `equal' compares hash tables by identity, so recurse
+into their contents here; this is what lets
+`openstack--refresh-done' skip re-rendering unchanged data."
+  (cond
+   ((and (hash-table-p a) (hash-table-p b))
+    (and (= (hash-table-count a) (hash-table-count b))
+         (catch 'unequal
+           (maphash
+            (lambda (key value)
+              (unless (openstack--data-equal-p
+                       value (gethash key b 'openstack--missing))
+                (throw 'unequal nil)))
+            a)
+           t)))
+   ((and (consp a) (consp b))
+    (and (openstack--data-equal-p (car a) (car b))
+         (openstack--data-equal-p (cdr a) (cdr b))))
+   (t (equal a b))))
+
 (defun openstack--refresh ()
   "Fetch fresh data for the current buffer and render it.
 Runs `openstack-fetch-function' with the resource ID and the two
 callbacks that finish the refresh; the fetch may complete later
 and must then call exactly one of them.  Nothing happens when no
-ID is set or when a fetch is already in flight.  When the fetcher
+ID is set.  A refresh requested while a fetch is already in
+flight is remembered and served when that fetch completes.  A
+fetcher that signals counts as a failed fetch; when the fetcher
 returns a process object, it is remembered so
 `openstack--kill-pending' can cancel it."
-  (when (and openstack--id (not openstack--pending))
+  (cond
+   ((null openstack--id) nil)
+   (openstack--pending
+    ;; A manual refresh during a running fetch must not be lost.
+    (setq openstack--refresh-requested t))
+   (t
     (let* ((buf (current-buffer))
            (id openstack--id)
            (marker (list nil))
@@ -309,25 +352,35 @@ returns a process object, it is remembered so
       (setq openstack--pending t
             openstack--fetch-marker marker)
       (let ((handle
-             (funcall openstack-fetch-function
-                      id
-                      (lambda (data)
-                        (setq settled t)
-                        (openstack--refresh-done buf marker id data nil))
-                      (lambda (err)
-                        (setq settled t)
-                        (openstack--refresh-done buf marker id nil err)))))
-        (setq openstack--pending (and (not settled) (or handle t)))))))
+             (condition-case thrown
+                 (funcall openstack-fetch-function
+                          id
+                          (lambda (data)
+                            ;; Settled before done: `openstack--refresh-done'
+                            ;; clears `openstack--pending', and the setq below
+                            ;; must not resurrect it.
+                            (setq settled t)
+                            (openstack--refresh-done buf marker id data nil))
+                          (lambda (err)
+                            (setq settled t)
+                            (openstack--refresh-done buf marker id nil err)))
+               (error
+                ;; A fetcher that signals must not freeze the buffer.
+                (setq settled t)
+                (openstack--refresh-done buf marker id nil thrown)
+                nil))))
+        (setq openstack--pending (and (not settled) (or handle t))))))))
 
 (defun openstack--refresh-done (buf marker id data err)
   "Complete the fetch of BUF marked MARKER for ID with DATA or ERR.
 Called by the callbacks of `openstack--refresh'.  ERR is the error
 condition of a failed fetch: the last good content stays in the
 buffer and the error goes to the header line.  Rendering is
-skipped when DATA equals the previously rendered data, keeping
-point, marks and window start intact.  Do nothing when BUF is
-already dead or when MARKER is stale, i.e. when the fetch was
-superseded while it ran."
+skipped when DATA has the same content as the previously rendered
+data, keeping point, marks and window start intact.  A refresh
+requested while this fetch ran is served now.  Do nothing when
+BUF is already dead or when MARKER is stale, i.e. when the fetch
+was superseded while it ran."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (when (eq marker openstack--fetch-marker)
@@ -340,11 +393,16 @@ superseded while it ran."
                   (propertize
                    (format "OpenStack error: %s"
                            (or (plist-get (cdr err) :stderr)
+                               (let ((data (cdr err)))
+                                 (and (consp data)
+                                      (stringp (car data))
+                                      (car data)))
                                (error-message-string err)))
                    'face 'error))
           (setq openstack--last-error nil
                 header-line-format nil)
-          (unless (and openstack--rendered (equal data openstack--last-data))
+          (unless (and openstack--rendered
+                       (openstack--data-equal-p data openstack--last-data))
             (setq openstack--last-data data
                   openstack--rendered t)
             (let* ((window (get-buffer-window buf 0))
@@ -355,15 +413,21 @@ superseded while it ran."
                 (funcall openstack-render-function id data))
               (goto-char (min point (point-max)))
               (when (window-live-p window)
-                (set-window-start window (min start (point-max)))))))))))
+                (set-window-start window (min start (point-max)))))))
+        (when openstack--refresh-requested
+          (setq openstack--refresh-requested nil)
+          (openstack--refresh))))))
 
 (defun openstack--buffer-stale-p (&optional _noconfirm)
   "Return non-nil when the resource display is due for a refresh.
 Used as `buffer-stale-function' by `auto-revert-mode'.  A refresh
 is due when none ran yet or when the last one is older than
 `openstack-refresh-interval' seconds.  An in-flight fetch is never
-interrupted."
+interrupted, and with `openstack-refresh-visible-only' a buffer
+that no window displays is never stale."
   (and (not openstack--pending)
+       (or (not openstack-refresh-visible-only)
+           (get-buffer-window (current-buffer) t))
        (or (null openstack--last-fetch-time)
            (>= (- (float-time) openstack--last-fetch-time)
                openstack-refresh-interval))))

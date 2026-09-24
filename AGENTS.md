@@ -54,9 +54,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-cli-error`), `openstack-cli-async-request` for
   asynchronous ones (mirrors the `jsonrpc` library's sync/async
   split).  Derived modes never call `openstack-program` directly.
-  Async calls warm a token cache (`openstack-cli-use-token`) and
-  pass the token via `OS_TOKEN`; an authentication failure retries
-  once without the token.
+  Calls pass a token warmed by async calls into the cache
+  (`openstack-cli-use-token`) via `OS_TOKEN`; an authentication
+  failure retries once without the token.
 - `openstack-cli` appends `--format json` automatically; commands
   that produce no output (e.g. `delete`) parse to nil.  Non-zero
   exit or unparseable output signals `openstack-cli-error` (sync) or
@@ -83,8 +83,11 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `revert-buffer-function`, `buffer-stale-function` and
   `auto-revert-mode` into the async pipeline
   (`openstack--refresh` / `openstack--refresh-done`), throttled by
-  `openstack-refresh-interval` (see `openstack-auto-revert`).
-  Unchanged data is not re-rendered, keeping point and marks.
+  `openstack-refresh-interval` and limited to visible buffers
+  (`openstack-refresh-visible-only`).  Unchanged data (compared
+  structurally via `openstack--data-equal-p`, `equal` fails on hash
+  tables) is not re-rendered, keeping point and marks.  A refresh
+  requested during a running fetch is served on completion.
   Errors keep the last good content and go to the header line.
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode

@@ -296,7 +296,8 @@ returned; until then the old content stays."
   (let ((buf (openstack-test--make-resource-buffer)))
     (unwind-protect
         (with-current-buffer buf
-          (let ((openstack-refresh-interval 30))
+          (let ((openstack-refresh-interval 30)
+                (openstack-refresh-visible-only nil))
             (setq-local openstack--last-fetch-time (float-time))
             (should-not (openstack--buffer-stale-p))
             (setq-local openstack--last-fetch-time (- (float-time) 31))
@@ -304,6 +305,102 @@ returned; until then the old content stays."
             ;; An in-flight fetch is never interrupted.
             (setq-local openstack--pending t)
             (should-not (openstack--buffer-stale-p))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-stale-p-skips-hidden-buffers ()
+  "Hidden buffers are never stale with `openstack-refresh-visible-only'.
+Buried resource buffers must not cost API calls for the rest of
+the session."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq-local openstack--last-fetch-time (- (float-time) 300))
+          (let ((openstack-refresh-visible-only t))
+            (should-not (openstack--buffer-stale-p)))
+          (let ((openstack-refresh-visible-only nil))
+            (should (openstack--buffer-stale-p))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-unchanged-hash-data-keeps-point ()
+  "Unchanged parsed JSON (hash tables) counts as unchanged data.
+`equal' compares hash tables by identity, so the pipeline uses
+`openstack--data-equal-p' for the comparison."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil)
+                (renders 0))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (_id data)
+                          (setq renders (1+ renders))
+                          (insert (gethash "name" data))))
+            (openstack--refresh)
+            (funcall success-fn
+                     (json-parse-string
+                      "{\"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+            (should (= renders 1))
+            ;; Same content in a fresh hash table: no re-render.
+            (openstack--refresh)
+            (funcall success-fn
+                     (json-parse-string
+                      "{\"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+            (should (= renders 1))
+            ;; Changed content re-renders.
+            (openstack--refresh)
+            (funcall success-fn
+                     (json-parse-string
+                      "{\"name\": \"web-1\", \"status\": \"SHUTOFF\"}"))
+            (should (= renders 2))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-fetcher-error-does-not-freeze ()
+  "A fetcher that signals reports the error and stays refreshable."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (setq-local openstack-fetch-function
+                      (lambda (_id _success _error)
+                        (user-error "bad fetch args")))
+          (openstack--refresh)
+          (should-not openstack--pending)
+          (should openstack--last-error)
+          (should (string-match-p "bad fetch args" header-line-format))
+          ;; The buffer keeps accepting refreshes.
+          (setq-local openstack-fetch-function
+                      (lambda (_id success _error)
+                        (funcall success "fine")))
+          (openstack--refresh)
+          (should-not openstack--last-error)
+          (should-not openstack--pending))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-requested-while-busy ()
+  "A manual refresh during a running fetch is not swallowed.
+It runs as soon as the running fetch completes."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((calls 0)
+                (success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq calls (1+ calls))
+                          (setq success-fn success)))
+            (openstack--refresh)
+            ;; Like a user pressing g while the fetch runs.
+            (openstack--refresh)
+            (should (= calls 1))
+            (should openstack--refresh-requested)
+            (funcall success-fn "data")
+            ;; The pending request triggered a follow-up fetch.
+            (should (= calls 2))
+            (should openstack--pending)
+            (should-not openstack--refresh-requested)
+            (funcall success-fn "data")
+            (should-not openstack--pending)))
       (kill-buffer buf))))
 
 (ert-deftest openstack-mode-auto-revert-wiring ()
@@ -339,10 +436,11 @@ sees the old mode's fetch and can kill its process; the cached view resets, so t
           (openstack-test-child-mode)
           (should-not (process-live-p proc))
           (should-not openstack--pending)
-          ;; The resource identity survives the switch, and the new
-          ;; mode renders its own view immediately (auto-revert sees
-          ;; an empty fetch history and reverts at once).
+          ;; The resource identity survives the switch, while the
+          ;; cached view resets: the new renderer draws its own.
           (should (equal openstack--id "res-123"))
+          (should-not openstack--rendered)
+          (openstack--refresh)
           (should openstack--rendered)
           (should (string-match-p "ID: res-123" (buffer-string))))
       (when (buffer-live-p buf)

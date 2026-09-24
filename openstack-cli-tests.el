@@ -47,7 +47,10 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
   `(cl-letf (((symbol-function 'openstack-cli--run)
               (lambda (args)
                 (openstack-cli-test--mock-run args ,status ,stdout))))
-     ,@body))
+     ;; Keep the token cache out of these tests: they exercise the
+     ;; request mechanics, not authentication.
+     (let ((openstack-cli-use-token nil))
+       ,@body)))
 
 (defun openstack-cli-test--wait-until (pred)
   "Wait until PREDFN returns non-nil, at most 5 seconds.
@@ -386,8 +389,9 @@ request."
 
 (ert-deftest openstack-cli-token-store-parses-expiry ()
   "The token cache remembers the id and parsed expiry of `token issue'.
-An unparseable expiry caches the token as already stale, so it
-serves only the callers already on their way and is then replaced."
+An unparseable expiry drops the token instead of caching it: it
+would count as permanently stale and churn `token issue' calls
+without ever serving one."
   (openstack-cli-token-invalidate)
   (unwind-protect
       (progn
@@ -398,12 +402,11 @@ serves only the callers already on their way and is then replaced."
           (should (equal (openstack-cli--cached-token) "tok-2")))
         (openstack-cli-token-invalidate)
         (should-not (openstack-cli--cached-token))
-        ;; Unparseable expiry: cached but stale.
+        ;; Unparseable expiry: the token is dropped, not cached.
         (let ((result (make-hash-table :test #'equal)))
           (puthash "id" "tok-3" result)
           (puthash "expires" "not-a-date" result)
           (openstack-cli--token-store result)
-          (should (equal openstack-cli--token "tok-3"))
           (should-not (openstack-cli--cached-token)))
         ;; Garbage output must not error.
         (openstack-cli-token-invalidate)
@@ -429,6 +432,33 @@ the token cache existed."
             :error-fn (lambda (e) (setq result e)))
            (openstack-cli-test--wait-until (lambda () result))
            (should (equal result "none"))
+           (should-not (openstack-cli--cached-token)))))
+    (openstack-cli-token-invalidate)))
+
+(ert-deftest openstack-cli-request-token-retry-on-auth-error ()
+  "A sync call that fails on a stale cached token retries once without it.
+The sync path must self-heal exactly like the async one."
+  (openstack-cli-token-invalidate)
+  (unwind-protect
+      (openstack-cli-test--with-fixture-program
+       (concat
+        "if [ -n \"$OS_TOKEN\" ]; then\n"
+        "    echo 'HTTP 401 Unauthorized' >&2\n"
+        "    exit 1\n"
+        "else\n"
+        "    echo '{\"token\": \"none\"}'\n"
+        "fi\n")
+       (lambda (program)
+         (let ((openstack-program program)
+               (openstack-cli-use-token t))
+           ;; Seed the cache with a token the fixture rejects.
+           (let ((result (make-hash-table :test #'equal)))
+             (puthash "id" "tok-1" result)
+             (puthash "expires" "2099-01-01T00:00:00+0000" result)
+             (openstack-cli--token-store result))
+           (should (equal (gethash "token"
+                                   (openstack-cli-request '("server" "list")))
+                          "none"))
            (should-not (openstack-cli--cached-token)))))
     (openstack-cli-token-invalidate)))
 
