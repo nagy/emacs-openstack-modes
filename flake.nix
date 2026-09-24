@@ -18,6 +18,15 @@
       treefmt-nix,
       ...
     }:
+    # Date of the last commit as YYYY-MM-DD, folded into the version
+    # string below.  Flake source info gives it as e.g. "20260922133522",
+    # so slice out the year, month and day and glue them with hyphens.
+    let
+      lastModifiedDate = inputs.self.sourceInfo.lastModifiedDate;
+      commitDate = "${builtins.substring 0 4 lastModifiedDate}-${
+        builtins.substring 4 2 lastModifiedDate
+      }-${builtins.substring 6 2 lastModifiedDate}";
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       # Emacs packages are pure Elisp: no ELF binaries, so evaluate on
       # every Linux arch (and darwin if the deps exist there).
@@ -46,8 +55,9 @@
             pname = "openstack-mode";
             # Nix rejects versions Nixpkgs cannot parse. Convention for
             # unreleased packages: <upstream-version>-unstable-<YYYY-MM-DD>,
-            # where the date is the last commit touching the source.
-            version = "0.1.0-unstable-2026-08-07";
+            # where the date is the last commit touching the source. Derived
+            # from the flake's source info above, so it never goes stale.
+            version = "0.1.0-unstable-${commitDate}";
 
             src = lib.cleanSource ./.;
 
@@ -69,8 +79,9 @@
 
             doCheck = true;
 
-            # `nix build` gates the package on the ERT suite plus checkdoc,
-            # so a broken rendering or a stale docstring never reaches $out.
+            # `nix build` gates the package on the ERT suite, so broken
+            # rendering never reaches $out.  Docstring and ELPA-policy
+            # linting lives in `checks.lint` below.
             checkPhase = ''
               runHook preCheck
 
@@ -87,13 +98,6 @@
                 -l openstack-mode-tests.el \
                 -l openstack-cli-tests.el \
                 -f ert-run-tests-batch-and-exit
-
-              echo '=== checkdoc ==='
-              emacs --batch -L . \
-                -l checkdoc \
-                --eval "(setq checkdoc-arguments-in-order-flag t)" \
-                --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                openstack-mode.el openstack-cli.el
 
               runHook postCheck
             '';
@@ -125,6 +129,41 @@
           };
 
           packages.default = config.packages.openstack-mode;
+
+          # Lint gate: checkdoc + package-lint.  They catch what
+          # byte-compilation cannot — docstring conventions and ELPA
+          # policy (headers, symbol prefixes, dependency declarations).
+          checks.lint =
+            pkgs.runCommand "openstack-mode-lint"
+              {
+                nativeBuildInputs = [
+                  (pkgs.emacsPackages.emacsWithPackages (p: [ p.package-lint ]))
+                ];
+                src = config.packages.openstack-mode.src;
+              }
+              ''
+                export HOME=$TMPDIR
+                cp "$src"/openstack-mode.el "$src"/openstack-cli.el .
+
+                # package-lint assumes online ELPA and wants symbols to carry
+                # the file-name prefix (`openstack-mode-', `openstack-cli-'),
+                # but the package shares the shorter `openstack-' prefix across
+                # both files.  Whitelist it.  No dependency stubs needed:
+                # Package-Requires only names emacs itself, which package-lint
+                # special-cases; extra deps would need an `:after' advice on
+                # `package-initialize' (it nils `package-alist' on every call).
+                emacs --batch -l package-lint \
+                  --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
+                  -f package-lint-batch-and-exit openstack-mode.el openstack-cli.el
+
+                # checkdoc exits 0 even on findings — gate on non-empty output.
+                lint_log=$(emacs --batch -l checkdoc \
+                  --eval '(setq checkdoc-arguments-in-order-flag t)' \
+                  --eval "(mapc #'checkdoc-file command-line-args-left)" \
+                  openstack-mode.el openstack-cli.el 2>&1)
+                if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
+                touch $out
+              '';
 
           # `nix fmt` runs nixfmt via treefmt; keep formatting canonical.
           formatter = treefmt-nix.lib.mkWrapper pkgs {

@@ -17,7 +17,7 @@ their own rendering.
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
-| `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT and checkdoc |
+| `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |
@@ -32,8 +32,9 @@ nix develop        # emacs + openstackclient-full
 ```
 
 The `checkPhase` byte-compiles all `.el` files with warnings as
-errors, runs the ERT suite (both test files), and runs checkdoc over
-both package files.
+errors and runs the ERT suite (both test files).
+Linting lives in `checks.lint` (`nix flake check` builds it):
+`package-lint` plus a `checkdoc` gate over both package files.
 The `postPatch` phase substitutes `openstack-program` with the store
 path of the nixpkgs `openstackclient-full` package, so the client
 works out of the box.
@@ -72,7 +73,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-render-function` defcustom to their own renderer
   (buffer-locally in the mode body, or globally).  Never advise
   private functions like `openstack--render-error`.
-- `checkdoc` must pass; docstrings follow the imperative style.
+- `checkdoc` and `package-lint` must pass via `checks.lint`;
+  docstrings follow the imperative style.
 - Interactive entry points carry `;;;###autoload` cookies;
   `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
   exist.  Add new commands to those tests when adding them to the
