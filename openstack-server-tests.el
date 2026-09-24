@@ -122,15 +122,6 @@ The buffer is entered into `openstack-server-mode' with the ID
        (should (< (string-match "^custom_field: x$" text)
                   (string-match "^zzz_last: late$" text)))))))
 
-(ert-deftest openstack-server-format-value-cases ()
-  "Value formatting: nil, empty, booleans, scalars and nested data."
-  (should (equal (openstack-server--format-value nil) "-"))
-  (should (equal (openstack-server--format-value "") "-"))
-  (should (equal (openstack-server--format-value "ACTIVE") "ACTIVE"))
-  (should (equal (openstack-server--format-value 2) "2"))
-  (should (equal (openstack-server--format-value t) "true"))
-  (should (equal (openstack-server--format-value '(1 2)) "[1,2]")))
-
 (ert-deftest openstack-server-render-non-hash-data ()
   "Non-hash data does not error; the ID identifies the server."
   (openstack-server-test--with-fixture-buffer

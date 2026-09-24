@@ -214,6 +214,14 @@ a manual refresh is never silently swallowed.")
 (defvar-local openstack--last-error nil
   "Error condition reported by the last fetch, or nil when none.")
 
+(defvar-local openstack-collection nil
+  "Non-nil when the buffer displays a collection of resources.
+Collections (e.g. a server list) have no single resource ID:
+`openstack--id' stays nil, `openstack-fetch-function' receives
+nil as the ID, and the ID commands (`openstack-copy-id' and
+friends) do not apply.  Deliberately not `permanent-local': a
+mode switch back to a single-resource view must clear it.")
+
 (defvar openstack-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") #'openstack-copy-id)
@@ -333,14 +341,16 @@ into their contents here; this is what lets
   "Fetch fresh data for the current buffer and render it.
 Runs `openstack-fetch-function' with the resource ID and the two
 callbacks that finish the refresh; the fetch may complete later
-and must then call exactly one of them.  Nothing happens when no
-ID is set.  A refresh requested while a fetch is already in
-flight is remembered and served when that fetch completes.  A
-fetcher that signals counts as a failed fetch; when the fetcher
-returns a process object, it is remembered so
+and must then call exactly one of them.  Collection buffers (see
+`openstack-collection') refresh without an ID: their fetcher
+receives nil.  Nothing happens when neither an ID nor the
+ collection flag is set.  A refresh requested while a fetch is
+already in flight is remembered and served when that fetch
+completes.  A fetcher that signals counts as a failed fetch;
+when the fetcher returns a process object, it is remembered so
 `openstack--kill-pending' can cancel it."
   (cond
-   ((null openstack--id) nil)
+   ((and (null openstack--id) (not openstack-collection)) nil)
    (openstack--pending
     ;; A manual refresh during a running fetch must not be lost.
     (setq openstack--refresh-requested t))
@@ -496,6 +506,65 @@ in which case the buffer fills in asynchronously."
   (message "Set OpenStack resource ID: %s" id))
 
 
+;;; Generic resource fetch and render
+
+(defun openstack-show-fetch (resource id success-fn error-fn)
+  "Fetch the details of resource RESOURCE with ID for a display buffer.
+RESOURCE is the client's resource command name, e.g. `server' or
+`volume'.  Run `RESOURCE show ID' through
+`openstack-cli-async-request' and call SUCCESS-FN with the
+parsed JSON, or ERROR-FN with an `openstack-cli-error'
+condition.  Return the client process, so the display machinery
+can cancel the fetch.  Derived resource modes wrap this with
+their own resource name as their `openstack-fetch-function'."
+  (openstack-cli-async-request
+   (list resource "show" id)
+   :success-fn success-fn
+   :error-fn error-fn))
+
+(defun openstack--format-value (value)
+  "Return the display text of one resource field VALUE.
+Strings and numbers are shown as they are (an empty string as
+a dash); booleans, lists, hash tables and anything else fall
+back to their JSON encoding."
+  (cond
+   ((null value) "-")
+   ((stringp value) (if (string-empty-p value) "-" value))
+   ((numberp value) (number-to-string value))
+   ((eq value t) "true")
+   (t (json-encode value))))
+
+(defun openstack--insert-field (field value)
+  "Insert one FIELD of a resource with its VALUE into the buffer."
+  (insert (propertize field 'face 'font-lock-variable-name-face)
+          ": " (openstack--format-value value) "\n"))
+
+(defun openstack-render-fields (title id data fields)
+  "Insert a field table of resource ID with DATA into the current buffer.
+TITLE labels the header (e.g. `Server'); DATA is the parsed
+`RESOURCE show' JSON and FIELDS the list of fields shown first,
+in that order.  Fields missing from the data are skipped; every
+remaining field follows, sorted by name, and nested values
+render as JSON.  Derived resource modes call this from their
+`openstack-render-function' with their own field order."
+  (insert (format "%s: %s\nID: %s\n\n" title
+                  (or (and (hash-table-p data) (gethash "name" data))
+                      id)
+                  id))
+  (when (hash-table-p data)
+    (let ((unshown (make-hash-table :test #'equal)))
+      (maphash (lambda (key _value) (puthash key t unshown)) data)
+      (dolist (field fields)
+        (remhash field unshown)
+        (let ((value (gethash field data)))
+          (when value
+            (openstack--insert-field field value))))
+      (let ((remaining nil))
+        (maphash (lambda (key _value) (push key remaining)) unshown)
+        (dolist (field (sort remaining #'string<))
+          (openstack--insert-field
+           field (gethash field data)))))))
+
 ;;; Major mode
 
 ;;;###autoload

@@ -69,57 +69,21 @@ by name."
 ;;; Fetcher and renderer
 
 (defun openstack-server--fetch (id success-fn error-fn)
-  "Fetch the data of server ID with `openstack-cli-async-request'.
+  "Fetch the data of server ID using `openstack-show-fetch'.
 Run `openstack server show ID' and call SUCCESS-FN with the
 parsed JSON, or ERROR-FN with an `openstack-cli-error'
 condition.  Return the client process, so the display machinery
 can cancel the fetch.  This is the value of
 `openstack-fetch-function' in `openstack-server-mode'."
-  (openstack-cli-async-request
-   (list "server" "show" id)
-   :success-fn success-fn
-   :error-fn error-fn))
-
-(defun openstack-server--format-value (value)
-  "Return the display text of one server field VALUE.
-Strings and numbers are shown as they are; booleans, lists,
-hash tables and anything else fall back to their JSON encoding."
-  (cond
-   ((null value) "-")
-   ((stringp value) (if (string-empty-p value) "-" value))
-   ((numberp value) (number-to-string value))
-   ((eq value t) "true")
-   (t (json-encode value))))
-
-(defun openstack-server--insert-field (field value)
-  "Insert one FIELD of a server with its VALUE into the buffer."
-  (insert (propertize field 'face 'font-lock-variable-name-face)
-          ": " (openstack-server--format-value value) "\n"))
+  (openstack-show-fetch "server" id success-fn error-fn))
 
 (defun openstack-server--render (id data)
   "Insert the display of server ID with DATA into the current buffer.
-DATA is the parsed `openstack server show' JSON.  The fields of
-`openstack-server-fields' that the server data contains come
-first, in that order; every remaining field follows, sorted by
-name.  This is the value of `openstack-render-function' in
-`openstack-server-mode'."
-  (insert (format "Server: %s\nID: %s\n\n"
-                  (or (and (hash-table-p data) (gethash "name" data))
-                      id)
-                  id))
-  (when (hash-table-p data)
-    (let ((unshown (make-hash-table :test #'equal)))
-      (maphash (lambda (key _value) (puthash key t unshown)) data)
-      (dolist (field openstack-server-fields)
-        (remhash field unshown)
-        (let ((value (gethash field data)))
-          (when value
-            (openstack-server--insert-field field value))))
-      (let ((fields nil))
-        (maphash (lambda (key _value) (push key fields)) unshown)
-        (dolist (field (sort fields #'string<))
-          (openstack-server--insert-field
-           field (gethash field data)))))))
+DATA is the parsed `openstack server show' JSON, rendered by
+`openstack-render-fields' with the field order of
+`openstack-server-fields'.  This is the value of
+`openstack-render-function' in `openstack-server-mode'."
+  (openstack-render-fields "Server" id data openstack-server-fields))
 
 ;;;###autoload
 (defun openstack-server-display (id)

@@ -448,5 +448,84 @@ sees the old mode's fetch and can kill its process; the cached view resets, so t
       (when (process-live-p proc)
         (delete-process proc)))))
 
+;;; Generic resource helpers
+
+(ert-deftest openstack-format-value-cases ()
+  "Value formatting: nil, empty, booleans, scalars and nested data."
+  (should (equal (openstack--format-value nil) "-"))
+  (should (equal (openstack--format-value "") "-"))
+  (should (equal (openstack--format-value "ACTIVE") "ACTIVE"))
+  (should (equal (openstack--format-value 2) "2"))
+  (should (equal (openstack--format-value t) "true"))
+  (should (equal (openstack--format-value '(1 2)) "[1,2]")))
+
+(ert-deftest openstack-render-fields-orders-and-sorts ()
+  "`openstack-render-fields' lists FIELDS first, the rest sorted.
+Missing fields are skipped and nested values render as JSON."
+  (let ((data (with-temp-buffer
+                (insert "{\"name\": \"data-1\", \"status\": \"in-use\", "
+                        "\"zzz\": \"late\", \"aaa\": {\"k\": 1}, "
+                        "\"size\": 20, \"host\": null}")
+                (goto-char (point-min))
+                (json-parse-buffer :object-type 'hash-table
+                                   :array-type 'list
+                                   :null-object nil
+                                   :false-object nil)))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Volume" "vol-1" data
+                               '("name" "size" "missing"))
+      (let ((text (buffer-string)))
+        (should (string-match-p "Volume: data-1\n" text))
+        (should (string-match-p "ID: vol-1\n" text))
+        (should (< (string-match "^name: data-1$" text)
+                   (string-match "^size: 20$" text)
+                   (string-match "^aaa: {\"k\":1}$" text)
+                   (string-match "^zzz: late$" text)))
+        (should-not (string-match-p "^missing:" text))
+        (should (string-match-p "^host: -$" text))))))
+
+(ert-deftest openstack-show-fetch-runs-resource-show ()
+  "`openstack-show-fetch' runs `RESOURCE show ID' via the CLI layer."
+  (let ((args-seen nil)
+        (success-seen nil)
+        (error-seen nil))
+    (cl-letf (((symbol-function 'openstack-cli-async-request)
+               (cl-function (lambda (args &key success-fn error-fn)
+                              (setq args-seen args
+                                    success-seen success-fn
+                                    error-seen error-fn)
+                              :handle))))
+      (should (eq (openstack-show-fetch
+                   "volume" "vol-1"
+                   (lambda (_d) nil) (lambda (_e) nil))
+                  :handle))
+      (should (equal args-seen '("volume" "show" "vol-1")))
+      (should (functionp success-seen))
+      (should (functionp error-seen)))))
+
+(ert-deftest openstack-refresh-collection-without-id ()
+  "A collection buffer refreshes without a resource ID.
+The fetcher receives nil as the ID; without the
+`openstack-collection' flag the same buffer would not refresh."
+  (let ((buf (generate-new-buffer " *openstack-test*"))
+        (ids-seen nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (openstack-mode)
+          (let ((openstack-fetch-function
+                 (lambda (id success-fn _error-fn)
+                   (push id ids-seen)
+                   (funcall success-fn nil))))
+            (should (null openstack--id))
+            (openstack--refresh)
+            (should (null openstack--pending))
+            (should (null ids-seen))
+            (setq-local openstack-collection t)
+            (openstack--refresh)
+            (should (equal ids-seen '(nil)))
+            (should openstack--rendered)))
+      (kill-buffer buf))))
+
 (provide 'openstack-mode-tests)
 ;;; openstack-mode-tests.el ends here
