@@ -85,6 +85,70 @@ EOF
         die "server" "No server with a name or ID of '${args[2]}' exists." ;;
     "server list"*)
         echo "[]" ;;
+    "volume show 5d1a2b3c-0000-4000-8000-0000000000aa"*)
+        cat <<'EOF'
+{
+  "id": "5d1a2b3c-0000-4000-8000-0000000000aa",
+  "name": "data-1",
+  "status": "in-use",
+  "size": 20,
+  "volume_type": "__DEFAULT__",
+  "bootable": "false",
+  "attachments": [
+    {"id": "5d1a2b3c-0000-4000-8000-0000000000aa",
+     "server_id": "b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01",
+     "volume_id": "5d1a2b3c-0000-4000-8000-0000000000aa",
+     "device": "/dev/vdb"}
+  ],
+  "availability_zone": "nova",
+  "created_at": "2026-08-06T09:00:00Z",
+  "updated_at": "2026-08-06T09:05:00Z",
+  "metadata": {},
+  "multiattach": false,
+  "encrypted": false,
+  "replication_status": "disabled",
+  "migration_status": null,
+  "snapshot_id": null,
+  "source_volid": null,
+  "description": null,
+  "user_id": "99887766554433221100ffeeddccbbaa",
+  "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "os-vol-host-attr:host": "compute-01",
+  "os-vol-tenant-attr:tenant_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+}
+EOF
+        ;;
+    "volume show"*)
+        die "volume" "No volume with a name or ID of '${args[2]}' exists." ;;
+    "image show 5a3b2c1d-0000-4000-8000-000000000001"*)
+        cat <<'EOF'
+{
+  "id": "5a3b2c1d-0000-4000-8000-000000000001",
+  "name": "ubuntu-24.04",
+  "status": "active",
+  "visibility": "public",
+  "disk_format": "qcow2",
+  "container_format": "bare",
+  "size": 234881024,
+  "virtual_size": null,
+  "owner": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "protected": false,
+  "tags": ["latest"],
+  "min_disk": 0,
+  "min_ram": 0,
+  "created_at": "2026-07-01T00:00:00Z",
+  "updated_at": "2026-07-01T00:00:00Z",
+  "checksum": "d41d8cd98f00b204e9800998ecf8427e",
+  "os_hash_algo": "sha256",
+  "os_hash_value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "os_hidden": false,
+  "file": "/v2/images/5a3b2c1d-0000-4000-8000-000000000001/file",
+  "schema": "/v2/schemas/image"
+}
+EOF
+        ;;
+    "image show"*)
+        die "image" "No image with a name or ID of '${args[2]}' exists." ;;
     "server delete"*|"volume delete"*|"image delete"*)
         exit 0 ;;
     "server stop"*|"server start"*)

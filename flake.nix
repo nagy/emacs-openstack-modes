@@ -58,6 +58,8 @@
             "openstack-cli.el"
             "openstack-server.el"
             "openstack-server-list.el"
+            "openstack-volume.el"
+            "openstack-image.el"
             "openstack-mode-tests.el"
             "openstack-cli-tests.el"
             "openstack-server-tests.el"
@@ -78,6 +80,8 @@
               -l openstack-cli-tests.el \
               -l openstack-server-tests.el \
               -l openstack-server-list-tests.el \
+              -l openstack-volume-tests.el \
+              -l openstack-image-tests.el \
               -f ert-run-tests-batch-and-exit
 
             runHook postCheck
@@ -154,6 +158,32 @@
             '';
           };
 
+          packages.openstack-volume = mkOpenstackPackage {
+            pname = "openstack-volume";
+            description = "Display OpenStack volumes";
+            longDescription = ''
+              A resource-specific mode derived from openstack-mode.
+              It fetches a volume with `openstack volume show'
+              through the asynchronous CLI layer and renders the
+              volume's fields, inheriting the ID handling,
+              refresh pipeline and bookmark support of the base
+              mode.
+            '';
+          };
+
+          packages.openstack-image = mkOpenstackPackage {
+            pname = "openstack-image";
+            description = "Display OpenStack images";
+            longDescription = ''
+              A resource-specific mode derived from openstack-mode.
+              It fetches an image with `openstack image show'
+              through the asynchronous CLI layer and renders the
+              image's fields, inheriting the ID handling,
+              refresh pipeline and bookmark support of the base
+              mode.
+            '';
+          };
+
           packages.openstack-server-list = mkOpenstackPackage {
             pname = "openstack-server-list";
             description = "List OpenStack servers";
@@ -175,6 +205,8 @@
               config.packages.openstack-mode
               config.packages.openstack-server
               config.packages.openstack-server-list
+              config.packages.openstack-volume
+              config.packages.openstack-image
             ];
           };
 
@@ -192,7 +224,8 @@
               ''
                 export HOME=$TMPDIR
                 cp "$src"/openstack-mode.el "$src"/openstack-cli.el \
-                  "$src"/openstack-server.el "$src"/openstack-server-list.el .
+                  "$src"/openstack-server.el "$src"/openstack-server-list.el \
+                  "$src"/openstack-volume.el "$src"/openstack-image.el .
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -205,14 +238,14 @@
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
                   openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el
+                  openstack-server-list.el openstack-volume.el openstack-image.el
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
                   openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el 2>&1)
+                  openstack-server-list.el openstack-volume.el openstack-image.el 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';
