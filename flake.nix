@@ -122,6 +122,11 @@
                 and an xref backend opens the resource of an ID under point
                 with M-. in any buffer.
 
+                Display buffers color status values, mark fields that
+                changed since the last refresh, report state transitions
+                through a hook, and poll faster while a status still
+                changes.
+
                 The package interfaces with OpenStack through the
                 python-openstackclient command line program (nixpkgs
                 package openstackclient-full).  The build substitutes the

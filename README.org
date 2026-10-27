@@ -80,6 +80,14 @@ Customization (=M-x customize-group openstack=):
   display command of every derived mode
 - =openstack-read-cache-ttl= -- seconds a cached
   =RESOURCE list= result stays valid; =nil= keeps it forever
+- =openstack-status-fields= -- fields rendered with a status
+  face (=status=, =vm_state=, =health_status=)
+- =openstack-status-faces= -- status value to face map
+- =openstack-transitional-states= -- statuses that still
+  change, so their buffer polls faster
+- =openstack-refresh-fast-interval= -- seconds between refresh
+  while a status still changes; =openstack-refresh-interval=
+  stays the upper bound
 
 * Finding resources
 
@@ -218,6 +226,34 @@ new derived mode needs one entry.
 The export takes the dashboard URL from the mode's own
 =openstack-id-prefix= and =openstack-url-suffix=, so the link
 code never repeats those settings.
+
+The =M-?= prompt completes the cached IDs.
+
+* Status, changes and notifications
+
+Status values take a face: =ACTIVE=, =available= and =in-use=
+green, =BUILD= and =REBOOT= yellow, =ERROR= red, =SHUTOFF= and
+=DOWN= dimmed.  The map lives in =openstack-status-faces= and
+the field names in =openstack-status-fields=.
+
+A field whose value differs from the previous refresh shows
+=openstack-field-changed=.  The data comparison already skips
+unchanged refreshes, so the mark only appears on a real change.
+
+A status transition calls =openstack-state-change-functions=
+with =:buffer=, =:id=, =:field=, =:old= and =:new=.  The hook
+stays empty by default; add the shipped listener for messages
+and desktop notifications:
+
+#+begin_src elisp
+  (add-hook 'openstack-state-change-functions
+            #'openstack-notify-state-change)
+#+end_src
+
+A buffer with a transitional status polls every
+=openstack-refresh-fast-interval= seconds instead of
+=openstack-refresh-interval= seconds.  A server in =BUILD=
+refreshes often; an =ACTIVE= server stays cheap.
 
 * OpenStack CLI
 

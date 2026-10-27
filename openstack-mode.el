@@ -93,6 +93,9 @@
 (require 'cl-lib)
 (require 'openstack-cli)
 
+;; Forward reference: the desktop notification of a state change.
+(declare-function notifications-notify "notifications" (&rest params))
+
 
 ;;; Customization
 
@@ -146,6 +149,26 @@ Automatic refreshing (see `openstack-auto-revert') re-fetches a
 buffer only when the last fetch is at least this old.  A manual
 \\[revert-buffer] always fetches."
   :type 'number
+  :group 'openstack)
+
+(defcustom openstack-refresh-fast-interval 5
+  "Minimum seconds between refreshes while a status still changes.
+A buffer whose status belongs to `openstack-transitional-states'
+polls with this interval; every other buffer polls every
+`openstack-refresh-interval' seconds.  A value above
+`openstack-refresh-interval' never slows a refresh down."
+  :type 'number
+  :group 'openstack)
+
+(defcustom openstack-transitional-states
+  '("BUILD" "REBOOT" "DELETING" "REBUILD" "MIGRATING" "RESIZE"
+    "BACKUP" "creating" "queued" "saving")
+  "Status values that mark a resource as still changing.
+The comparison ignores case, because `RESOURCE show' and
+`RESOURCE list' spell the same state differently.  A buffer
+with such a status refreshes every
+`openstack-refresh-fast-interval' seconds."
+  :type '(repeat string)
   :group 'openstack)
 
 (defcustom openstack-refresh-visible-only t
@@ -203,6 +226,62 @@ mode needs one entry here as well as its own file."
                        (symbol :tag "Display command")))
   :group 'openstack)
 
+(defcustom openstack-status-fields '("status" "vm_state" "health_status")
+  "Fields rendered as a status in display buffers.
+A value of such a field takes its face from
+`openstack-status-faces'; the field name comparison ignores
+case."
+  :type '(repeat string)
+  :group 'openstack)
+
+(defcustom openstack-status-faces
+  '(("active" . openstack-status-ok)
+    ("available" . openstack-status-ok)
+    ("in-use" . openstack-status-ok)
+    ("down" . openstack-status-off)
+    ("shutoff" . openstack-status-off)
+    ("shelved_offloaded" . openstack-status-off)
+    ("build" . openstack-status-pending)
+    ("reboot" . openstack-status-pending)
+    ("deleting" . openstack-status-pending)
+    ("creating" . openstack-status-pending)
+    ("queued" . openstack-status-pending)
+    ("saving" . openstack-status-pending)
+    ("error" . openstack-status-error)
+    ("error_deleting" . openstack-status-error))
+  "Faces of the status values in display buffers.
+Each entry maps a status value, compared without case, to a
+face.  A value missing here keeps the default face."
+  :type '(repeat (cons (string :tag "Status") (symbol :tag "Face")))
+  :group 'openstack)
+
+;;; Faces
+
+(defface openstack-status-ok
+  '((t :inherit success))
+  "Face for a status that needs no attention."
+  :group 'openstack)
+
+(defface openstack-status-pending
+  '((t :inherit warning))
+  "Face for a status that still changes."
+  :group 'openstack)
+
+(defface openstack-status-error
+  '((t :inherit error))
+  "Face for a status that reports a failure."
+  :group 'openstack)
+
+(defface openstack-status-off
+  '((t :inherit shadow))
+  "Face for a status that marks an inactive resource."
+  :group 'openstack)
+
+(defface openstack-field-changed
+  '((t :inherit highlight))
+  "Face for a field whose value changed since the last refresh."
+  :group 'openstack)
+
 
 ;;; Mode variables
 
@@ -243,6 +322,18 @@ a manual refresh is never silently swallowed.")
 
 (defvar-local openstack--rendered nil
   "Non-nil once `openstack-render-function' ran in this buffer.")
+
+(defvar openstack--previous-data nil
+  "Data rendered into the buffer by the previous refresh.
+Bound around rendering by `openstack--refresh-done', so the
+renderers can mark the fields whose value changed.  Deliberately
+not buffer-local.")
+
+(defvar openstack-state-change-functions nil
+  "Abnormal hook run when a refresh changes a status value.
+Each function receives a plist with :buffer, :id, :field, :old
+and :new.  Add `openstack-notify-state-change' for messages and
+desktop notifications.")
 
 (defvar-local openstack--last-fetch-time nil
   "Time of the last fetch of the current buffer as a `float-time'.")
@@ -387,6 +478,150 @@ into their contents here; this is what lets
          (openstack--data-equal-p (cdr a) (cdr b))))
    (t (equal a b))))
 
+;; The client prints field names in lower case for `RESOURCE show'
+;; and in title case for `RESOURCE list', so the status helpers
+;; compare names and values without case.
+
+(defun openstack--hash-field (table name)
+  "Return the value of TABLE field NAME, ignoring key case.
+Return nil when TABLE holds no key that matches NAME."
+  (cl-loop for key being the hash-keys of table
+           using (hash-value value)
+           when (and (stringp key) (string-equal-ignore-case key name))
+           return value))
+
+(defun openstack--status-field-p (field)
+  "Return non-nil when FIELD holds a status value."
+  (cl-some (lambda (name) (string-equal-ignore-case name field))
+           openstack-status-fields))
+
+(defun openstack--status-face (field value)
+  "Return the status face of FIELD with VALUE, or nil.
+Only a field named in `openstack-status-fields' takes a face, and
+`openstack-status-faces' supplies it."
+  (when (and (stringp value) (openstack--status-field-p field))
+    (cdr (assoc-string value openstack-status-faces t))))
+
+(defun openstack--field-changed-p (field value)
+  "Return non-nil when FIELD holds a VALUE other than last render."
+  (and openstack--previous-data
+       (hash-table-p openstack--previous-data)
+       (not (openstack--data-equal-p
+             value (gethash field openstack--previous-data)))))
+
+(defun openstack--cell-face (field value changed)
+  "Return the face list for FIELD with VALUE.
+CHANGED marks a value that differs from the previous refresh, so
+a status face and the change face combine."
+  (let ((status (openstack--status-face field value)))
+    (cond ((and changed status)
+           (list 'openstack-field-changed status))
+          (changed 'openstack-field-changed)
+          (status status))))
+
+(defun openstack--row-match (rows row)
+  "Return the row of ROWS that carries the same ID as ROW, or nil."
+  (when-let* ((id (and (hash-table-p row)
+                       (openstack--hash-field row "id"))))
+    (cl-find-if (lambda (other)
+                  (and (hash-table-p other)
+                       (equal id (openstack--hash-field other "id"))))
+                rows)))
+
+(defun openstack--row-status-changes (old-row row)
+  "Return the status changes of OLD-ROW that ROW now shows.
+Each element is a list of ID, FIELD, old value and new value."
+  (let ((id (or (and (hash-table-p row) (openstack--hash-field row "id"))
+                openstack--id)))
+    (cl-loop for field in openstack-status-fields
+             for old = (and (hash-table-p old-row)
+                            (openstack--hash-field old-row field))
+             for new = (and (hash-table-p row)
+                            (openstack--hash-field row field))
+             when (and (stringp old) (stringp new)
+                       (not (string-equal old new)))
+             collect (list id field old new))))
+
+(defun openstack--status-changes (previous data)
+  "Return the status changes between PREVIOUS and DATA.
+PREVIOUS and DATA are the results of two consecutive refreshes: a
+hash table for a resource buffer, a list of rows for a collection
+buffer.  Each element is a list of ID, FIELD, old value and new
+value."
+  (cond
+   ((and (hash-table-p previous) (hash-table-p data))
+    (openstack--row-status-changes previous data))
+   ((and (listp previous) (listp data))
+    (let (changes)
+      (dolist (row (cl-remove-if-not #'hash-table-p data)
+                   (nreverse changes))
+        (when-let* ((old-row (openstack--row-match previous row)))
+          (dolist (change (openstack--row-status-changes old-row row))
+            (push change changes))))))))
+
+(defun openstack--notify-state-changes (data previous)
+  "Run `openstack-state-change-functions' for the changes in DATA.
+PREVIOUS holds the data of the last render.  Every status value
+that differs calls the hook once, with the buffer, the resource
+ID, the field and the old and the new value."
+  (dolist (change (openstack--status-changes previous data))
+    (pcase-let ((`(,_ ,field ,old ,new) change))
+      (run-hook-with-args 'openstack-state-change-functions
+                          :buffer (current-buffer)
+                          :id (car change)
+                          :field field
+                          :old old
+                          :new new))))
+
+(defun openstack-notify-state-change (&rest plist)
+  "Report one OpenStack state change from PLIST.
+PLIST carries :buffer, :id, :field, :old and :new, as the
+`openstack-state-change-functions' hook passes them.  Print a
+message and, on a graphical display, send a desktop
+notification."
+  (let ((id (plist-get plist :id))
+        (field (plist-get plist :field))
+        (old (plist-get plist :old))
+        (new (plist-get plist :new)))
+    (message "OpenStack %s: %s %s to %s" id field old new)
+    (when (display-graphic-p)
+      (ignore-errors
+        (notifications-notify
+         :title (format "OpenStack %s %s" field new)
+         :body (format "%s changed from %s to %s" id old new))))))
+
+(defun openstack--transitional-state-p (state)
+  "Return non-nil when STATE still changes."
+  (and (stringp state)
+       (cl-some (lambda (name) (string-equal-ignore-case name state))
+                openstack-transitional-states)))
+
+(defun openstack--transitional-row-p (row)
+  "Return non-nil when a status field of ROW still changes."
+  (and (hash-table-p row)
+       (cl-some (lambda (field)
+                  (openstack--transitional-state-p
+                   (openstack--hash-field row field)))
+                openstack-status-fields)))
+
+(defun openstack--transitional-p (data)
+  "Return non-nil when DATA holds a status that still changes.
+DATA is the hash table of a resource or the list of rows of a
+collection."
+  (cond
+   ((hash-table-p data) (openstack--transitional-row-p data))
+   ((listp data) (cl-some #'openstack--transitional-row-p data))
+   (t nil)))
+
+(defun openstack--refresh-delay ()
+  "Return the seconds to wait before the next automatic refresh.
+A buffer with a status from `openstack-transitional-states' polls
+every `openstack-refresh-fast-interval' seconds, up to the upper
+bound of `openstack-refresh-interval'."
+  (if (openstack--transitional-p openstack--last-data)
+      (min openstack-refresh-fast-interval openstack-refresh-interval)
+    openstack-refresh-interval))
+
 (defun openstack--refresh ()
   "Fetch fresh data for the current buffer and render it.
 Runs `openstack-fetch-function' with the resource ID and the two
@@ -463,17 +698,21 @@ was superseded while it ran."
                 header-line-format nil)
           (unless (and openstack--rendered
                        (openstack--data-equal-p data openstack--last-data))
-            (setq openstack--last-data data
-                  openstack--rendered t)
-            (let* ((window (get-buffer-window buf 0))
-                   (point (point))
-                   (start (and (window-live-p window) (window-start window))))
-              (let ((inhibit-read-only t))
-                (erase-buffer)
-                (funcall openstack-render-function id data))
-              (goto-char (min point (point-max)))
-              (when (window-live-p window)
-                (set-window-start window (min start (point-max)))))))
+            (let ((openstack--previous-data
+                   (and openstack--rendered openstack--last-data)))
+              (setq openstack--last-data data
+                    openstack--rendered t)
+              (let* ((window (get-buffer-window buf 0))
+                     (point (point))
+                     (start (and (window-live-p window)
+                                 (window-start window))))
+                (let ((inhibit-read-only t))
+                  (erase-buffer)
+                  (funcall openstack-render-function id data))
+                (goto-char (min point (point-max)))
+                (when (window-live-p window)
+                  (set-window-start window (min start (point-max)))))
+              (openstack--notify-state-changes data openstack--previous-data))))
         (when openstack--refresh-requested
           (setq openstack--refresh-requested nil)
           (openstack--refresh))))))
@@ -481,16 +720,18 @@ was superseded while it ran."
 (defun openstack--buffer-stale-p (&optional _noconfirm)
   "Return non-nil when the resource display is due for a refresh.
 Used as `buffer-stale-function' by `auto-revert-mode'.  A refresh
-is due when none ran yet or when the last one is older than
-`openstack-refresh-interval' seconds.  An in-flight fetch is never
-interrupted, and with `openstack-refresh-visible-only' a buffer
-that no window displays is never stale."
+is due when none ran yet or when the last one is older than the
+delay of `openstack--refresh-delay': `openstack-refresh-interval'
+seconds, or `openstack-refresh-fast-interval' while a status
+still changes.  An in-flight fetch is never interrupted, and with
+`openstack-refresh-visible-only' a buffer that no window
+displays is never stale."
   (and (not openstack--pending)
        (or (not openstack-refresh-visible-only)
            (get-buffer-window (current-buffer) t))
        (or (null openstack--last-fetch-time)
            (>= (- (float-time) openstack--last-fetch-time)
-               openstack-refresh-interval))))
+               (openstack--refresh-delay)))))
 
 (defun openstack--kill-pending ()
   "Cancel an in-flight fetch and forget its handle.
@@ -616,8 +857,14 @@ back to their JSON encoding."
   "Insert one FIELD of a resource with its VALUE into the buffer.
 When ID is non-nil, the value is propertized with `openstack-id'
 and `mouse-face', so `openstack-display-at-point' can open the
-resource from the ID field line."
-  (let ((text (openstack--format-value value)))
+resource from the ID field line.  A status value takes its face
+from `openstack-status-faces', and a value that differs from the
+previous refresh takes `openstack-field-changed'."
+  (let* ((text (openstack--format-value value))
+         (face (openstack--cell-face
+                field value (openstack--field-changed-p field value))))
+    (when face
+      (setq text (propertize text 'face face)))
     (when id
       (setq text (propertize text 'openstack-id id
                              'mouse-face 'highlight)))
@@ -723,10 +970,25 @@ Collection modes call this from their
       (let* ((columns (openstack-list-columns rows fields))
              (cell-rows
               (mapcar (lambda (row)
-                        (mapcar (lambda (column)
-                                  (openstack--format-value
-                                   (gethash column row)))
-                                columns))
+                        (let ((previous
+                               (and (listp openstack--previous-data)
+                                    (openstack--row-match
+                                     openstack--previous-data row))))
+                          (mapcar
+                           (lambda (column)
+                             (let* ((value (gethash column row))
+                                    (changed
+                                     (and previous
+                                          (not (openstack--data-equal-p
+                                                value
+                                                (gethash column previous)))))
+                                    (face (openstack--cell-face
+                                           column value changed))
+                                    (text (openstack--format-value value)))
+                               (if face
+                                   (propertize text 'face face)
+                                 text)))
+                           columns)))
                       rows))
              (widths (let ((ws (mapcar #'string-width columns)))
                        (dolist (cells cell-rows ws)

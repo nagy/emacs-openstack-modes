@@ -196,8 +196,22 @@ emacs --batch -L . -l openstack-mode-tests.el \
   refresh drops the entry instead of patching it.
 - New display commands read their ID with
   `(interactive (list (openstack-read-id TYPE "...")))`; a test
-  walks `openstack-resource-types` and compares the interactive
-  forms, so add the same form to the new mode.
+  walks `openstack-resource-types` and calls every display command
+  interactively, so give the new mode the same form.
+- Status display lives in the renderers, not in the modes:
+  `openstack--insert-field` and `openstack-list-render` call
+  `openstack--cell-face`, which combines `openstack-status-faces`
+  (field names from `openstack-status-fields`, value and name
+  compared without case) with `openstack-field-changed`.
+  `openstack--refresh-done` binds `openstack--previous-data`
+  around the render and then calls the state-change hook; a mode
+  that renders its own view must go through the same helpers to
+  keep faces, changes and the hook.
+- The refresh delay of `openstack--buffer-stale-p` comes from
+  `openstack--refresh-delay`: `openstack-refresh-fast-interval`
+  while a status in `openstack-transitional-states` shows,
+  `openstack-refresh-interval` otherwise.  Keep the normal
+  interval as the upper bound.
 - `openstack-xref.el` registers its backend through an
   `;;;###autoload` cookie on the `add-hook` form, so `M-.` works
   after package installation without a `require`.  The backend

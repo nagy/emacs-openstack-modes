@@ -631,5 +631,230 @@ The fetcher receives nil as the ID; without the
   (should (eq (lookup-key openstack-mode-map [mouse-2])
               #'openstack-mouse-display-at-point)))
 
+
+;;; Status faces, changes and notifications
+
+(defun openstack-test--parse (json)
+  "Parse the JSON string into the shapes the CLI layer returns."
+  (with-temp-buffer
+    (insert json)
+    (goto-char (point-min))
+    (json-parse-buffer :object-type 'hash-table
+                       :array-type 'list
+                       :null-object nil
+                       :false-object nil)))
+
+(defun openstack-test--face-at (text)
+  "Return the face property of the first occurrence of TEXT."
+  (goto-char (point-min))
+  (search-forward text)
+  (get-text-property (match-beginning 0) 'face))
+
+(ert-deftest openstack-status-face-map ()
+  "Status values map to faces, other fields keep none."
+  (should (eq (openstack--status-face "status" "ACTIVE")
+              'openstack-status-ok))
+  ;; Show output and list output spell the state differently.
+  (should (eq (openstack--status-face "Status" "active")
+              'openstack-status-ok))
+  (should (eq (openstack--status-face "status" "ERROR")
+              'openstack-status-error))
+  (should (eq (openstack--status-face "status" "BUILD")
+              'openstack-status-pending))
+  (should (null (openstack--status-face "name" "ACTIVE")))
+  (should (null (openstack--status-face "status" "made-up"))))
+
+(ert-deftest openstack-render-fields-status-face ()
+  "A status value renders with its status face."
+  (let ((data (openstack-test--parse
+               "{\"id\": \"srv-1\", \"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("name" "status"))
+      (should (eq (openstack-test--face-at "ACTIVE")
+                  'openstack-status-ok))
+      (should (null (openstack-test--face-at "web-1"))))))
+
+(ert-deftest openstack-render-fields-marks-changed ()
+  "A value that differs from the previous render takes the change face."
+  (let* ((old (openstack-test--parse
+               "{\"id\": \"srv-1\", \"name\": \"web-1\", \"status\": \"BUILD\"}"))
+         (new (openstack-test--parse
+               "{\"id\": \"srv-1\", \"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+         (inhibit-read-only t))
+    (with-temp-buffer
+      (let ((openstack--previous-data old))
+        (openstack-render-fields "Server" "srv-1" new '("name" "status")))
+      (should (equal (openstack-test--face-at "ACTIVE")
+                     '(openstack-field-changed openstack-status-ok)))
+      ;; The unchanged name keeps no face.
+      (should (null (openstack-test--face-at "web-1"))))))
+
+(ert-deftest openstack-list-render-status-and-changes ()
+  "List cells take the status face and the change face."
+  (let* ((old (openstack-test--parse
+               "[{\"ID\": \"srv-1\", \"Name\": \"web-1\", \"Status\": \"BUILD\"}, \
+{\"ID\": \"srv-2\", \"Name\": \"web-2\", \"Status\": \"ACTIVE\"}]"))
+         (new (openstack-test--parse
+               "[{\"ID\": \"srv-1\", \"Name\": \"web-1\", \"Status\": \"ACTIVE\"}, \
+{\"ID\": \"srv-2\", \"Name\": \"web-2\", \"Status\": \"ACTIVE\"}]"))
+         (inhibit-read-only t))
+    (with-temp-buffer
+      (let ((openstack--previous-data old))
+        (openstack-list-render "(no servers)" new '("ID" "Name" "Status")))
+      (goto-char (point-min))
+      (search-forward "srv-1")
+      (let ((faces (text-properties-at (match-beginning 0))))
+        (should (plist-get faces 'openstack-id)))
+      ;; The changed row shows both faces, the unchanged row only the status.
+      (goto-char (point-min))
+      (search-forward "ACTIVE")
+      (should (equal (get-text-property (match-beginning 0) 'face)
+                     '(openstack-field-changed openstack-status-ok)))
+      (search-forward "ACTIVE")
+      (should (eq (get-text-property (match-beginning 0) 'face)
+                  'openstack-status-ok)))))
+
+(ert-deftest openstack-status-changes-resource ()
+  "A resource buffer reports the status fields that changed."
+  (let ((old (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"BUILD\"}"))
+        (new (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"ACTIVE\"}")))
+    (should (equal (openstack--status-changes old new)
+                   '(("srv-1" "status" "BUILD" "ACTIVE"))))
+    ;; The same status twice changes nothing.
+    (should (null (openstack--status-changes new new)))))
+
+(ert-deftest openstack-status-changes-collection ()
+  "A collection buffer reports changes per row, keyed by row ID."
+  (let ((old (openstack-test--parse
+              "[{\"ID\": \"srv-1\", \"Status\": \"BUILD\"}, \
+{\"ID\": \"srv-2\", \"Status\": \"ACTIVE\"}]"))
+        (new (openstack-test--parse
+              "[{\"ID\": \"srv-1\", \"Status\": \"ACTIVE\"}, \
+{\"ID\": \"srv-2\", \"Status\": \"ACTIVE\"}, \
+{\"ID\": \"srv-3\", \"Status\": \"ACTIVE\"}]")))
+    (should (equal (openstack--status-changes old new)
+                   '(("srv-1" "status" "BUILD" "ACTIVE"))))))
+
+(ert-deftest openstack-state-change-hook ()
+  "A state change calls the hook once with buffer, ID and values."
+  (let ((old (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"BUILD\"}"))
+        (new (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"ERROR\"}"))
+        (calls nil))
+    (with-temp-buffer
+      (let ((openstack-state-change-functions
+             (list (lambda (&rest plist) (push plist calls)))))
+        (openstack--notify-state-changes new old))
+      (should (equal (length calls) 1))
+      (should (equal (plist-get (car calls) :id) "srv-1"))
+      (should (equal (plist-get (car calls) :field) "status"))
+      (should (equal (plist-get (car calls) :old) "BUILD"))
+      (should (equal (plist-get (car calls) :new) "ERROR"))
+      (should (eq (plist-get (car calls) :buffer) (current-buffer))))
+    ;; No change, no call.
+    (let (quiet)
+      (let ((openstack-state-change-functions
+             (list (lambda (&rest _plist) (setq quiet t)))))
+        (with-temp-buffer
+          (openstack--notify-state-changes new new)))
+      (should-not quiet))))
+
+(ert-deftest openstack-refresh-done-runs-hook ()
+  "A refresh that changes the status calls the state hook.
+The renderer sees the previous data and draws the change face."
+  (let ((buf (generate-new-buffer " *openstack-test*"))
+        (old (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"BUILD\"}"))
+        (new (openstack-test--parse
+              "{\"id\": \"srv-1\", \"status\": \"ACTIVE\"}"))
+        (calls nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (openstack-mode)
+          (setq-local openstack--id "srv-1")
+          (setq-local openstack--rendered t)
+          (setq-local openstack--last-data old)
+          (setq-local openstack--fetch-marker (list nil))
+          (setq-local openstack-render-function
+                      (lambda (id data)
+                        (openstack-render-fields "Server" id data
+                                                 '("status"))))
+          (let ((openstack-state-change-functions
+                 (list (lambda (&rest plist) (push plist calls))))
+                (inhibit-read-only t))
+            (openstack--refresh-done buf openstack--fetch-marker
+                                     "srv-1" new nil))
+          (should (equal (plist-get (car calls) :old) "BUILD"))
+          (should (equal (plist-get (car calls) :new) "ACTIVE"))
+          (should (string-match-p "^status: ACTIVE$" (buffer-string)))
+          (should (equal (openstack-test--face-at "ACTIVE")
+                         '(openstack-field-changed openstack-status-ok)))
+          ;; The same data again is not re-rendered nor re-reported.
+          (setq openstack--fetch-marker (list nil))
+          (let ((inhibit-read-only t))
+            (openstack--refresh-done buf openstack--fetch-marker
+                                     "srv-1" new nil))
+          (should (equal (length calls) 1)))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-notify-state-change-messages ()
+  "The default listener reports the transition in the echo area."
+  (let ((seen nil))
+    (cl-letf (((symbol-function 'message)
+               (lambda (format-string &rest args)
+                 (setq seen (apply #'format format-string args)))))
+      (openstack-notify-state-change
+       :buffer (current-buffer) :id "srv-1" :field "status"
+       :old "BUILD" :new "ACTIVE"))
+    (should (equal seen "OpenStack srv-1: status BUILD to ACTIVE"))))
+
+(ert-deftest openstack-refresh-delay-adaptive ()
+  "A transitional status polls faster, up to the normal interval."
+  (let ((openstack-refresh-interval 30)
+        (openstack-refresh-fast-interval 5))
+    (with-temp-buffer
+      (setq-local openstack--last-data
+                  (openstack-test--parse "{\"status\": \"ACTIVE\"}"))
+      (should (equal (openstack--refresh-delay) 30))
+      (setq-local openstack--last-data
+                  (openstack-test--parse "{\"status\": \"BUILD\"}"))
+      (should (equal (openstack--refresh-delay) 5))
+      ;; A collection polls fast while one row still changes.
+      (setq-local openstack--last-data
+                  (openstack-test--parse
+                   "[{\"Status\": \"ACTIVE\"}, {\"Status\": \"BUILD\"}]"))
+      (should (equal (openstack--refresh-delay) 5))
+      (setq-local openstack--last-data
+                  (openstack-test--parse "[{\"Status\": \"ACTIVE\"}]"))
+      (should (equal (openstack--refresh-delay) 30))
+      ;; The normal interval stays the upper bound.
+      (let ((openstack-refresh-fast-interval 60))
+        (setq-local openstack--last-data
+                    (openstack-test--parse "{\"status\": \"BUILD\"}"))
+        (should (equal (openstack--refresh-delay) 30))))))
+
+(ert-deftest openstack-buffer-stale-p-uses-fast-interval ()
+  "The stale check of `auto-revert-mode' honors the transitional delay."
+  (let ((buf (generate-new-buffer " *openstack-test*"))
+        (openstack-refresh-interval 30)
+        (openstack-refresh-fast-interval 5)
+        (openstack-refresh-visible-only nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (openstack-mode)
+          (setq-local openstack--id "srv-1")
+          (setq-local openstack--last-fetch-time (- (float-time) 10))
+          (setq-local openstack--last-data
+                      (openstack-test--parse "{\"status\": \"BUILD\"}"))
+          (should (openstack--buffer-stale-p))
+          (setq-local openstack--last-data
+                      (openstack-test--parse "{\"status\": \"ACTIVE\"}"))
+          (should-not (openstack--buffer-stale-p)))
+      (kill-buffer buf))))
+
 (provide 'openstack-mode-tests)
 ;;; openstack-mode-tests.el ends here
