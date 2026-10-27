@@ -107,13 +107,15 @@ an unordered extra to exercise the sorting of unlisted fields.")
            (when buf (kill-buffer buf))))))))
 
 (ert-deftest openstack-image-autoloads ()
-  "The entry points carry autoload cookies."
+  "The file loads itself from the generated autoloads."
   (let ((source (with-temp-buffer
                   (insert-file-contents
                    (expand-file-name "openstack-image.el"))
                   (buffer-string))))
+    ;; The macro writes the commands, so the file needs one autoloaded
+    ;; require instead of a cookie per generated command.
     (should (string-match-p
-             "^;;;###autoload\n\\(?:(defun openstack-image-display\\|(define-derived-mode openstack-image-mode\\)"
+             "^;;;###autoload (require 'openstack-image)$"
              source))))
 
 (provide 'openstack-image-tests)

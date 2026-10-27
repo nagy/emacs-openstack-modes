@@ -120,13 +120,15 @@ an unordered extra to exercise the sorting of unlisted fields.")
            (when buf (kill-buffer buf))))))))
 
 (ert-deftest openstack-network-autoloads ()
-  "The entry points carry autoload cookies."
+  "The file loads itself from the generated autoloads."
   (let ((source (with-temp-buffer
                   (insert-file-contents
                    (expand-file-name "openstack-network.el"))
                   (buffer-string))))
+    ;; The macro writes the commands, so the file needs one autoloaded
+    ;; require instead of a cookie per generated command.
     (should (string-match-p
-             "^;;;###autoload\n\\(?:(defun openstack-network-display\\|(define-derived-mode openstack-network-mode\\)"
+             "^;;;###autoload (require 'openstack-network)$"
              source))))
 
 (provide 'openstack-network-tests)

@@ -18,7 +18,7 @@
 
 (require 'ert)
 (require 'ol-openstack)
-(require 'openstack-network-list)
+(require 'openstack-network)
 
 ;;; Tests
 

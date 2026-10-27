@@ -26,87 +26,47 @@
 
 ;;; Commentary:
 
-;; This package provides `openstack-volume-mode', a mode for
-;; displaying OpenStack block storage volumes.  It fetches a volume
-;; with `openstack volume show' through the asynchronous CLI layer
-;; (see openstack-cli.el) and renders the volume's fields,
-;; inheriting the ID handling, refresh pipeline and bookmark
-;; support of the base mode.
+;; This package provides `openstack-volume-mode' and
+;; `openstack-volume-list-mode', the modes for block storage volumes.
+;; `openstack-define-resource' writes both modes from the form below,
+;; so the client's resource name appears once: it names the fetchers,
+;; the ID prompt, the buffer names, the dashboard URL and the
+;; `openstack-resource-types' entry.
 ;;
-;; Entry point:
+;; Entry points:
 ;;
-;;   M-x openstack-volume-display RET  - display a volume by ID
+;;   M-x openstack-volume-display RET       - display a volume by ID
+;;   M-x openstack-volume-list-display RET  - list all volumes
 ;;
-;; The display buffer fills in asynchronously, refreshes itself
-;; (see `openstack-refresh-interval') and renders the fields of
-;; `openstack-volume-fields' first, in that order; all remaining
-;; fields follow, sorted by name.
+;; The show mode fetches a volume with `openstack volume show' through
+;; the asynchronous CLI layer (see openstack-cli.el) and renders the
+;; fields of `openstack-volume-fields' first, in that order; all
+;; remaining fields follow, sorted by name.  The list mode renders
+;; `openstack volume list' as a `tabulated-list-mode' table whose
+;; columns start with `openstack-volume-list-fields'.  Both buffers
+;; refresh themselves (see `openstack-refresh-interval') and inherit
+;; the ID handling and bookmark support of the base mode.
+;;
+;; Horizon shows a volume at "volumes/ID", so the modes set
+;; `openstack-id-prefix' to "volumes" and leave
+;; `openstack-url-suffix' empty.
 
 ;;; Code:
 
-(require 'openstack-mode)
-(require 'openstack-read)
+(require 'openstack-resource)
 
-(defcustom openstack-volume-buffer-name "*OpenStack Volume*"
-  "Name prefix of the buffer used to display an OpenStack volume.
-`openstack-volume-display' appends the volume ID, so each volume
-gets its own buffer; the same ID always reuses its buffer."
-  :type 'string
-  :group 'openstack)
+(openstack-define-resource "volume"
+  :noun "volumes"
+  :id-prefix "volumes"
+  :fields '("name" "status" "size" "volume_type" "bootable"
+            "attachments" "availability_zone"
+            "created_at" "updated_at")
+  :list-fields '("ID" "Name" "Status" "Size" "Volume Type"
+                 "Attached to"))
 
-(defcustom openstack-volume-fields
-  '("name" "status" "size" "volume_type" "bootable"
-    "attachments" "availability_zone"
-    "created_at" "updated_at")
-  "Fields shown first, in this order, by `openstack-volume-mode'.
-Fields missing from the volume data are skipped; every other
-field of `openstack volume show' is rendered after them, sorted
-by name."
-  :type '(repeat string)
-  :group 'openstack)
-
-(defun openstack-volume--fetch (id success-fn error-fn)
-  "Fetch the data of volume ID using `openstack-show-fetch'.
-Run `openstack volume show ID' and call SUCCESS-FN with the
-parsed JSON, or ERROR-FN with an `openstack-cli-error'
-condition.  Return the client process, so the display machinery
-can cancel the fetch.  This is the value of
-`openstack-fetch-function' in `openstack-volume-mode'."
-  (openstack-show-fetch "volume" id success-fn error-fn))
-
-(defun openstack-volume--render (id data)
-  "Insert the display of volume ID with DATA into the current buffer.
-DATA is the parsed `openstack volume show' JSON, rendered by
-`openstack-render-fields' with the field order of
-`openstack-volume-fields'.  This is the value of
-`openstack-render-function' in `openstack-volume-mode'."
-  (openstack-render-fields "Volume" id data openstack-volume-fields))
-
-;;;###autoload
-(defun openstack-volume-display (id)
-  "Display the OpenStack volume with ID in a dedicated buffer.
-The buffer is named by `openstack-volume-buffer-name' and put
-into `openstack-volume-mode', which fetches the volume with
-`openstack volume show' and renders its fields.  The fetch is
-asynchronous: the buffer fills in when the client delivers data,
-and keeps itself up to date afterwards."
-  (interactive (list (openstack-read-id "volume"
-                                    "OpenStack volume ID: ")))
-  (let ((openstack-buffer-name openstack-volume-buffer-name))
-    (openstack-display id #'openstack-volume-mode)))
-
-;;;###autoload
-(define-derived-mode openstack-volume-mode openstack-mode
-  "OpenStack Volume"
-  "Major mode for displaying an OpenStack volume resource.
-Derives from `openstack-mode', inheriting the ID handling, the
-refresh pipeline and bookmark support.  Fetching and rendering
-are set buffer-locally to the volume-specific fetcher and
-renderer; they can be overridden globally like any other
-`openstack-mode' buffer."
-  (setq-local openstack-fetch-function #'openstack-volume--fetch)
-  (setq-local openstack-render-function #'openstack-volume--render)
-  (setq-local openstack-id-prefix "volumes"))
+;; Load the modes from the generated autoloads, so an installed
+;; package fills `openstack-resource-types' at load time.
+;;;###autoload (require 'openstack-volume)
 
 (provide 'openstack-volume)
 ;;; openstack-volume.el ends here

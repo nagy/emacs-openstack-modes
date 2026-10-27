@@ -18,16 +18,12 @@ resource-specific modes can depend on it.
 | =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=        |
 | =openstack-read.el=               | ID completion and the =RESOURCE list= cache                |
 | =openstack-xref.el=               | xref backend: =M-.= on a resource ID                       |
-| =openstack-server.el=             | Server mode: fetches and renders =openstack server show=   |
-| =openstack-server-list.el=        | Server list mode: =openstack server list=                  |
-| =openstack-volume.el=             | Volume mode: fetches and renders =openstack volume show=   |
-| =openstack-image.el=              | Image mode: fetches and renders =openstack image show=     |
-| =openstack-volume-list.el=        | Volume list mode: =openstack volume list=                  |
-| =openstack-image-list.el=         | Image list mode: =openstack image list=                    |
-| =openstack-network.el=            | Network mode: fetches and renders =openstack network show= |
-| =openstack-network-list.el=       | Network list mode: =openstack network list=                |
-| =openstack-container.el=          | Container mode: =openstack container show=                 |
-| =openstack-container-list.el=     | Container list mode: =openstack container list=            |
+| =openstack-resource.el=           | =openstack-define-resource= macro and the type registry     |
+| =openstack-server.el=             | Server show and list modes                                 |
+| =openstack-volume.el=             | Volume show and list modes                                 |
+| =openstack-image.el=              | Image show and list modes                                  |
+| =openstack-network.el=            | Network show and list modes                                |
+| =openstack-container.el=          | Container show and list modes (Object Storage)             |
 | =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
 | =openstack-mode-tests.el=         | ERT test suite for the mode                                |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
@@ -41,6 +37,7 @@ resource-specific modes can depend on it.
 | =openstack-network-list-tests.el= | ERT test suite for the network list mode                   |
 | =openstack-container-tests.el=    | ERT test suite for the container mode                      |
 | =openstack-container-list-tests.el= | ERT test suite for the container list mode               |
+| =openstack-resource-tests.el=     | ERT test suite for the macro and the type registry         |
 | =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
 | =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
@@ -242,6 +239,42 @@ and object counts).  The table logic lives in the base mode
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.
 
+* Resource files
+
+Every resource type lives in one file with one form:
+
+#+begin_src elisp
+  (require 'openstack-resource)
+
+  (openstack-define-resource "volume"
+    :noun "volumes"
+    :id-prefix "volumes"
+    :fields '("name" "status" "size")
+    :list-fields '("ID" "Name" "Status"))
+
+  ;;;###autoload (require 'openstack-volume)
+#+end_src
+
+The macro writes both modes (=openstack-volume-mode= and
+=openstack-volume-list-mode=), their display commands, fetchers and
+renderers, and the defcustoms of their buffer names, field orders
+and list arguments.  The resource name appears once, so the ID
+prompt, the two fetchers, the buffer names, the dashboard URL and
+the type registry cannot disagree.
+
+The optional keys of the form:
+
+- =:cli= -- client resource command, when it differs from the type
+- =:url-suffix= -- trailing dashboard URL segments (e.g. =/detail=)
+- =:list-arguments= -- extra client arguments of =RESOURCE list=
+  (e.g. =("--long")=)
+
+The macro records the definition in =openstack-resource-definitions=
+and adds the type to =openstack-resource-types=, so the ID prompts,
+the Org links and the xref backend learn about it.  The trailing
+autoloaded =require= loads the file, and so fills the registry, when
+an installed package starts.
+
 * Org links
 
 The package ships the =openstack:= Org link type.  A link names
@@ -267,9 +300,9 @@ Enable the link type in your init file:
 Customization (=M-x customize-group openstack=):
 
 =openstack-resource-types= holds the resource type, display mode
-and display command of each resource mode.  One entry there
-serves the ID prompts, the Org links and the xref backend, so a
-new derived mode needs one entry.
+and display command of each resource mode.  The resource modes fill
+it when they load, so one entry there serves the ID prompts, the
+Org links and the xref backend without a second list to update.
 
 The export takes the dashboard URL from the mode's own
 =openstack-id-prefix= and =openstack-url-suffix=, so the link

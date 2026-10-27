@@ -18,7 +18,7 @@
 
 (require 'ert)
 (require 'openstack-cli-tests)
-(require 'openstack-volume-list)
+(require 'openstack-volume)
 
 ;; Forward reference: the list buffer's RET command.
 (declare-function openstack-volume-display "openstack-volume" (id))
@@ -151,13 +151,15 @@ refresh pipeline runs without a resource ID."
            (when buf (kill-buffer buf))))))))
 
 (ert-deftest openstack-volume-list-autoloads ()
-  "The entry points carry autoload cookies."
+  "The file loads itself from the generated autoloads."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-volume-list.el"))
+                   (expand-file-name "openstack-volume.el"))
                   (buffer-string))))
+    ;; The macro writes the commands, so the file needs one autoloaded
+    ;; require instead of a cookie per generated command.
     (should (string-match-p
-             "^;;;###autoload\n\\(?:(defun openstack-volume-list-display\\|(define-derived-mode openstack-volume-list-mode\\)"
+             "^;;;###autoload (require 'openstack-volume)$"
              source))))
 
 (provide 'openstack-volume-list-tests)

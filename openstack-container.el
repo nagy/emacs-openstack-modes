@@ -26,104 +26,57 @@
 
 ;;; Commentary:
 
-;; This package provides `openstack-container-mode', a mode for
-;; displaying containers of the Object Storage service (Swift).  It
-;; fetches a container with `openstack container show' through the
-;; asynchronous CLI layer (see openstack-cli.el) and renders the
-;; container's fields, inheriting the ID handling, refresh pipeline
-;; and bookmark support of the base mode.
+;; This package provides `openstack-container-mode' and
+;; `openstack-container-list-mode', the modes for containers of the
+;; Object Storage service (Swift).  `openstack-define-resource' writes
+;; both modes from the form below, so the client's resource name
+;; appears once: it names the fetchers, the ID prompt, the buffer
+;; names, the dashboard URL and the `openstack-resource-types' entry.
 ;;
-;; Entry point:
+;; Entry points:
 ;;
-;;   M-x openstack-container-display RET  - display a container by name
+;;   M-x openstack-container-display RET       - display a container
+;;   M-x openstack-container-list-display RET  - list all containers
 ;;
 ;; A Swift container has no UUID: its name is its identifier.  The
-;; mode therefore hands the name to the base mode as the resource
-;; ID, and `openstack-read-id' completes names from `container
-;; list' rows, which carry a Name field and no ID field.
+;; show mode therefore hands the name to the base mode as the resource
+;; ID, and `openstack-read-id' completes names from `container list'
+;; rows, which carry a Name field and no ID field.
 ;;
-;; The display buffer fills in asynchronously, refreshes itself
-;; (see `openstack-refresh-interval') and renders the fields of
-;; `openstack-container-fields' first, in that order; all remaining
-;; fields follow, sorted by name.
+;; The show mode fetches a container with `openstack container show'
+;; through the asynchronous CLI layer (see openstack-cli.el) and
+;; renders the fields of `openstack-container-fields' first, in that
+;; order; all remaining fields follow, sorted by name.  The list mode
+;; renders `openstack container list' as a `tabulated-list-mode'
+;; table; `openstack-container-list-arguments' adds "--long", so the
+;; table shows the byte and object counts as well.  Both buffers
+;; refresh themselves (see `openstack-refresh-interval') and inherit
+;; the ID handling and bookmark support of the base mode.
 ;;
 ;; Horizon shows a container at "project/containers/NAME", so the
-;; mode sets `openstack-id-prefix' and leaves `openstack-url-suffix'
+;; modes set `openstack-id-prefix' and leave `openstack-url-suffix'
 ;; empty.
 ;;
 ;; The S3 API of Swift is a separate interface on the same service:
 ;; its access key and secret come from `ec2 credentials' of the
-;; Identity service.  This mode does not display them.
+;; Identity service.  This package does not display them.
 
 ;;; Code:
 
-(require 'openstack-mode)
-(require 'openstack-read)
+(require 'openstack-resource)
 
-(defcustom openstack-container-buffer-name "*OpenStack Container*"
-  "Name prefix of the buffer used to display an OpenStack container.
-`openstack-container-display' appends the container name, so each
-container gets its own buffer; the same name always reuses its
-buffer."
-  :type 'string
-  :group 'openstack)
+(openstack-define-resource "container"
+  :noun "containers"
+  :id-prefix "project/containers"
+  :fields '("container" "bytes_used" "object_count" "storage_policy"
+            "read_acl" "write_acl" "account" "sync_to" "sync_key"
+            "properties")
+  :list-fields '("Name" "Bytes" "Count")
+  :list-arguments '("--long"))
 
-(defcustom openstack-container-fields
-  '("container" "bytes_used" "object_count" "storage_policy"
-    "read_acl" "write_acl" "account" "sync_to" "sync_key"
-    "properties")
-  "Fields shown first, in this order, by `openstack-container-mode'.
-Fields missing from the container data are skipped; every other
-field of `openstack container show' is rendered after them, sorted
-by name."
-  :type '(repeat string)
-  :group 'openstack)
-
-(defun openstack-container--fetch (id success-fn error-fn)
-  "Fetch the data of container ID using `openstack-show-fetch'.
-ID is the container name.  Run `openstack container show ID' and
-call SUCCESS-FN with the parsed JSON, or ERROR-FN with an
-`openstack-cli-error' condition.  Return the client process, so
-the display machinery can cancel the fetch.  This is the value of
-`openstack-fetch-function' in `openstack-container-mode'."
-  (openstack-show-fetch "container" id success-fn error-fn))
-
-(defun openstack-container--render (id data)
-  "Insert the display of container ID with DATA into the buffer.
-DATA is the parsed `openstack container show' JSON, rendered by
-`openstack-render-fields' with the field order of
-`openstack-container-fields'.  This is the value of
-`openstack-render-function' in `openstack-container-mode'."
-  (openstack-render-fields "Container" id data openstack-container-fields))
-
-;;;###autoload
-(defun openstack-container-display (id)
-  "Display the OpenStack container with ID in a dedicated buffer.
-ID is the container name.  The buffer is named by
-`openstack-container-buffer-name' and put into
-`openstack-container-mode', which fetches the container with
-`openstack container show' and renders its fields.  The fetch is
-asynchronous: the buffer fills in when the client delivers data,
-and keeps itself up to date afterwards."
-  (interactive (list (openstack-read-id "container"
-                                       "OpenStack container name: ")))
-  (let ((openstack-buffer-name openstack-container-buffer-name))
-    (openstack-display id #'openstack-container-mode)))
-
-;;;###autoload
-(define-derived-mode openstack-container-mode openstack-mode
-  "OpenStack Container"
-  "Major mode for displaying an OpenStack object storage container.
-Derives from `openstack-mode', inheriting the ID handling, the
-refresh pipeline and bookmark support.  The resource ID of the
-mode is the container name, because a Swift container has no
-UUID.  Fetching and rendering are set buffer-locally to the
-container-specific fetcher and renderer; they can be overridden
-globally like any other `openstack-mode' buffer.  The dashboard
-URL points at the project's container page."
-  (setq-local openstack-fetch-function #'openstack-container--fetch)
-  (setq-local openstack-render-function #'openstack-container--render)
-  (setq-local openstack-id-prefix "project/containers"))
+;; Load the modes from the generated autoloads, so an installed
+;; package fills `openstack-resource-types' at load time.
+;;;###autoload (require 'openstack-container)
 
 (provide 'openstack-container)
 ;;; openstack-container.el ends here

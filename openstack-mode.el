@@ -211,17 +211,16 @@ list buffer opens the right kind of show buffer."
   :type 'function
   :group 'openstack)
 
-(defcustom openstack-resource-types
-  '(("server" openstack-server-mode openstack-server-display)
-    ("volume" openstack-volume-mode openstack-volume-display)
-    ("image" openstack-image-mode openstack-image-display)
-    ("network" openstack-network-mode openstack-network-display)
-    ("container" openstack-container-mode openstack-container-display))
+(defcustom openstack-resource-types nil
   "Resource types with a derived mode.
 Each entry is a list of the type name, the mode that displays the
 resource and the command that opens its display buffer.  Prompts,
-Org links and xref navigation read this table, so a new derived
-mode needs one entry here as well as its own file."
+Org links and xref navigation read this table.
+
+The resource modes fill the table when they load: each one calls
+`openstack-define-resource', which appends its entry.  The default
+is therefore empty.  Add an entry here only for a mode that does
+not use the macro."
   :type '(repeat (list (string :tag "Type")
                        (symbol :tag "Mode")
                        (symbol :tag "Display command")))

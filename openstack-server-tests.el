@@ -189,13 +189,15 @@ display command must render it through the async pipeline."
            (when buf (kill-buffer buf))))))))
 
 (ert-deftest openstack-server-autoloads ()
-  "The entry points carry autoload cookies."
+  "The file loads itself from the generated autoloads."
   (let ((source (with-temp-buffer
                   (insert-file-contents
                    (expand-file-name "openstack-server.el"))
                   (buffer-string))))
+    ;; The macro writes the commands, so the file needs one autoloaded
+    ;; require instead of a cookie per generated command.
     (should (string-match-p
-             "^;;;###autoload\n\\(?:(defun openstack-server-display\\|(define-derived-mode openstack-server-mode\\)"
+             "^;;;###autoload (require 'openstack-server)$"
              source))))
 
 (provide 'openstack-server-tests)

@@ -18,7 +18,7 @@
 
 (require 'ert)
 (require 'openstack-cli-tests)
-(require 'openstack-image-list)
+(require 'openstack-image)
 
 ;; Forward reference: the list buffer's RET command.
 (declare-function openstack-image-display "openstack-image" (id))
@@ -151,13 +151,15 @@ refresh pipeline runs without a resource ID."
            (when buf (kill-buffer buf))))))))
 
 (ert-deftest openstack-image-list-autoloads ()
-  "The entry points carry autoload cookies."
+  "The file loads itself from the generated autoloads."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-image-list.el"))
+                   (expand-file-name "openstack-image.el"))
                   (buffer-string))))
+    ;; The macro writes the commands, so the file needs one autoloaded
+    ;; require instead of a cookie per generated command.
     (should (string-match-p
-             "^;;;###autoload\n\\(?:(defun openstack-image-list-display\\|(define-derived-mode openstack-image-list-mode\\)"
+             "^;;;###autoload (require 'openstack-image)$"
              source))))
 
 (provide 'openstack-image-list-tests)

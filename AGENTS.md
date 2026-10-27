@@ -13,30 +13,27 @@ name as the ID.
 
 | File | Purpose |
 |---|---|
-| `openstack-mode.el` | Base major mode, handles the resource ID |
+| `openstack-mode.el` | Base major mode, handles the resource ID, `openstack-resource-types` |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
+| `openstack-resource.el` | `openstack-define-resource` macro: writes a resource's show and list modes from one form, records it in `openstack-resource-definitions`, fills `openstack-resource-types` |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, opt-in via `(require 'openstack-xref)` |
-| `openstack-server.el` | First derived mode: fetches `openstack server show` (async), renders server fields; `openstack-server-display` entry point |
-| `openstack-server-list.el` | Collection mode: `openstack server list` as a `tabulated-list-mode` table; `openstack-server-list-display` |
-| `openstack-volume.el` | Volume mode: `openstack volume show` via the generic helpers |
-| `openstack-image.el` | Image mode: `openstack image show` via the generic helpers |
-| `openstack-volume-list.el` | Volume list mode: `openstack volume list` as a `tabulated-list-mode` table; `openstack-volume-list-display` |
-| `openstack-image-list.el` | Image list mode: `openstack image list` as a `tabulated-list-mode` table; `openstack-image-list-display` |
-| `openstack-network.el` | Network mode: `openstack network show` via the generic helpers; `openstack-network-display` |
-| `openstack-network-list.el` | Network list mode: `openstack network list` as a `tabulated-list-mode` table; `openstack-network-list-display` |
-| `openstack-container.el` | Container mode (Object Storage, Swift): `openstack container show`; the container name is the ID; `openstack-container-display` |
-| `openstack-container-list.el` | Container list mode: `openstack container list --long` as a `tabulated-list-mode` table; `openstack-container-list-display` |
+| `openstack-server.el` | Server resource: one macro call defines `openstack-server-mode` (`openstack server show`) and `openstack-server-list-mode` (`openstack server list`) |
+| `openstack-volume.el` | Volume resource: `openstack-volume-mode` + `openstack-volume-list-mode` |
+| `openstack-image.el` | Image resource: `openstack-image-mode` + `openstack-image-list-mode` |
+| `openstack-network.el` | Network resource: `openstack-network-mode` + `openstack-network-list-mode`, dashboard prefix `project/networks` with `/detail` |
+| `openstack-container.el` | Container resource (Object Storage, Swift): show and list modes, the container name is the ID, list runs with `--long` |
 | `openstack-list-mode.el` | Collection base mode over `tabulated-list-mode`: generic fetch, table renderer, column widths, typed sorters, row commands, mode line status |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
-| `openstack-server-tests.el` | ERT tests for the server mode |
+| `openstack-server-tests.el` | ERT tests for the server modes |
 | `openstack-server-list-tests.el` | ERT tests for the server list mode |
 | `openstack-volume-tests.el` | ERT tests for the volume mode |
 | `openstack-image-tests.el` | ERT tests for the image mode |
 | `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
+| `openstack-resource-tests.el` | ERT tests for the macro and the registry: definitions, generated symbols and `openstack-resource-types` agree |
 | `openstack-network-tests.el` | ERT tests for the network mode |
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
 | `openstack-container-tests.el` | ERT tests for the container mode |
@@ -82,7 +79,8 @@ Without Nix:
 
 ```sh
 emacs --batch -L . -l openstack-mode-tests.el \
-  -l openstack-cli-tests.el -l openstack-server-tests.el \
+  -l openstack-cli-tests.el -l openstack-resource-tests.el \
+  -l openstack-server-tests.el \
   -l openstack-server-list-tests.el -l openstack-volume-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
@@ -122,9 +120,30 @@ includes evil.
 - The `openstack-program` defcustom lives in `openstack-cli.el`
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
-- Derived modes go in their own file and require
-  `openstack-mode`; the list modes require `openstack-list-mode`.
-  The repo ships one Emacs package:
+- Every resource type lives in one file that holds a single
+  `(openstack-define-resource "TYPE" ...)` form; the macro in
+  `openstack-resource.el` writes the show mode, the list mode,
+  their display commands, fetchers, renderers and defcustoms from
+  that form.  The type string appears once per resource.  Do not
+  hand-write `openstack-*-mode`, `openstack-*-display`,
+  `openstack-*-fetch` or the `*-fields` defcustoms again: derive
+  them through the macro, and add a keyword when the macro lacks
+  what a new resource needs.
+- `openstack-define-resource` registers the type in
+  `openstack-resource-definitions`, the registry, and appends its
+  entry to `openstack-resource-types`, which the ID prompts, the
+  Org links and the xref backend read.  The table therefore starts
+  empty and fills in load order, so a resource file ends with
+  `;;;###autoload (require 'openstack-FILE)`: the autoload
+  generator copies that form into the package autoloads, and the
+  installed package loads every resource mode (and so the
+  registry) at startup.  The macro writes its commands, so no
+  cookie can precede them in the source; the per-file autoload
+  tests assert the require instead.
+  `openstack-resource-tests.el` walks the registry and checks that
+  every definition, its generated symbols and its table entry
+  agree, so a new resource file cannot drift.
+- The repo ships one Emacs package:
   `packages.openstack-mode` (aliased as `packages.default`) builds
   the whole tree with one `melpaBuild`, because `package-build`
   packages every `*.el` file in the source and no mode carries its
@@ -137,8 +156,8 @@ includes evil.
 - Byte-compilation runs with warnings as errors.  When file A calls
   a function defined in file B without requiring B, declare it:
   `(declare-function openstack-server-display "openstack-server" (id))`.
-  The list modes and their tests need this for the show entry
-  points they bind to `openstack-show-command`.
+  The list mode tests need this for the show entry points they
+  bind to `openstack-show-command`.
   `tabulated-list-print` requires an entry as a list `(ID COLS)`:
   a cons of ID and column vector makes it signal a type error.
 - Derived modes override fetching and rendering by setting the
@@ -152,37 +171,37 @@ includes evil.
   mode's symbol); derived-mode entry points such as
   `openstack-server-display` bind their own `openstack-buffer-name`
   and call it, so the refresh starts inside the derived mode.
-- Show modes are thin: defcustoms (buffer name, field order), a
-  fetch wrapper over `openstack-show-fetch` (generic `RESOURCE
-  show ID` via the async CLI layer) and a render wrapper over
-  `openstack-render-fields` (header + ordered field table, JSON
-  for nested values), plus display command and mode.  Value
+- Show modes build on `openstack-show-fetch` (generic `RESOURCE
+  show ID` via the async CLI layer) and `openstack-render-fields`
+  (header + ordered field table, JSON for nested values).  Value
   formatting lives in `openstack--format-value`; do not duplicate
   it per mode.  A mode whose Horizon page has trailing segments
   sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
-  go into `openstack-id-prefix`.
+  go into `openstack-id-prefix`.  Both come from the macro call
+  (`:id-prefix`, `:url-suffix`).
 - Collection buffers (lists) have no resource ID:
   `openstack-list-mode` sets the buffer-local `openstack-collection`
   flag, so `openstack--refresh` runs and the fetcher receives nil as
   the ID.  The ID commands user-error on collection buffers.
 - The collection base mode derives from `tabulated-list-mode`:
-  `openstack-list-mode` is the parent of every `*-list-mode`, which
-  only set `openstack-fetch-function`, `openstack-render-function`,
-  `openstack-id-prefix`, `openstack-show-command` and
-  `openstack-list--noun`.  Do not derive a list mode from
-  `openstack-mode` directly, and do not hand-pad a table.
-- List modes are thin: a fetch wrapper over `openstack-list-fetch`
-  (generic `RESOURCE list` via the async CLI layer) and a render
-  wrapper over `openstack-list-render` (placeholder for an empty
-  list; column ordering via `openstack-list-columns`), plus display
-  command and mode.  `openstack-list-render` sets
+  `openstack-list-mode` is the parent of every `*-list-mode`.  The
+  macro sets `openstack-fetch-function`, `openstack-render-function`,
+  `openstack-id-prefix`, `openstack-url-suffix`,
+  `openstack-show-command` and `openstack-list--noun` for a list
+  mode.  Do not derive a list mode from `openstack-mode` directly,
+  and do not hand-pad a table.
+- List modes build on `openstack-list-fetch` (generic `RESOURCE
+  list` via the async CLI layer) and `openstack-list-render`
+  (placeholder for an empty list; column ordering via
+  `openstack-list-columns`).  `openstack-list-render` sets
   `tabulated-list-format` (widths fitted to the window, typed
   sorters per column, numbers right-aligned) and
   `tabulated-list-entries` (ID plus cell vector), then calls
   `tabulated-list-print`.  `openstack-list-fetch` takes an optional
-  ARGS list appended to `RESOURCE list`, so a collection whose list
+  ARGS list appended to `RESOURCE list`; the macro passes the
+  `:list-arguments` of the definition, so a collection whose list
   needs a client option stays a thin wrapper
-  (`openstack-container-list-arguments` passes `--long`).
+  (`openstack-container-list-arguments` defaults to `--long`).
 - A resource with no UUID takes its name as the ID.
   `openstack-read--row-id` and `openstack-list--row-id` fall back to
   the `Name` field of a list row, and a row without either field

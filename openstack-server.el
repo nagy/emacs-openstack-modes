@@ -26,91 +26,48 @@
 
 ;;; Commentary:
 
-;; This package provides `openstack-server-mode', the first
-;; resource-specific mode derived from `openstack-mode'.  It
-;; fetches a server with `openstack server show' through the
-;; asynchronous CLI layer (see openstack-cli.el) and renders the
-;; server's fields, inheriting the ID handling, refresh pipeline
-;; and bookmark support of the base mode.
+;; This package provides `openstack-server-mode' and
+;; `openstack-server-list-mode', the modes for servers of the Compute
+;; service.  `openstack-define-resource' writes both modes from the
+;; form below, so the client's resource name appears once: it names
+;; the fetchers, the ID prompt, the buffer names, the dashboard URL
+;; and the `openstack-resource-types' entry.
 ;;
-;; Entry point:
+;; Entry points:
 ;;
-;;   M-x openstack-server-display RET  - display a server by ID
+;;   M-x openstack-server-display RET       - display a server by ID
+;;   M-x openstack-server-list-display RET  - list all servers
 ;;
-;; The display buffer fills in asynchronously, refreshes itself
-;; (see `openstack-refresh-interval') and renders the fields of
-;; `openstack-server-fields' first, in that order; all remaining
-;; fields follow, sorted by name.
+;; The show mode fetches a server with `openstack server show'
+;; through the asynchronous CLI layer (see openstack-cli.el) and
+;; renders the fields of `openstack-server-fields' first, in that
+;; order; all remaining fields follow, sorted by name.  The list
+;; mode renders `openstack server list' as a `tabulated-list-mode'
+;; table whose columns start with `openstack-server-list-fields'.
+;; Both buffers refresh themselves (see `openstack-refresh-interval')
+;; and inherit the ID handling and bookmark support of the base mode.
+;;
+;; Horizon shows a server at "compute/ID", so the modes set
+;; `openstack-id-prefix' to "compute" and leave
+;; `openstack-url-suffix' empty.
 
 ;;; Code:
 
-(require 'json)
-(require 'openstack-mode)
-(require 'openstack-read)
+(require 'openstack-resource)
 
-(defcustom openstack-server-buffer-name "*OpenStack Server*"
-  "Name prefix of the buffer used to display an OpenStack server.
-`openstack-server-display' appends the server ID, so each server
-gets its own buffer; the same ID always reuses its buffer."
-  :type 'string
-  :group 'openstack)
+(openstack-define-resource "server"
+  :noun "servers"
+  :id-prefix "compute"
+  :fields '("name" "status" "host_status" "vm_state"
+            "OS-EXT-AZ:availability_zone" "project_id"
+            "flavor" "addresses" "image"
+            "created_at" "updated_at")
+  :list-fields '("ID" "Name" "Status" "Host" "Task State"
+                 "Networks" "Image Name" "Flavor"))
 
-(defcustom openstack-server-fields
-  '("name" "status" "host_status" "vm_state"
-    "OS-EXT-AZ:availability_zone" "project_id"
-    "flavor" "addresses" "image"
-    "created_at" "updated_at")
-  "Fields shown first, in this order, by `openstack-server-mode'.
-Fields missing from the server data are skipped; every other
-field of `openstack server show' is rendered after them, sorted
-by name."
-  :type '(repeat string)
-  :group 'openstack)
-
-;;; Fetcher and renderer
-
-(defun openstack-server--fetch (id success-fn error-fn)
-  "Fetch the data of server ID using `openstack-show-fetch'.
-Run `openstack server show ID' and call SUCCESS-FN with the
-parsed JSON, or ERROR-FN with an `openstack-cli-error'
-condition.  Return the client process, so the display machinery
-can cancel the fetch.  This is the value of
-`openstack-fetch-function' in `openstack-server-mode'."
-  (openstack-show-fetch "server" id success-fn error-fn))
-
-(defun openstack-server--render (id data)
-  "Insert the display of server ID with DATA into the current buffer.
-DATA is the parsed `openstack server show' JSON, rendered by
-`openstack-render-fields' with the field order of
-`openstack-server-fields'.  This is the value of
-`openstack-render-function' in `openstack-server-mode'."
-  (openstack-render-fields "Server" id data openstack-server-fields))
-
-;;;###autoload
-(defun openstack-server-display (id)
-  "Display the OpenStack server with ID in a dedicated buffer.
-The buffer is named by `openstack-server-buffer-name' and put
-into `openstack-server-mode', which fetches the server with
-`openstack server show' and renders its fields.  The fetch is
-asynchronous: the buffer fills in when the client delivers data,
-and keeps itself up to date afterwards."
-  (interactive (list (openstack-read-id "server"
-                                    "OpenStack server ID: ")))
-  (let ((openstack-buffer-name openstack-server-buffer-name))
-    (openstack-display id #'openstack-server-mode)))
-
-;;;###autoload
-(define-derived-mode openstack-server-mode openstack-mode
-  "OpenStack Server"
-  "Major mode for displaying an OpenStack server resource.
-Derives from `openstack-mode', inheriting the ID handling, the
-refresh pipeline and bookmark support.  Fetching and rendering
-are set buffer-locally to the server-specific fetcher and
-renderer; they can be overridden globally like any other
-`openstack-mode' buffer."
-  (setq-local openstack-fetch-function #'openstack-server--fetch)
-  (setq-local openstack-render-function #'openstack-server--render)
-  (setq-local openstack-id-prefix "compute"))
+;; Load the modes from the generated autoloads, so an installed
+;; package fills `openstack-resource-types' at load time.
+;;;###autoload (require 'openstack-server)
 
 (provide 'openstack-server)
 ;;; openstack-server.el ends here

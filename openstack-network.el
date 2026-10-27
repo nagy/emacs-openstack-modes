@@ -26,96 +26,51 @@
 
 ;;; Commentary:
 
-;; This package provides `openstack-network-mode', a mode for
-;; displaying OpenStack networks of the Networking service.  It
-;; fetches a network with `openstack network show' through the
-;; asynchronous CLI layer (see openstack-cli.el) and renders the
-;; network's fields, inheriting the ID handling, refresh pipeline
-;; and bookmark support of the base mode.
+;; This package provides `openstack-network-mode' and
+;; `openstack-network-list-mode', the modes for networks of the
+;; Networking service.  `openstack-define-resource' writes both modes
+;; from the form below, so the client's resource name appears once: it
+;; names the fetchers, the ID prompt, the buffer names, the dashboard
+;; URL and the `openstack-resource-types' entry.
 ;;
-;; Entry point:
+;; Entry points:
 ;;
-;;   M-x openstack-network-display RET  - display a network by ID
+;;   M-x openstack-network-display RET       - display a network by ID
+;;   M-x openstack-network-list-display RET  - list all networks
 ;;
-;; The display buffer fills in asynchronously, refreshes itself
-;; (see `openstack-refresh-interval') and renders the fields of
-;; `openstack-network-fields' first, in that order; all remaining
-;; fields follow, sorted by name.
+;; The show mode fetches a network with `openstack network show'
+;; through the asynchronous CLI layer (see openstack-cli.el) and
+;; renders the fields of `openstack-network-fields' first, in that
+;; order; all remaining fields follow, sorted by name.  The list mode
+;; renders `openstack network list' as a `tabulated-list-mode' table
+;; whose columns start with `openstack-network-list-fields'.  Both
+;; buffers refresh themselves (see `openstack-refresh-interval') and
+;; inherit the ID handling and bookmark support of the base mode.
 ;;
 ;; Horizon shows a network at "project/networks/ID/detail", so the
-;; mode sets `openstack-id-prefix' and `openstack-url-suffix'
-;; instead of the single path segment the compute modes use.
+;; modes set `openstack-id-prefix' to "project/networks" and
+;; `openstack-url-suffix' to "/detail" instead of the single path
+;; segment the compute modes use.
 
 ;;; Code:
 
-(require 'openstack-mode)
-(require 'openstack-read)
+(require 'openstack-resource)
 
-(defcustom openstack-network-buffer-name "*OpenStack Network*"
-  "Name prefix of the buffer used to display an OpenStack network.
-`openstack-network-display' appends the network ID, so each
-network gets its own buffer; the same ID always reuses its
-buffer."
-  :type 'string
-  :group 'openstack)
+(openstack-define-resource "network"
+  :noun "networks"
+  :id-prefix "project/networks"
+  :url-suffix "/detail"
+  :fields '("name" "status" "admin_state_up" "shared" "router:external"
+            "subnets" "project_id"
+            "provider:network_type" "provider:physical_network"
+            "provider:segmentation_id" "mtu"
+            "created_at" "updated_at")
+  :list-fields '("ID" "Name" "Status" "Subnets" "Shared"
+                 "Router External"))
 
-(defcustom openstack-network-fields
-  '("name" "status" "admin_state_up" "shared" "router:external"
-    "subnets" "project_id"
-    "provider:network_type" "provider:physical_network"
-    "provider:segmentation_id" "mtu"
-    "created_at" "updated_at")
-  "Fields shown first, in this order, by `openstack-network-mode'.
-Fields missing from the network data are skipped; every other
-field of `openstack network show' is rendered after them, sorted
-by name."
-  :type '(repeat string)
-  :group 'openstack)
-
-(defun openstack-network--fetch (id success-fn error-fn)
-  "Fetch the data of network ID using `openstack-show-fetch'.
-Run `openstack network show ID' and call SUCCESS-FN with the
-parsed JSON, or ERROR-FN with an `openstack-cli-error'
-condition.  Return the client process, so the display machinery
-can cancel the fetch.  This is the value of
-`openstack-fetch-function' in `openstack-network-mode'."
-  (openstack-show-fetch "network" id success-fn error-fn))
-
-(defun openstack-network--render (id data)
-  "Insert the display of network ID with DATA into the current buffer.
-DATA is the parsed `openstack network show' JSON, rendered by
-`openstack-render-fields' with the field order of
-`openstack-network-fields'.  This is the value of
-`openstack-render-function' in `openstack-network-mode'."
-  (openstack-render-fields "Network" id data openstack-network-fields))
-
-;;;###autoload
-(defun openstack-network-display (id)
-  "Display the OpenStack network with ID in a dedicated buffer.
-The buffer is named by `openstack-network-buffer-name' and put
-into `openstack-network-mode', which fetches the network with
-`openstack network show' and renders its fields.  The fetch is
-asynchronous: the buffer fills in when the client delivers data,
-and keeps itself up to date afterwards."
-  (interactive (list (openstack-read-id "network"
-                                    "OpenStack network ID: ")))
-  (let ((openstack-buffer-name openstack-network-buffer-name))
-    (openstack-display id #'openstack-network-mode)))
-
-;;;###autoload
-(define-derived-mode openstack-network-mode openstack-mode
-  "OpenStack Network"
-  "Major mode for displaying an OpenStack network resource.
-Derives from `openstack-mode', inheriting the ID handling, the
-refresh pipeline and bookmark support.  Fetching and rendering
-are set buffer-locally to the network-specific fetcher and
-renderer; they can be overridden globally like any other
-`openstack-mode' buffer.  The dashboard URL points at the
-project's network detail page."
-  (setq-local openstack-fetch-function #'openstack-network--fetch)
-  (setq-local openstack-render-function #'openstack-network--render)
-  (setq-local openstack-id-prefix "project/networks")
-  (setq-local openstack-url-suffix "/detail"))
+;; Load the modes from the generated autoloads, so an installed
+;; package fills `openstack-resource-types' at load time.
+;;;###autoload (require 'openstack-network)
 
 (provide 'openstack-network)
 ;;; openstack-network.el ends here
