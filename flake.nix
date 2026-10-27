@@ -18,16 +18,10 @@
       treefmt-nix,
       ...
     }:
-    # Date of the last commit as YYYY-MM-DD, folded into the version
-    # string below.  Flake source info gives it as e.g. "20260922133522",
-    # so slice out the year, month and day and glue them with hyphens.
-    let
-      lastModifiedDate = inputs.self.sourceInfo.lastModifiedDate;
-      commitDate = "${builtins.substring 0 4 lastModifiedDate}-${
-        builtins.substring 4 2 lastModifiedDate
-      }-${builtins.substring 6 2 lastModifiedDate}";
-    in
     flake-parts.lib.mkFlake { inherit inputs; } {
+      # The treefmt module provides `treefmt' plus the `formatter' output
+      # and a `checks.<system>.treefmt' gate for `nix flake check'.
+      imports = [ treefmt-nix.flakeModule ];
       # Emacs packages are pure Elisp: no ELF binaries, so evaluate on
       # every Linux arch (and darwin if the deps exist there).
       systems = [
@@ -49,63 +43,23 @@
           # without anything on $PATH.
           openstackclient = pkgs.openstackclient-full;
 
-          # Every Elisp source in the repo, compiled with warnings as
-          # errors in the check phase, followed by the full ERT suite.
-          elispFiles = [
-            "openstack-mode.el"
-            "openstack-cli.el"
-            "openstack-server.el"
-            "openstack-server-list.el"
-            "openstack-volume.el"
-            "openstack-image.el"
-            "openstack-volume-list.el"
-            "openstack-image-list.el"
-            "openstack-mode-tests.el"
-            "openstack-cli-tests.el"
-            "openstack-server-tests.el"
-            "openstack-server-list-tests.el"
-            "openstack-volume-tests.el"
-            "openstack-image-tests.el"
-            "openstack-volume-list-tests.el"
-            "openstack-image-list-tests.el"
-          ];
-          testFiles = [
-            "openstack-mode-tests.el"
-            "openstack-cli-tests.el"
-            "openstack-server-tests.el"
-            "openstack-server-list-tests.el"
-            "openstack-volume-tests.el"
-            "openstack-image-tests.el"
-            "openstack-volume-list-tests.el"
-            "openstack-image-list-tests.el"
-          ];
-          elispCheckPhase = ''
-            runHook preCheck
-
-            echo '=== byte-compile ==='
-            ${lib.concatMapStringsSep "\n" (file: ''
-              emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
-                -f batch-byte-compile ${file}
-            '') elispFiles}
-
-            echo '=== ERT tests ==='
-            emacs --batch -L . \
-              ${lib.concatMapStringsSep "\\\n  " (file: "-l ${file}") testFiles} \
-              -f ert-run-tests-batch-and-exit
-
-            runHook postCheck
-          '';
-
           # One package for the whole repo: package-build packages every
           # `*.el' file in the source by default, so the base mode, the
           # CLI layer and each derived show/list mode travel together.
           openstackPackage = melpaBuild {
             pname = "openstack-mode";
-            version = "0.1.0-unstable-${commitDate}";
+            # Nix convention for unreleased packages: <version>-unstable-<date>,
+            # the date of the last commit touching the source.  This package
+            # has no release yet, so the version stays at 0.  Slice the flake
+            # source date (e.g. "20260922133522") into YYYY-MM-DD, with an
+            # epoch fallback for sources without git info (e.g. a tarball).
+            version =
+              let
+                d = inputs.self.lastModifiedDate or "19700101000000";
+              in
+              "0-unstable-${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}";
 
             src = lib.cleanSource ./.;
-
-            packageRequires = [ ];
 
             # The shared openstack-cli.el shells out to the client;
             # bake its store path in so the default value works.
@@ -117,7 +71,28 @@
             turnCompilationWarningToError = true;
 
             doCheck = true;
-            checkPhase = elispCheckPhase;
+            # No file lists here: the phase globs the tree, and
+            # package-build derives the packaged files from the same
+            # sources.  Test files carry the `-tests.el' suffix, which
+            # package-build excludes from the tarball and the lint gate
+            # excludes from the ELPA policy checks.
+            checkPhase = ''
+              runHook preCheck
+
+              echo '=== byte-compile ==='
+              for file in *.el; do
+                emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
+                  -f batch-byte-compile "$file"
+              done
+
+              echo '=== ERT tests ==='
+              test_args=()
+              for file in *-tests.el; do test_args+=(-l "$file"); done
+              emacs --batch -L . "''${test_args[@]}" \
+                -f ert-run-tests-batch-and-exit
+
+              runHook postCheck
+            '';
 
             meta = {
               description = "Emacs major modes for displaying OpenStack resources";
@@ -151,18 +126,15 @@
             };
           };
 
-          modeFiles = [
-            "openstack-mode.el"
-            "openstack-cli.el"
-            "openstack-server.el"
-            "openstack-server-list.el"
-            "openstack-volume.el"
-            "openstack-image.el"
-            "openstack-volume-list.el"
-            "openstack-image-list.el"
-          ];
         in
         {
+          # One canonical formatting config: `nix fmt' runs nixfmt, and
+          # `nix flake check' rebuilds the treefmt check.  Never run
+          # formatters standalone.
+          treefmt = {
+            projectRootFile = "flake.nix";
+            programs.nixfmt.enable = true;
+          };
           # One package for the whole repo: `nix build' installs the base
           # mode together with every derived mode.
           packages.openstack-mode = openstackPackage;
@@ -183,6 +155,16 @@
                 export HOME=$TMPDIR
                 cp "$src"/*.el .
 
+                # Package files only: test files carry the `-tests.el'
+                # suffix and stay out of the ELPA policy gate.
+                mode_files=()
+                for file in *.el; do
+                  case "$file" in
+                    *-tests.el) continue ;;
+                  esac
+                  mode_files+=("$file")
+                done
+
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
                 # but the package shares the shorter `openstack-' prefix across
@@ -193,22 +175,16 @@
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
-                  ${lib.escapeShellArgs modeFiles}
+                  "''${mode_files[@]}"
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                  ${lib.escapeShellArgs modeFiles} 2>&1)
+                  "''${mode_files[@]}" 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';
-
-          # `nix fmt` runs nixfmt via treefmt; keep formatting canonical.
-          formatter = treefmt-nix.lib.mkWrapper pkgs {
-            projectRootFile = "flake.nix";
-            programs.nixfmt.enable = true;
-          };
 
           devShells.default = pkgs.mkShell {
             # Mirror whatever the package needs at runtime when hacking on

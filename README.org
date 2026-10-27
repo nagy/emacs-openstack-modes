@@ -200,13 +200,17 @@ emitting canned JSON, so the modes can be tried without a cloud:
 * Building
 
 #+begin_src sh
-nix build
+nix build          # one package, all modes
+nix flake check    # ERT + lint + formatting
+nix fmt            # nixfmt via treefmt
 #+end_src
 
 The build byte-compiles with warnings as errors and runs the ERT
 test suite.  =nix flake check= additionally builds =checks.lint=
-(checkdoc + package-lint).  `postPatch` rewrites `openstack-program`
-to the store path of the nixpkgs `openstackclient-full` binary.
+(checkdoc + package-lint) and the treefmt formatting check.
+`postPatch` rewrites `openstack-program` to the store path of the
+nixpkgs `openstackclient-full` binary.  The version follows
+=0-unstable-YYYY-MM-DD= from the last source commit.
 
 * License
 

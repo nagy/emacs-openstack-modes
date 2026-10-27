@@ -43,11 +43,13 @@ nix fmt            # nixfmt via treefmt
 nix develop        # emacs + openstackclient-full
 ```
 
-The `checkPhase` (shared by both packages) byte-compiles all `.el`
-files with warnings as errors and runs the ERT suite (all test
-files).
+The `checkPhase` byte-compiles every `.el` file in the tree with
+warnings as errors and runs the ERT suite (all `*-tests.el` files).
+No file lists to maintain: the phase globs the source tree, and
+`package-build` excludes `*-tests.el` from the package itself.
 Linting lives in `checks.lint` (`nix flake check` builds it):
-`package-lint` plus a `checkdoc` gate over all package files.
+`package-lint` plus a `checkdoc` gate over the package files.
+`nix flake check` also builds `checks.<system>.treefmt` (nixfmt).
 The `postPatch` phase substitutes `openstack-program` with the store
 path of the nixpkgs `openstackclient-full` package, so the client
 works out of the box.
@@ -91,10 +93,12 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `packages.openstack-mode` (aliased as `packages.default`) builds
   the whole tree with one `melpaBuild`, because `package-build`
   packages every `*.el` file in the source and no mode carries its
-  own version.  Do not add a `melpaBuild` per mode.  Add new `.el`
-  files to `elispFiles` and `modeFiles` in `flake.nix`, and new
-  test files to `testFiles` too.  Flakes copy only git-tracked
-  files, so `git add` new files before `nix build`.
+  own version.  Do not add a `melpaBuild` per mode.  The check phase
+  and the lint gate glob the tree, so a new mode needs no
+  `flake.nix` edit.  Name test files `*-tests.el`: `package-build`
+  then leaves them out of the package, and the lint gate skips
+  them.  Flakes copy only git-tracked files, so `git add` new files
+  before `nix build`.
 - Byte-compilation runs with warnings as errors.  When file A calls
   a function defined in file B without requiring B, declare it:
   `(declare-function openstack-server-display "openstack-server" (id))`.
