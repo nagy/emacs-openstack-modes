@@ -22,6 +22,7 @@ resource-specific modes can depend on it.
 | =openstack-image-list.el=         | Image list mode: renders =openstack image list= as a table     |
 | =openstack-network.el=            | Network mode: fetches and renders =openstack network show=     |
 | =openstack-network-list.el=       | Network list mode: renders =openstack network list= as a table |
+| =ol-openstack.el=                 | Org link type =openstack:= for resources                     |
 | =openstack-mode-tests.el=         | ERT test suite for the mode                                  |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                    |
 | =openstack-server-tests.el=       | ERT test suite for the server mode                           |
@@ -32,6 +33,7 @@ resource-specific modes can depend on it.
 | =openstack-image-list-tests.el=   | ERT test suite for the image list mode                       |
 | =openstack-network-tests.el=      | ERT test suite for the network mode                          |
 | =openstack-network-list-tests.el= | ERT test suite for the network list mode                     |
+| =ol-openstack-tests.el=           | ERT test suite for the Org link type                         |
 | =flake.nix=                       | Nix flake with =melpaBuild=, runs ERT tests and checkdoc       |
 | =flake.lock=                      | Pinned flake inputs                                          |
 | =LICENSE=                         | AGPLv3                                                       |
@@ -141,6 +143,38 @@ table logic lives in the base mode
 (=openstack-list-fetch=, =openstack-list-columns=,
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.
+
+* Org links
+
+The package ships the =openstack:= Org link type.  A link names
+the resource type and the resource ID:
+
+#+begin_src org
+  [[openstack:server/b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01][web-1]]
+  [[openstack:network/6f1e2d3c-0000-4000-8000-0000000000cc]]
+#+end_src
+
+Following a link opens the resource in its display buffer, like
+RET on a list row.  =C-c l= in a display buffer stores a link
+back to that resource; the link carries the resource name.  An
+Org export renders the link as its Horizon URL.
+
+Enable the link type in your init file:
+
+#+begin_src elisp
+  (with-eval-after-load \='org
+    (require \='ol-openstack))
+#+end_src
+
+Customization (=M-x customize-group openstack=):
+
+- =openstack-org-types= -- resource type, display mode and
+  display command of each link type; add an entry for a new
+  derived mode
+
+The export takes the dashboard URL from the mode's own
+=openstack-id-prefix= and =openstack-url-suffix=, so the link
+code never repeats those settings.
 
 * OpenStack CLI
 

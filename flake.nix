@@ -100,7 +100,7 @@
               longDescription = ''
                 A base major mode for displaying OpenStack resources in
                 Emacs buffers, plus derived show and list modes for
-                servers, volumes and images.
+                servers, volumes, images and networks.
 
                 Every OpenStack resource has a unique ID, so the base
                 mode handles the ID: a buffer-local copy, a command to
@@ -113,6 +113,10 @@
                 show' and friends and render its fields.  List modes
                 fetch the whole collection and render it as a padded,
                 self-refreshing table.
+
+                An Org link type opens a resource from an openstack:TYPE/ID
+                link, stores links from display buffers and exports them as
+                dashboard URLs.
 
                 The package interfaces with OpenStack through the
                 python-openstackclient command line program (nixpkgs

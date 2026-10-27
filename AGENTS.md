@@ -32,6 +32,8 @@ their own rendering.
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `openstack-network-tests.el` | ERT tests for the network mode |
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
+| `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
+| `ol-openstack-tests.el` | ERT tests for the Org link type |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
 | `README.org` | Project README |
@@ -69,6 +71,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
   -l openstack-network-tests.el -l openstack-network-list-tests.el \
+  -l ol-openstack-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -170,6 +173,16 @@ emacs --batch -L . -l openstack-mode-tests.el \
   exist.  Add new commands to those tests when adding them to the
   files.
 - Tests use `unwind-protect` around temporary buffers.
+- The Org link type lives in `ol-openstack.el` and is opt-in:
+  users add `(require 'ol-openstack)` to their init.  Link paths
+  are `TYPE/ID`; `openstack-org-types` maps type to display mode
+  and display command, so a new derived mode needs one entry
+  there.  Do not repeat dashboard URL paths in the link code:
+  `openstack-org--dashboard-url` reads `openstack-id-prefix` and
+  `openstack-url-suffix` from the mode itself.  Org ships with
+  Emacs, so `ol-openstack.el` does not declare it in
+  `Package-Requires`; the bare `package-lint` environment cannot
+  see builtin packages and rejects the declaration.
 
 ## TODO
 
