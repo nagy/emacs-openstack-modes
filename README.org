@@ -10,27 +10,31 @@ resource-specific modes can depend on it.
 
 * Files
 
-| File                           | Purpose                                                    |
-|--------------------------------+------------------------------------------------------------|
-| =openstack-mode.el=              | Base major mode for OpenStack resources (ID handling)      |
-| =openstack-cli.el=               | CLI layer: sync/async access to =openstack-program=          |
-| =openstack-server.el=            | Server mode: fetches and renders =openstack server show=     |
-| =openstack-server-list.el=       | Server list mode: renders =openstack server list= as a table |
-| =openstack-volume.el=            | Volume mode: fetches and renders =openstack volume show=     |
-| =openstack-image.el=             | Image mode: fetches and renders =openstack image show=       |
-| =openstack-volume-list.el=       | Volume list mode: renders =openstack volume list= as a table |
-| =openstack-image-list.el=        | Image list mode: renders =openstack image list= as a table   |
-| =openstack-mode-tests.el=        | ERT test suite for the mode                                |
-| =openstack-cli-tests.el=         | ERT test suite for the CLI layer (mocked)                  |
-| =openstack-server-tests.el=      | ERT test suite for the server mode                         |
-| =openstack-server-list-tests.el= | ERT test suite for the server list mode                    |
-| =openstack-volume-tests.el=      | ERT test suite for the volume mode                         |
-| =openstack-image-tests.el=       | ERT test suite for the image mode                          |
-| =openstack-volume-list-tests.el= | ERT test suite for the volume list mode                    |
-| =openstack-image-list-tests.el=  | ERT test suite for the image list mode                     |
-| =flake.nix=                      | Nix flake with =melpaBuild=, runs ERT tests and checkdoc     |
-| =flake.lock=                     | Pinned flake inputs                                        |
-| =LICENSE=                        | AGPLv3                                                     |
+| File                            | Purpose                                                      |
+|---------------------------------+--------------------------------------------------------------|
+| =openstack-mode.el=               | Base major mode for OpenStack resources (ID handling)        |
+| =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=            |
+| =openstack-server.el=             | Server mode: fetches and renders =openstack server show=       |
+| =openstack-server-list.el=        | Server list mode: renders =openstack server list= as a table   |
+| =openstack-volume.el=             | Volume mode: fetches and renders =openstack volume show=       |
+| =openstack-image.el=              | Image mode: fetches and renders =openstack image show=         |
+| =openstack-volume-list.el=        | Volume list mode: renders =openstack volume list= as a table   |
+| =openstack-image-list.el=         | Image list mode: renders =openstack image list= as a table     |
+| =openstack-network.el=            | Network mode: fetches and renders =openstack network show=     |
+| =openstack-network-list.el=       | Network list mode: renders =openstack network list= as a table |
+| =openstack-mode-tests.el=         | ERT test suite for the mode                                  |
+| =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                    |
+| =openstack-server-tests.el=       | ERT test suite for the server mode                           |
+| =openstack-server-list-tests.el=  | ERT test suite for the server list mode                      |
+| =openstack-volume-tests.el=       | ERT test suite for the volume mode                           |
+| =openstack-image-tests.el=        | ERT test suite for the image mode                            |
+| =openstack-volume-list-tests.el=  | ERT test suite for the volume list mode                      |
+| =openstack-image-list-tests.el=   | ERT test suite for the image list mode                       |
+| =openstack-network-tests.el=      | ERT test suite for the network mode                          |
+| =openstack-network-list-tests.el= | ERT test suite for the network list mode                     |
+| =flake.nix=                       | Nix flake with =melpaBuild=, runs ERT tests and checkdoc       |
+| =flake.lock=                      | Pinned flake inputs                                          |
+| =LICENSE=                         | AGPLv3                                                       |
 
 * Usage
 
@@ -56,8 +60,10 @@ Customization (=M-x customize-group openstack=):
   the resource ID is appended
 - =openstack-web-base-url= -- base URL of the OpenStack
   dashboard
-- =openstack-id-prefix= -- resource type path segment in the
+- =openstack-id-prefix= -- resource type path segments in the
   dashboard URL
+- =openstack-url-suffix= -- path segments appended after the
+  resource ID (e.g. =/detail=)
 - =openstack-program= -- path to the =openstack= command line
   client (python-openstackclient)
 
@@ -92,6 +98,20 @@ like the server mode, for block storage volumes and disk images:
 Each has its own =openstack-volume-buffer-name= /
 =openstack-image-buffer-name= and =-fields= defcustoms.
 
+* Networks
+
+=openstack-network-mode= displays a network of the Networking
+service:
+
+- =M-x openstack-network-display= -- display a network by ID
+  (=openstack network show=)
+
+Horizon shows a network below the project's network panel, so
+this mode uses the URL suffix: the dashboard URL is
+=project/networks/ID/detail=.  The =openstack-url-suffix=
+defcustom carries the trailing segment; =openstack-id-prefix=
+carries the leading ones.  Other modes leave the suffix empty.
+
 * Collection lists
 
 Collection modes display a list of resources instead of a
@@ -103,6 +123,8 @@ single resource; the server list mode is the reference:
   (=openstack volume list=)
 - =M-x openstack-image-list-display= -- list all images
   (=openstack image list=)
+- =M-x openstack-network-list-display= -- list all networks
+  (=openstack network list=)
 
 RET or =mouse-2= on a row opens the resource's show buffer: list
 modes bind =openstack-show-command= to their resource's display
@@ -112,7 +134,8 @@ show buffers works the same way.
 The list buffer has no resource ID: the ID commands (=c=, =w=)
 do not apply there.  Columns come from the mode's =-fields=
 defcustom (=openstack-server-list-fields=,
-=openstack-volume-list-fields=, =openstack-image-list-fields=)
+=openstack-volume-list-fields=, =openstack-image-list-fields=,
+=openstack-network-list-fields=)
 first; all remaining fields follow, sorted by name.  The padded
 table logic lives in the base mode
 (=openstack-list-fetch=, =openstack-list-columns=,

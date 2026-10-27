@@ -149,7 +149,41 @@ EOF
         ;;
     "image show"*)
         die "image" "No image with a name or ID of '${args[2]}' exists." ;;
-    "server delete"*|"volume delete"*|"image delete"*)
+    "network show 6f1e2d3c-0000-4000-8000-0000000000cc"*)
+        cat <<'EOF'
+{
+  "admin_state_up": true,
+  "availability_zone_hints": [],
+  "availability_zones": ["nova"],
+  "created_at": "2026-08-06T09:00:00Z",
+  "description": "",
+  "dns_domain": "",
+  "id": "6f1e2d3c-0000-4000-8000-0000000000cc",
+  "ipv4_address_scope": null,
+  "ipv6_address_scope": null,
+  "is_default": false,
+  "mtu": 1450,
+  "name": "provider",
+  "port_security_enabled": true,
+  "project_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "provider:network_type": "vxlan",
+  "provider:physical_network": null,
+  "provider:segmentation_id": 42,
+  "qos_policy_id": null,
+  "revision_number": 3,
+  "router:external": false,
+  "shared": true,
+  "status": "ACTIVE",
+  "subnets": ["7a2b3c4d-0000-4000-8000-0000000000dd"],
+  "tags": ["prod"],
+  "tenant_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "updated_at": "2026-08-06T09:05:00Z"
+}
+EOF
+        ;;
+    "network show"*)
+        die "network" "No network with a name or ID of '${args[2]}' exists." ;;
+    "server delete"*|"volume delete"*|"image delete"*|"network delete"*)
         exit 0 ;;
     "server stop"*|"server start"*)
         exit 0 ;;
@@ -172,6 +206,22 @@ EOF
    "Name": "ubuntu-24.04", "Status": "active", "Size": "234881024"},
   {"ID": "5a3b2c1d-0000-4000-8000-000000000002",
    "Name": "debian-12", "Status": "active", "Size": "117440512"}
+]
+EOF
+        ;;
+    "network list")
+        cat <<'EOF'
+[
+  {"ID": "6f1e2d3c-0000-4000-8000-0000000000cc",
+   "Name": "provider", "Status": "ACTIVE",
+   "Project": "demo", "State": "UP",
+   "Subnets": "demo-subnet", "Shared": true,
+   "Router External": false},
+  {"ID": "6f1e2d3c-0000-4000-8000-0000000000ee",
+   "Name": "private", "Status": "ACTIVE",
+   "Project": "demo", "State": "UP",
+   "Subnets": "private-subnet", "Shared": false,
+   "Router External": false}
 ]
 EOF
         ;;

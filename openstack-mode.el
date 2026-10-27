@@ -78,7 +78,8 @@
 ;;
 ;; The display buffer name is built from `openstack-buffer-name'
 ;; and the resource ID, so each resource has its own buffer;
-;; the dashboard URL template is `openstack-web-base-url'.
+;; the dashboard URL comes from `openstack-web-base-url',
+;; `openstack-id-prefix', the ID and `openstack-url-suffix'.
 ;;
 ;; Talking to OpenStack goes through the `openstack-cli' library
 ;; (see openstack-cli.el), which wraps `openstack-program' with
@@ -163,7 +164,18 @@ The resource ID is appended to this URL."
   :group 'openstack)
 
 (defcustom openstack-id-prefix "resource"
-  "Path segment identifying the resource type in the dashboard URL."
+  "Path segments identifying the resource type in the dashboard URL.
+The segments follow `openstack-web-base-url' and precede the
+resource ID.  A mode may use several segments, for example
+project/networks."
+  :type 'string
+  :group 'openstack)
+
+(defcustom openstack-url-suffix ""
+  "Path segments appended after the resource ID in the dashboard URL.
+Horizon shows many detail pages below a trailing segment, for
+example project/networks/ID/detail; a mode for such a resource
+sets this to /detail.  The default adds nothing."
   :type 'string
   :group 'openstack)
 
@@ -271,12 +283,13 @@ failed to load."
 (defun openstack--format-url (id)
   "Return the dashboard URL for resource ID.
 ID is a string; the URL is built from
-`openstack-web-base-url', `openstack-id-prefix'
-and ID."
-  (format "%s/%s/%s"
+`openstack-web-base-url', `openstack-id-prefix', ID and
+`openstack-url-suffix'."
+  (format "%s/%s/%s%s"
           (string-trim-right openstack-web-base-url "/")
-          openstack-id-prefix
-          id))
+          (string-trim openstack-id-prefix "/" "/")
+          id
+          openstack-url-suffix))
 
 (defun openstack--buffer-name-for-id (id)
   "Return the display buffer name for resource ID.

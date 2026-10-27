@@ -147,6 +147,22 @@ an explicit `require'."
     (should (equal (openstack--format-url "abc-123")
                    "https://horizon.example.org/servers/abc-123"))))
 
+(ert-deftest openstack-mode-format-url-suffix ()
+  "A URL suffix follows the ID, for Horizon detail pages."
+  (let ((openstack-web-base-url "https://horizon.example.org")
+        (openstack-id-prefix "/project/networks/")
+        (openstack-url-suffix "/detail"))
+    (should (equal (openstack--format-url "abc-123")
+                   "https://horizon.example.org/project/networks/abc-123/detail"))))
+
+(ert-deftest openstack-mode-format-url-no-suffix ()
+  "The default URL suffix adds nothing after the ID."
+  (let ((openstack-web-base-url "https://horizon.example.org")
+        (openstack-id-prefix "servers")
+        (openstack-url-suffix ""))
+    (should (equal (openstack--format-url "abc-123")
+                   "https://horizon.example.org/servers/abc-123"))))
+
 (ert-deftest openstack-mode-bookmark-record ()
   "`openstack--bookmark-make-record' stores the ID."
   (let ((buf (openstack-test--make-resource-buffer)))

@@ -20,6 +20,8 @@ their own rendering.
 | `openstack-image.el` | Image mode: `openstack image show` via the generic helpers |
 | `openstack-volume-list.el` | Volume list mode: `openstack volume list` as a padded table; `openstack-volume-list-display` |
 | `openstack-image-list.el` | Image list mode: `openstack image list` as a padded table; `openstack-image-list-display` |
+| `openstack-network.el` | Network mode: `openstack network show` via the generic helpers; `openstack-network-display` |
+| `openstack-network-list.el` | Network list mode: `openstack network list` as a padded table; `openstack-network-list-display` |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-server-tests.el` | ERT tests for the server mode |
@@ -28,6 +30,8 @@ their own rendering.
 | `openstack-image-tests.el` | ERT tests for the image mode |
 | `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
+| `openstack-network-tests.el` | ERT tests for the network mode |
+| `openstack-network-list-tests.el` | ERT tests for the network list mode |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
 | `README.org` | Project README |
@@ -64,6 +68,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-server-list-tests.el -l openstack-volume-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
+  -l openstack-network-tests.el -l openstack-network-list-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -123,7 +128,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-render-fields` (header + ordered field table, JSON
   for nested values), plus display command and mode.  Value
   formatting lives in `openstack--format-value`; do not duplicate
-  it per mode.
+  it per mode.  A mode whose Horizon page has trailing segments
+  sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
+  go into `openstack-id-prefix`.
 - Collection buffers (lists) have no resource ID: the entry point
   sets the buffer-local `openstack-collection` flag, so
   `openstack--refresh` runs and the fetcher receives nil as the
@@ -166,9 +173,13 @@ emacs --batch -L . -l openstack-mode-tests.el \
 
 ## TODO
 
-- Derived modes for more resource types (networks, routers,
-  flavors, hosts, …); servers, volumes and images exist.
-- Collection modes for more resource types (networks, flavors,
-  hosts, …); server, volume and image lists exist.
-- Dashboard deep links per resource type (networks need a
-  project-scoped URL, unlike the current `openstack-id-prefix`).
+- Derived modes for more resource types (routers, subnets,
+  ports, flavors, hosts, …); servers, volumes, images and
+  networks exist.
+- Collection modes for more resource types (routers, subnets,
+  ports, flavors, hosts, …); server, volume, image and network
+  lists exist.
+- Dashboard deep links per resource type.  `openstack-id-prefix`
+  holds the leading path segments and `openstack-url-suffix` the
+  trailing ones (networks use `project/networks` and `/detail`).
+  The compute, volume and image modes still use one flat segment.
