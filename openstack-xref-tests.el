@@ -136,5 +136,36 @@
     (should-error (xref-backend-identifier-at-point 'openstack)
                   :type 'user-error)))
 
+(ert-deftest openstack-xref-references ()
+  "A cached list row that mentions the ID yields a reference."
+  (let ((openstack-read--cache nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (args)
+                 (pcase (car args)
+                   ("server"
+                    (list (let ((row (openstack-xref-test--row
+                                      "srv-1" "web-1")))
+                            (puthash "Image ID"
+                                     openstack-xref-test--uuid row)
+                            row)))
+                   ("network"
+                    (list (openstack-xref-test--row
+                           openstack-xref-test--uuid "provider")))
+                   (_ nil)))))
+      (let* ((items (xref-backend-references 'openstack
+                                             openstack-xref-test--uuid))
+             (item (car items)))
+        (should (equal (length items) 1))
+        (should (equal (xref-item-summary item)
+                       "OpenStack server web-1"))
+        (should (eq (type-of (xref-item-location item))
+                    'openstack-xref-location))))))
+
+(ert-deftest openstack-xref-references-unknown ()
+  "An ID that no cached row mentions yields no reference."
+  (openstack-xref-test--with-cache
+    (should (null (xref-backend-references
+                   'openstack "00000000-0000-4000-8000-00000000dead")))))
+
 (provide 'openstack-xref-tests)
 ;;; openstack-xref-tests.el ends here

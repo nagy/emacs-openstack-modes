@@ -69,14 +69,14 @@ Signal a `user-error' when TYPE is not in
 
 (defun openstack-org--dashboard-url (type id)
   "Return the dashboard URL of the resource of TYPE with ID.
-The URL comes from `openstack--format-url' with the buffer-local
+The URL comes from `openstack-dashboard-url' with the buffer-local
 `openstack-id-prefix' and `openstack-url-suffix' of the mode of
 TYPE, so the link export never repeats those settings."
   (let ((buf (generate-new-buffer " *openstack-org-url*")))
     (unwind-protect
         (with-current-buffer buf
           (funcall (nth 1 (openstack-org--entry type)))
-          (openstack--format-url id))
+          (openstack-dashboard-url id))
       (kill-buffer buf))))
 
 (defun openstack-org-follow (path &optional _arg)

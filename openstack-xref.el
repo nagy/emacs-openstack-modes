@@ -40,6 +40,10 @@
 ;; Both come through the `openstack-id' thing that `openstack-mode'
 ;; registers, so the backend keeps no identifier logic of its own.
 ;;
+;; `M-?' lists the resources that a cached `RESOURCE list' row
+;; mentions in one of its fields, so a server leads to its image
+;; or its network.
+;;
 ;; Enable it in your init file:
 ;;
 ;;   (require 'openstack-xref)
@@ -117,6 +121,25 @@ its type, so another backend still handles a foreign UUID."
            (format "OpenStack %s %s" type
                    (or (openstack-read-name identifier) identifier))
            (make-openstack-xref-location :type type :id identifier)))))
+
+(cl-defmethod xref-backend-references ((_backend (eql openstack)) identifier)
+  "Return the cached resources that mention IDENTIFIER in a field.
+Warm the list cache through `openstack-read-type-of-id' first,
+then read the cached `RESOURCE list' rows.  The scan finds the
+direct relations a list row reports, such as the image of a
+server or the network of a port."
+  (ignore-errors (openstack-read-type-of-id identifier))
+  (mapcar
+   (lambda (reference)
+     (xref-make
+      (format "OpenStack %s %s"
+              (plist-get reference :type)
+              (or (plist-get reference :name)
+                  (plist-get reference :id)))
+      (make-openstack-xref-location
+       :type (plist-get reference :type)
+       :id (plist-get reference :id))))
+   (openstack-read-references identifier)))
 
 ;;;###autoload
 (add-hook 'xref-backend-functions #'openstack-xref-backend)

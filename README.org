@@ -18,6 +18,7 @@ resource-specific modes can depend on it.
 | =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=        |
 | =openstack-read.el=               | ID completion and the =RESOURCE list= cache                |
 | =openstack-xref.el=               | xref backend: =M-.= on a resource ID                       |
+| =openstack-url.el=                | =openstack:= URL scheme for =browse-url=                    |
 | =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
 | =openstack-mode-tests.el=         | ERT tests: base mode, collections, resource registry       |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
@@ -31,6 +32,7 @@ resource-specific modes can depend on it.
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
 | =openstack-read-tests.el=         | ERT test suite for the ID completion                       |
 | =openstack-xref-tests.el=         | ERT test suite for the xref backend                        |
+| =openstack-url-tests.el=          | ERT test suite for the URL scheme                          |
 | =flake.nix=                       | Nix flake with =melpaBuild=, runs ERT tests and checkdoc   |
 | =flake.lock=                      | Pinned flake inputs                                        |
 | =LICENSE=                         | AGPLv3                                                     |
@@ -117,6 +119,22 @@ reads the ID at point with =(thing-at-point 'openstack-id)= and
 the bounds with =bounds-of-thing-at-point=.  Display buffers also
 answer the =uuid= thing from the property, so a table column
 truncated to the window width still yields the full ID.
+
+=M-?= lists the resources that a cached list row mentions in one of
+its fields, so a server leads to its image or its network.
+
+The =openstack:= URL scheme opens a resource from any buffer: a
+mail, a log line or =goto-address-mode=.  A URL is
+=openstack:TYPE/ID= or =openstack:ID=:
+
+#+begin_src elisp
+  (require 'openstack-url)
+#+end_src
+
+=imenu= indexes the fields of a show buffer and the rows of a list
+buffer, so =M-x imenu= or =consult-imenu= jumps to a field or to a
+resource.  The ID prompt annotates each candidate with the fields
+of =openstack-read-annotation-fields=, such as =ACTIVE= or =20=.
 
 * Servers
 

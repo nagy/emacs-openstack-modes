@@ -150,14 +150,14 @@ source; one autoloaded require loads the definitions instead."
   "URL is built from base URL, prefix and ID."
   (let ((openstack-web-base-url "https://horizon.example.org")
         (openstack-id-prefix "servers"))
-    (should (equal (openstack--format-url "abc-123")
+    (should (equal (openstack-dashboard-url "abc-123")
                    "https://horizon.example.org/servers/abc-123"))))
 
 (ert-deftest openstack-mode-format-url-trailing-slash ()
   "A trailing slash in the base URL is trimmed."
   (let ((openstack-web-base-url "https://horizon.example.org/")
         (openstack-id-prefix "servers"))
-    (should (equal (openstack--format-url "abc-123")
+    (should (equal (openstack-dashboard-url "abc-123")
                    "https://horizon.example.org/servers/abc-123"))))
 
 (ert-deftest openstack-mode-format-url-suffix ()
@@ -165,7 +165,7 @@ source; one autoloaded require loads the definitions instead."
   (let ((openstack-web-base-url "https://horizon.example.org")
         (openstack-id-prefix "/project/networks/")
         (openstack-url-suffix "/detail"))
-    (should (equal (openstack--format-url "abc-123")
+    (should (equal (openstack-dashboard-url "abc-123")
                    "https://horizon.example.org/project/networks/abc-123/detail"))))
 
 (ert-deftest openstack-mode-format-url-no-suffix ()
@@ -173,7 +173,7 @@ source; one autoloaded require loads the definitions instead."
   (let ((openstack-web-base-url "https://horizon.example.org")
         (openstack-id-prefix "servers")
         (openstack-url-suffix ""))
-    (should (equal (openstack--format-url "abc-123")
+    (should (equal (openstack-dashboard-url "abc-123")
                    "https://horizon.example.org/servers/abc-123"))))
 
 (ert-deftest openstack-mode-bookmark-record ()
@@ -707,6 +707,44 @@ the full ID from the property."
                          (cons (point-min) (point-max)))))
       (kill-buffer buffer))))
 
+
+;;; Imenu
+
+(ert-deftest openstack-imenu-index-lists-fields ()
+  "Field lines become imenu entries at their own positions."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t)
+          (data (json-parse-string
+                 "{\"id\": \"srv-1\", \"name\": \"web-1\", \"status\": \"ACTIVE\"}"
+                 :object-type 'hash-table :array-type 'list)))
+      (openstack-render-fields "Server" "srv-1" data '("name"))
+      (let ((index (openstack--imenu-index)))
+        (should (equal (mapcar #'car index) '("name" "id" "status")))
+        (dolist (entry index)
+          (goto-char (cdr entry))
+          (should (equal (get-text-property (point) 'openstack-field)
+                         (car entry)))
+          (should (string-prefix-p (concat (car entry) ": ")
+                                   (buffer-substring-no-properties
+                                    (point) (line-end-position)))))))))
+
+(ert-deftest openstack-list-imenu-index-lists-rows ()
+  "Rows become imenu entries, named by name and ID."
+  (let ((data (json-parse-string
+               "[{\"ID\": \"id-1\", \"Name\": \"web-1\"}, \
+                    {\"ID\": \"id-2\", \"Name\": \"\"}]"
+               :object-type 'hash-table :array-type 'list)))
+    (with-temp-buffer
+      (openstack-list-mode)
+      (let ((inhibit-read-only t))
+        (openstack-list-render "(none)" data '("ID" "Name")))
+      (let ((index (openstack-list--imenu-index)))
+        (should (equal (mapcar #'car index)
+                       '("web-1 (id-1)" "id-2")))
+        (dolist (entry index)
+          (goto-char (cdr entry))
+          (should (get-text-property (point) 'openstack-id)))))))
 
 ;;; Status faces, changes and notifications
 

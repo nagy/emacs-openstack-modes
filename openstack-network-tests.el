@@ -55,7 +55,7 @@ an unordered extra to exercise the sorting of unlisted fields.")
         (with-current-buffer buf
           (openstack-network-mode)
           (should (equal
-                   (openstack--format-url "net-1")
+                   (openstack-dashboard-url "net-1")
                    "https://horizon.example.org/project/networks/net-1/detail")))
       (kill-buffer buf))))
 

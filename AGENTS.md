@@ -17,7 +17,8 @@ name as the ID.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
 | `openstack-resources.el` | The five resource types, one `openstack-define-resource` form each: server, volume, image, network, container |
-| `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, opt-in via `(require 'openstack-xref)` |
+| `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
+| `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
@@ -32,6 +33,7 @@ name as the ID.
 | `ol-openstack-tests.el` | ERT tests for the Org link type |
 | `openstack-read-tests.el` | ERT tests for the ID completion and the cache |
 | `openstack-xref-tests.el` | ERT tests for the xref backend |
+| `openstack-url-tests.el` | ERT tests for the `openstack:` URL scheme |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
 | `README.org` | Project README |
@@ -236,6 +238,35 @@ includes evil.
   keeps only the type lookup and the fresh-property check.  A
   custom THING gets no `forward-op`: the region comes from a text
   property, so a scan for it has no meaning.
+- `imenu` reads the renderers, not the modes own bookkeeping:
+  `openstack--insert-field` adds an `openstack-field` text property
+  to every field name, and `openstack--imenu-index` collects those
+  lines.  `openstack-list--imenu-index` collects the rows from
+  their `openstack-id` property and names each row by its name
+  field and ID.  Both modes set `imenu-create-index-function`, so
+  `consult-imenu` and `which-function-mode` work without further
+  wiring.  Do not key the show index on the `face` property:
+  font-lock may replace it.
+- `openstack-read-id` passes `openstack-read--choices-table` to
+  `completing-read`, not the raw alist: the table answers the
+  `metadata` action with an `annotation-function` built by
+  `openstack-read--annotation-function` over the choices.  The
+  annotation holds the values of
+  `openstack-read-annotation-fields` that the row has.  Keep the
+  `(LABEL . ID)` alist for the answer lookup.
+- `openstack-dashboard-url` builds every dashboard URL.  The Org
+  export and the `openstack:` URL handler in `openstack-url.el`
+  call it, so a resource type names its path segments once.  The
+  handler takes `TYPE/ID` or an ID alone and passes a nil TYPE to
+  `openstack-open-id` for the ID-alone form.
+- `xref-backend-references` warms the cache through
+  `openstack-read-type-of-id` and then reads
+  `openstack-read-references`, which scans the cached list rows for
+  a field equal to the ID and skips the row of the resource itself.
+  The scan never fetches show data, so it reports only the direct
+  relations a list row names (image, network, flavor).  Keep the
+  cache read inside `openstack-read.el`; do not reach into
+  `openstack-read--cache` from the backend.
 - Display buffers refresh themselves: `openstack-mode` and
   `openstack-list-mode` call `openstack--init-display-buffer`, which
   wires `revert-buffer-function`, `buffer-stale-function` and

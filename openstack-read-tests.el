@@ -123,9 +123,9 @@ A Swift container has a name and no UUID."
     (openstack-read-test--with-client calls
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (_prompt collection &rest _)
-                   (should (equal collection
-                                  '(("web-1 (srv-1)" . "srv-1")
-                                    ("srv-2" . "srv-2"))))
+                   (should (functionp collection))
+                   (should (equal (funcall collection "web" nil t)
+                                  '("web-1 (srv-1)")))
                    "web-1 (srv-1)")))
         (should (equal (openstack-read-id "server") "srv-1"))))))
 
@@ -152,7 +152,8 @@ A Swift container has a name and no UUID."
                (lambda (_args) (error "no cloud")))
               ((symbol-function 'completing-read)
                (lambda (_prompt collection &rest _)
-                 (should (null collection))
+                 (should (functionp collection))
+                 (should (null (funcall collection "" nil t)))
                  "srv-1")))
       (should (equal (openstack-read-id "server") "srv-1")))))
 
@@ -246,6 +247,62 @@ A Swift container has a name and no UUID."
                  (lambda (id mode-arg) (setq seen (cons id mode-arg)))))
         (call-interactively command)
         (should (equal seen (cons "res-1" mode)))))))
+
+(ert-deftest openstack-read-annotation-uses-fields ()
+  "The annotation holds the configured row fields that the row has."
+  (let ((openstack-read-annotation-fields '("Status" "Size")))
+    (let ((row (openstack-read-test--row "srv-1" "web-1")))
+      (puthash "Status" "ACTIVE" row)
+      (puthash "Size" "20" row)
+      (should (equal (openstack-read--annotation row) "  ACTIVE, 20")))
+    ;; A row without those fields gets no annotation.
+    (should (null (openstack-read--annotation
+                   (openstack-read-test--row "srv-2" "web-2"))))))
+
+(ert-deftest openstack-read-choices-table-metadata ()
+  "The completion table answers the metadata action with an annotation."
+  (let* ((choices '(("web-1 (srv-1)" . "srv-1")))
+         (table (openstack-read--choices-table choices)))
+    (let ((metadata (funcall table "" nil 'metadata)))
+      (should (eq (car metadata) 'metadata))
+      (should (functionp (alist-get 'annotation-function (cdr metadata)))))
+    (should (equal (funcall table "web" nil t) '("web-1 (srv-1)")))))
+
+(ert-deftest openstack-read-id-annotates-candidates ()
+  "`openstack-read-id' passes a table that annotates each candidate."
+  (let ((openstack-read--cache nil)
+        (openstack-read-annotation-fields '("Status"))
+        (metadata nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args)
+                 (let ((row (openstack-read-test--row "srv-1" "web-1")))
+                   (puthash "Status" "ACTIVE" row)
+                   (list row))))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq metadata (funcall collection "" nil 'metadata))
+                 "web-1 (srv-1)")))
+      (should (equal (openstack-read-id "server") "srv-1"))
+      (let ((annotation (alist-get 'annotation-function (cdr metadata))))
+        (should (equal (funcall annotation "web-1 (srv-1)")
+                       "  ACTIVE"))))))
+
+(ert-deftest openstack-read-references-finds-mentions ()
+  "A cached row that names the ID in a field references it."
+  (let ((openstack-read--cache nil))
+    (let ((server (openstack-read-test--row "srv-1" "web-1"))
+          (image (openstack-read-test--row "img-1" "ubuntu")))
+      (puthash "Image ID" "img-1" server)
+      (openstack-read--store "server" (list server))
+      (openstack-read--store "image" (list image))
+      (should (equal (openstack-read-references "img-1")
+                     (list (list :type "server"
+                                 :id "srv-1"
+                                 :name "web-1"))))
+      ;; The row of the resource itself does not count as a reference.
+      (should (null (openstack-read-references "srv-1")))
+      ;; An unknown ID has no referencing row.
+      (should (null (openstack-read-references "nope"))))))
 
 (provide 'openstack-read-tests)
 ;;; openstack-read-tests.el ends here

@@ -462,11 +462,13 @@ failed to load."
   (car (cl-find mode openstack-resource-types
                 :key (lambda (entry) (nth 1 entry)))))
 
-(defun openstack--format-url (id)
+(defun openstack-dashboard-url (id)
   "Return the dashboard URL for resource ID.
 ID is a string; the URL is built from
 `openstack-web-base-url', `openstack-id-prefix', ID and
-`openstack-url-suffix'."
+`openstack-url-suffix'.  The Org link export and the
+`openstack:' URL handler of `openstack-url.el' call this
+function, so every consumer builds the same URL."
   (format "%s/%s/%s%s"
           (string-trim-right openstack-web-base-url "/")
           (string-trim openstack-id-prefix "/" "/")
@@ -878,7 +880,7 @@ in which case the buffer fills in asynchronously."
 (defun openstack-open-web ()
   "Open the dashboard page for the current OpenStack resource."
   (interactive)
-  (browse-url (openstack--format-url
+  (browse-url (openstack-dashboard-url
                (openstack--resource-id t))))
 
 ;;;###autoload
@@ -970,7 +972,8 @@ previous refresh takes `openstack-field-changed'."
     (when id
       (setq text (propertize text 'openstack-id id
                              'mouse-face 'highlight)))
-    (insert (propertize field 'face 'font-lock-variable-name-face)
+    (insert (propertize field 'face 'font-lock-variable-name-face
+                        'openstack-field field)
             ": " text "\n")))
 
 (defun openstack-render-fields (title id data fields)
@@ -1004,6 +1007,22 @@ resource modes call this from their
           (openstack--insert-field
            field (gethash field data)
            (and id (string= field "id") id)))))))
+
+;;; Imenu
+
+(defun openstack--imenu-index ()
+  "Return an imenu index of the field lines of the current buffer.
+Every `Field: value' line that the renderers write becomes an
+entry, so `imenu' jumps to a field and `which-function-mode'
+names the field at point."
+  (let (index)
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (when-let* ((field (get-text-property (point) 'openstack-field)))
+          (push (cons field (point)) index))
+        (forward-line 1)))
+    (nreverse index)))
 
 ;;; Collection helpers
 
@@ -1060,6 +1079,7 @@ field lines and to the rows of collection buffers: RET or
   ;; fetcher and renderer: cancel any in-flight fetch so the buffer
   ;; starts from a clean slate.
   (openstack--init-display-buffer)
+  (setq-local imenu-create-index-function #'openstack--imenu-index)
   ;; A resource buffer bookmarks its ID; a collection buffer has none.
   (setq-local bookmark-make-record-function
               #'openstack--bookmark-make-record))
@@ -1395,7 +1415,30 @@ A resize changes the width that the columns can use."
   (let ((id (openstack-list--id-at-point)))
     (unless id
       (user-error "No OpenStack resource on this line"))
-    (browse-url (openstack--format-url id))))
+    (browse-url (openstack-dashboard-url id))))
+
+;;; Imenu
+
+(defun openstack-list--imenu-index ()
+  "Return an imenu index of the rows of the current table.
+Name every row by its name field and its ID, so `imenu' and
+`consult-imenu' jump straight to a resource."
+  (let (index)
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (when-let* ((id (get-text-property (point) 'openstack-id)))
+          (let* ((row (and (hash-table-p openstack-list--rows)
+                           (gethash id openstack-list--rows)))
+                 (name (and row (openstack--hash-field row "Name")))
+                 (label (if (and (stringp name)
+                                 (not (string-empty-p name))
+                                 (not (equal name id)))
+                            (format "%s (%s)" name id)
+                          id)))
+            (push (cons label (point)) index)))
+        (forward-line 1)))
+    (nreverse index)))
 
 ;;; Mode line
 
@@ -1463,6 +1506,7 @@ line, because the header line holds the column labels.
   (setq-local tabulated-list-padding 0)
   (setq-local tabulated-list-sort-key nil)
   (setq-local tabulated-list-printer #'openstack-list--print-entry)
+  (setq-local imenu-create-index-function #'openstack-list--imenu-index)
   (setq-local mode-line-format
               (append (default-value 'mode-line-format)
                       '((:eval (openstack-list--mode-line)))))

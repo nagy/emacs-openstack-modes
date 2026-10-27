@@ -55,7 +55,7 @@ an unordered extra to exercise the sorting of unlisted fields.")
         (with-current-buffer buf
           (openstack-container-mode)
           (should (equal
-                   (openstack--format-url "logs")
+                   (openstack-dashboard-url "logs")
                    "https://horizon.example.org/project/containers/logs")))
       (kill-buffer buf))))
 

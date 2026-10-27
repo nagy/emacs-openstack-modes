@@ -60,6 +60,14 @@ to refill them by hand."
   :type '(choice (number :tag "Seconds") (const :tag "Never expire" nil))
   :group 'openstack)
 
+(defcustom openstack-read-annotation-fields '("Status" "Size" "Flavor")
+  "List row fields that annotate an ID in the completion prompt.
+The prompt shows the values of these fields, in this order, next
+to the candidate that names the row.  A field that the row does
+not hold stays out of the annotation."
+  :type '(repeat string)
+  :group 'openstack)
+
 (defvar openstack-read--cache nil
   "Alist of resource type to a plist of :time and :rows.")
 
@@ -138,20 +146,69 @@ and call the client otherwise."
                         id))))
             (openstack-read-rows type)))
 
+(defun openstack-read--row-of (id)
+  "Return the cached list row of ID, or nil."
+  (seq-some (lambda (entry)
+              (seq-some (lambda (row)
+                          (and (equal id (openstack-read--row-id row)) row))
+                        (openstack-read--entry-rows entry)))
+            openstack-read--cache))
+
+(defun openstack-read--annotation (row)
+  "Return the annotation string of list ROW, or nil.
+The string holds the values of `openstack-read-annotation-fields'
+that ROW provides, separated by a comma."
+  (when (hash-table-p row)
+    (let ((values
+           (seq-keep
+            (lambda (field)
+              (let ((value (openstack-read--row-value row (list field))))
+                (and (stringp value)
+                     (not (string-empty-p value))
+                     value)))
+            openstack-read-annotation-fields)))
+      (when values
+        (concat "  " (mapconcat #'identity values ", "))))))
+
+(defun openstack-read--annotation-function (choices)
+  "Return a completion annotation function over CHOICES.
+CHOICES is a list of (LABEL . ID) pairs, as
+`openstack-read-choices' returns.  The function annotates a
+candidate with the fields of its cached row."
+  (lambda (candidate)
+    (when-let* ((id (cdr (assoc candidate choices)))
+                (row (openstack-read--row-of id)))
+      (openstack-read--annotation row))))
+
+(defun openstack-read--choices-table (choices)
+  "Return a completion table over CHOICES with row annotations.
+The table answers the `metadata' action with an
+`annotation-function', so every completion UI shows the state of
+a resource before the user chooses it."
+  (lambda (string predicate action)
+    (if (eq action 'metadata)
+        `(metadata (annotation-function
+                    . ,(openstack-read--annotation-function choices)))
+      (complete-with-action action choices string predicate))))
+
 ;;;###autoload
 (defun openstack-read-id (type &optional prompt)
   "Read the ID of an OpenStack resource of TYPE.
 PROMPT defaults to a message naming TYPE.  Offer the names of the
 cached `RESOURCE list' rows, so the user picks \"web-1 (UUID)\"
-instead of a bare UUID.  A raw ID typed at the prompt wins, and a
-client failure falls back to a plain prompt."
+instead of a bare UUID.  Annotate each candidate with the fields
+of `openstack-read-annotation-fields'.  A raw ID typed at the
+prompt wins, and a client failure falls back to a plain prompt."
   (let* ((prompt (or prompt (format "OpenStack %s ID: " type)))
          (choices (condition-case err
                       (openstack-read-choices type)
                     (error
                      (message "%s" (error-message-string err))
                      nil)))
-         (answer (completing-read prompt choices nil nil)))
+         (answer (completing-read
+                  prompt
+                  (openstack-read--choices-table choices)
+                  nil nil)))
     (or (cdr (assoc answer choices))
         (unless (string-empty-p answer) answer)
         (user-error "No OpenStack %s ID given" type))))
@@ -201,6 +258,33 @@ failure yields nil instead of an error."
                           (error nil))
                     type))
                 (mapcar #'car openstack-resource-types))))
+
+(defun openstack-read--row-values (row)
+  "Return the string field values of list ROW."
+  (when (hash-table-p row)
+    (seq-keep (lambda (key)
+                (let ((value (gethash key row)))
+                  (and (stringp value) value)))
+              (hash-table-keys row))))
+
+(defun openstack-read-references (id)
+  "Return the cached resources that mention ID in one of their fields.
+Return a list of plists with :type, :id and :name, one per row.
+Read the cache only: no client call.  A `RESOURCE list' row
+holds an ID only for a related resource, such as the image of a
+server or the network of a port."
+  (let (found)
+    (dolist (entry openstack-read--cache (nreverse found))
+      (dolist (row (openstack-read--entry-rows entry))
+        (let ((row-id (openstack-read--row-id row)))
+          (when (and row-id
+                     (not (equal row-id id))
+                     (seq-some (lambda (value) (equal value id))
+                               (openstack-read--row-values row)))
+            (push (list :type (car entry)
+                        :id row-id
+                        :name (openstack-read--row-name row))
+                  found)))))))
 
 ;;;###autoload
 (defun openstack-read-refresh (&optional type)

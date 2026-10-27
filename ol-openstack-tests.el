@@ -131,7 +131,7 @@
         (with-temp-buffer
           (funcall (nth 1 entry))
           (should (equal (openstack-org--dashboard-url type "res-1")
-                         (openstack--format-url "res-1"))))))
+                         (openstack-dashboard-url "res-1"))))))
     (should (equal (openstack-org--dashboard-url "network" "net-1")
                    "https://horizon.example.org/project/networks/net-1/detail"))
     (should (equal (openstack-org--dashboard-url "server" "srv-1")
