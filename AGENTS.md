@@ -29,7 +29,7 @@ their own rendering.
 | `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
-| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
+| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |
@@ -47,9 +47,11 @@ The `checkPhase` byte-compiles every `.el` file in the tree with
 warnings as errors and runs the ERT suite (all `*-tests.el` files).
 No file lists to maintain: the phase globs the source tree, and
 `package-build` excludes `*-tests.el` from the package itself.
-Linting lives in `checks.lint` (`nix flake check` builds it):
-`package-lint` plus a `checkdoc` gate over the package files.
-`nix flake check` also builds `checks.<system>.treefmt` (nixfmt).
+`nix flake check` builds `checks.package` (same derivation as
+`packages.default`, so the tests run there too), plus three policy
+checks: `checks.package-lint` (ELPA headers and prefixes),
+`checks.checkdoc` (docstrings) and `checks.<system>.treefmt`
+(nixfmt).
 The `postPatch` phase substitutes `openstack-program` with the store
 path of the nixpkgs `openstackclient-full` package, so the client
 works out of the box.
@@ -154,8 +156,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack--last-fetch-time`, `openstack--last-error` and
   `openstack--fetch-marker` deliberately are not, so a new mode's
   renderer draws its own view.
-- `checkdoc` and `package-lint` must pass via `checks.lint`;
-  docstrings follow the imperative style.
+- `checkdoc` and `package-lint` must pass via `checks.checkdoc` and
+  `checks.package-lint`; docstrings follow the imperative style.
 - Interactive entry points carry `;;;###autoload` cookies;
   `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
   exist.  Add new commands to those tests when adding them to the

@@ -22,8 +22,10 @@
       # The treefmt module provides `treefmt' plus the `formatter' output
       # and a `checks.<system>.treefmt' gate for `nix flake check'.
       imports = [ treefmt-nix.flakeModule ];
-      # Emacs packages are pure Elisp: no ELF binaries, so evaluate on
-      # every Linux arch (and darwin if the deps exist there).
+      # Emacs packages are pure Elisp, but the build bakes in a store
+      # path of the OpenStack client, so every output stays tied to one
+      # platform.  Linux only: extend the list after a real eval on
+      # another system.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -33,7 +35,6 @@
         {
           pkgs,
           lib,
-          config,
           ...
         }:
         let
@@ -59,7 +60,7 @@
               in
               "0-unstable-${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}";
 
-            src = lib.cleanSource ./.;
+            src = ./.;
 
             # The shared openstack-cli.el shells out to the client;
             # bake its store path in so the default value works.
@@ -126,6 +127,21 @@
             };
           };
 
+          # Shell snippet for the ELPA policy checks: copy the packaged
+          # Elisp sources into the build directory.  Test files carry the
+          # `-tests.el' suffix and stay out.
+          lintFiles = ''
+            export HOME=$TMPDIR
+            mode_files=()
+            for file in "$src"/*.el; do
+              case "$file" in
+                *-tests.el) continue ;;
+              esac
+              cp "$file" .
+              mode_files+=("$(basename "$file")")
+            done
+          '';
+
         in
         {
           # One canonical formatting config: `nix fmt' runs nixfmt, and
@@ -138,32 +154,25 @@
           # One package for the whole repo: `nix build' installs the base
           # mode together with every derived mode.
           packages.openstack-mode = openstackPackage;
-          packages.default = config.packages.openstack-mode;
+          packages.default = openstackPackage;
 
-          # Lint gate: checkdoc + package-lint.  They catch what
-          # byte-compilation cannot — docstring conventions and ELPA
-          # policy (headers, symbol prefixes, dependency declarations).
-          checks.lint =
-            pkgs.runCommand "openstack-mode-lint"
+          # `nix flake check' builds the package too, so the check phase
+          # (byte-compile with warnings as errors, full ERT suite) gates
+          # the whole repo rather than only `nix build'.
+          checks.package = openstackPackage;
+
+          # package-lint: ELPA policy (headers, symbol prefixes,
+          # dependency declarations).
+          checks.package-lint =
+            pkgs.runCommandLocal "openstack-mode-package-lint"
               {
                 nativeBuildInputs = [
                   (pkgs.emacsPackages.emacsWithPackages (p: [ p.package-lint ]))
                 ];
-                src = config.packages.openstack-mode.src;
+                src = openstackPackage.src;
               }
               ''
-                export HOME=$TMPDIR
-                cp "$src"/*.el .
-
-                # Package files only: test files carry the `-tests.el'
-                # suffix and stay out of the ELPA policy gate.
-                mode_files=()
-                for file in *.el; do
-                  case "$file" in
-                    *-tests.el) continue ;;
-                  esac
-                  mode_files+=("$file")
-                done
+                ${lintFiles}
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -176,6 +185,20 @@
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
                   "''${mode_files[@]}"
+
+                touch $out
+              '';
+
+          # checkdoc: docstring conventions, which byte-compilation cannot
+          # check.
+          checks.checkdoc =
+            pkgs.runCommandLocal "openstack-mode-checkdoc"
+              {
+                nativeBuildInputs = [ pkgs.emacs ];
+                src = openstackPackage.src;
+              }
+              ''
+                ${lintFiles}
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \

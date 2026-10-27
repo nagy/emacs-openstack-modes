@@ -10,27 +10,27 @@ resource-specific modes can depend on it.
 
 * Files
 
-| File                      | Purpose                                                  |
-|---------------------------+----------------------------------------------------------|
-| =openstack-mode.el=       | Base major mode for OpenStack resources (ID handling)    |
-| =openstack-cli.el=        | CLI layer: sync/async access to =openstack-program=      |
-| =openstack-server.el=     | Server mode: fetches and renders =openstack server show= |
-| =openstack-server-list.el= | Server list mode: renders =openstack server list= as a table |
-| =openstack-volume.el=     | Volume mode: fetches and renders =openstack volume show= |
-| =openstack-image.el=      | Image mode: fetches and renders =openstack image show=   |
-| =openstack-volume-list.el= | Volume list mode: renders =openstack volume list= as a table |
-| =openstack-image-list.el= | Image list mode: renders =openstack image list= as a table |
-| =openstack-mode-tests.el= | ERT test suite for the mode                              |
-| =openstack-cli-tests.el=  | ERT test suite for the CLI layer (mocked)                |
-| =openstack-server-tests.el= | ERT test suite for the server mode                     |
-| =openstack-server-list-tests.el= | ERT test suite for the server list mode           |
-| =openstack-volume-tests.el= | ERT test suite for the volume mode                     |
-| =openstack-image-tests.el= | ERT test suite for the image mode                      |
-| =openstack-volume-list-tests.el= | ERT test suite for the volume list mode           |
-| =openstack-image-list-tests.el= | ERT test suite for the image list mode             |
-| =flake.nix=               | Nix flake with =melpaBuild=, runs ERT tests and checkdoc  |
-| =flake.lock=              | Pinned flake inputs                                      |
-| =LICENSE=                 | AGPLv3                                                   |
+| File                           | Purpose                                                    |
+|--------------------------------+------------------------------------------------------------|
+| =openstack-mode.el=              | Base major mode for OpenStack resources (ID handling)      |
+| =openstack-cli.el=               | CLI layer: sync/async access to =openstack-program=          |
+| =openstack-server.el=            | Server mode: fetches and renders =openstack server show=     |
+| =openstack-server-list.el=       | Server list mode: renders =openstack server list= as a table |
+| =openstack-volume.el=            | Volume mode: fetches and renders =openstack volume show=     |
+| =openstack-image.el=             | Image mode: fetches and renders =openstack image show=       |
+| =openstack-volume-list.el=       | Volume list mode: renders =openstack volume list= as a table |
+| =openstack-image-list.el=        | Image list mode: renders =openstack image list= as a table   |
+| =openstack-mode-tests.el=        | ERT test suite for the mode                                |
+| =openstack-cli-tests.el=         | ERT test suite for the CLI layer (mocked)                  |
+| =openstack-server-tests.el=      | ERT test suite for the server mode                         |
+| =openstack-server-list-tests.el= | ERT test suite for the server list mode                    |
+| =openstack-volume-tests.el=      | ERT test suite for the volume mode                         |
+| =openstack-image-tests.el=       | ERT test suite for the image mode                          |
+| =openstack-volume-list-tests.el= | ERT test suite for the volume list mode                    |
+| =openstack-image-list-tests.el=  | ERT test suite for the image list mode                     |
+| =flake.nix=                      | Nix flake with =melpaBuild=, runs ERT tests and checkdoc     |
+| =flake.lock=                     | Pinned flake inputs                                        |
+| =LICENSE=                        | AGPLv3                                                     |
 
 * Usage
 
@@ -206,8 +206,9 @@ nix fmt            # nixfmt via treefmt
 #+end_src
 
 The build byte-compiles with warnings as errors and runs the ERT
-test suite.  =nix flake check= additionally builds =checks.lint=
-(checkdoc + package-lint) and the treefmt formatting check.
+test suite.  =nix flake check= builds the package derivation itself
+(so the tests run there too) plus =checks.package-lint=,
+=checks.checkdoc= and the treefmt formatting check.
 `postPatch` rewrites `openstack-program` to the store path of the
 nixpkgs `openstackclient-full` binary.  The version follows
 =0-unstable-YYYY-MM-DD= from the last source commit.
