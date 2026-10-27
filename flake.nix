@@ -44,6 +44,11 @@
           # without anything on $PATH.
           openstackclient = pkgs.openstackclient-full;
 
+          # The optional openstack-evil.el layer needs evil to compile and
+          # test, but the package must not depend on it.  Supply the elisp
+          # directory to the build only, never through packageRequires.
+          evil = pkgs.emacsPackages.evil;
+
           # One package for the whole repo: package-build packages every
           # `*.el' file in the source by default, so the base mode, the
           # CLI layer and each derived show/list mode travel together.
@@ -71,6 +76,16 @@
 
             turnCompilationWarningToError = true;
 
+            # The default installPhase compiles the packaged files with
+            # `-Q', so preInstall puts the evil elisp directory on
+            # EMACSLOADPATH for that compile.  Do not add evil to packageRequires:
+            # the dependency is optional for users of the package.
+            preInstall = ''
+              evil_dir=$(find ${evil}/share/emacs/site-lisp/elpa \
+                -mindepth 1 -maxdepth 1 -type d -name 'evil-*' -print -quit)
+              export EMACSLOADPATH="$evil_dir:''${EMACSLOADPATH-}"
+            '';
+
             doCheck = true;
             # No file lists here: the phase globs the tree, and
             # package-build derives the packaged files from the same
@@ -80,16 +95,23 @@
             checkPhase = ''
               runHook preCheck
 
+              # openstack-evil.el is optional and the package declares no
+              # dependency on evil, but the gate must still compile and test
+              # it.  The check environment supplies the evil elisp directory.
+              evil_load_path=$(find ${evil}/share/emacs/site-lisp/elpa \
+                -mindepth 1 -maxdepth 1 -type d -name 'evil-*' -print -quit)
+
               echo '=== byte-compile ==='
               for file in *.el; do
-                emacs --batch -L . --eval '(setq byte-compile-error-on-warn t)' \
+                emacs --batch -L . -L "$evil_load_path" \
+                  --eval '(setq byte-compile-error-on-warn t)' \
                   -f batch-byte-compile "$file"
               done
 
               echo '=== ERT tests ==='
               test_args=()
               for file in *-tests.el; do test_args+=(-l "$file"); done
-              emacs --batch -L . "''${test_args[@]}" \
+              emacs --batch -L . -L "$evil_load_path" "''${test_args[@]}" \
                 -f ert-run-tests-batch-and-exit
 
               runHook postCheck
@@ -225,9 +247,10 @@
           devShells.default = pkgs.mkShell {
             # Mirror whatever the package needs at runtime when hacking on
             # it: the external CLI, a real Emacs for interactive testing.
+            # Evil comes along for the optional openstack-evil.el layer.
             packages = [
               openstackclient
-              pkgs.emacs
+              (pkgs.emacsPackages.emacsWithPackages (p: [ p.evil ]))
             ];
           };
         };

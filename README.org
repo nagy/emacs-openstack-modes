@@ -14,6 +14,7 @@ resource-specific modes can depend on it.
 |-----------------------------------+------------------------------------------------------------|
 | =openstack-mode.el=               | Base major mode for OpenStack resources (ID handling)      |
 | =openstack-list-mode.el=          | Collection base mode over =tabulated-list-mode=            |
+| =openstack-evil.el=               | Optional evil bindings for show and list buffers           |
 | =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=        |
 | =openstack-read.el=               | ID completion and the =RESOURCE list= cache                |
 | =openstack-xref.el=               | xref backend: =M-.= on a resource ID                       |
@@ -37,6 +38,7 @@ resource-specific modes can depend on it.
 | =openstack-network-tests.el=      | ERT test suite for the network mode                        |
 | =openstack-network-list-tests.el= | ERT test suite for the network list mode                   |
 | =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
+| =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
 | =openstack-read-tests.el=         | ERT test suite for the ID completion                       |
 | =openstack-xref-tests.el=         | ERT test suite for the xref backend                        |
@@ -243,6 +245,35 @@ The export takes the dashboard URL from the mode's own
 code never repeats those settings.
 
 The =M-?= prompt completes the cached IDs.
+
+* Evil bindings
+
+The evil integration is optional and lives in =openstack-evil.el=.
+The file requires evil, but the package does not: users without
+evil install nothing.
+
+#+begin_src elisp
+  (require 'openstack-evil)
+  (openstack-evil-mode 1)
+#+end_src
+
+The global mode binds keys in the normal and visual states of
+OpenStack buffers and leaves the evil motions alone: =j=, =k=,
+=gg=, =G=, =C-d=, =C-u=, =/=, =n= and =N= keep their meaning.
+Evil state maps take precedence over a major mode map, so a mode
+key such as RET or =q= needs a state binding to reach the buffer.
+
+Show buffers keep the command keys of the mode: RET opens the
+resource at point, =q= quits the window, =gr= refreshes, =p=
+pops back to the origin buffer, =c= copies the resource ID and
+=w= opens the dashboard page.  The evil operators on those keys
+do nothing in a read-only buffer, so the commands win.
+
+List buffers treat a row as the unit: RET opens the row, =c=
+copies its ID, =w= opens its dashboard page, =q= quits the
+window, =gr= refreshes, =n= and =p= move by row and =S= sorts
+the current column.  Select rows with =V= and press =y= to copy
+the IDs of every selected row, one per line.
 
 * Status, changes and notifications
 

@@ -25,6 +25,7 @@ their own rendering.
 | `openstack-network.el` | Network mode: `openstack network show` via the generic helpers; `openstack-network-display` |
 | `openstack-network-list.el` | Network list mode: `openstack network list` as a `tabulated-list-mode` table; `openstack-network-list-display` |
 | `openstack-list-mode.el` | Collection base mode over `tabulated-list-mode`: generic fetch, table renderer, column widths, typed sorters, row commands, mode line status |
+| `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-server-tests.el` | ERT tests for the server mode |
@@ -36,6 +37,7 @@ their own rendering.
 | `openstack-network-tests.el` | ERT tests for the network mode |
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
+| `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
 | `ol-openstack-tests.el` | ERT tests for the Org link type |
 | `openstack-read-tests.el` | ERT tests for the ID completion and the cache |
@@ -52,13 +54,16 @@ their own rendering.
 nix build          # package; its checkPhase runs the tests
 nix flake check    # evaluate/verify all flake outputs
 nix fmt            # nixfmt via treefmt
-nix develop        # emacs + openstackclient-full
+nix develop        # emacs + evil + openstackclient-full
 ```
 
 The `checkPhase` byte-compiles every `.el` file in the tree with
 warnings as errors and runs the ERT suite (all `*-tests.el` files).
 No file lists to maintain: the phase globs the source tree, and
 `package-build` excludes `*-tests.el` from the package itself.
+The phase adds the nixpkgs `evil` elisp directory to the load path,
+so `openstack-evil.el` compiles and its tests run; the package
+itself does not declare an evil dependency.
 `nix flake check` builds `checks.package` (same derivation as
 `packages.default`, so the tests run there too), plus three policy
 checks: `checks.package-lint` (ELPA headers and prefixes),
@@ -78,6 +83,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-image-list-tests.el \
   -l openstack-network-tests.el -l openstack-network-list-tests.el \
   -l openstack-list-mode-tests.el \
+  -l openstack-evil-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
   -l openstack-xref-tests.el \
   -f ert-run-tests-batch-and-exit
@@ -218,6 +224,27 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
   exist.  Add new commands to those tests when adding them to the
   files.
+- The evil layer is optional and lives in `openstack-evil.el`:
+  the file requires evil, but `Package-Requires` does not name
+  it, so users without evil install nothing.
+  `openstack-evil-mode` is a global minor mode with an
+  `;;;###autoload` cookie; it enables `openstack-evil-show-mode`
+  or `openstack-evil-list-mode` from
+  `after-change-major-mode-hook` and scans open buffers.  Do not
+  add evil to `packageRequires` in the flake: that turns the
+  optional layer into a hard dependency for Nix consumers.  The
+  flake `checkPhase` adds the nixpkgs evil elisp directory with
+  `-L` instead, and the devShell ships emacs with evil.
+- Evil state maps take precedence over a major mode map, so the
+  layer binds every command key through
+  `evil-define-minor-mode-key`, one key set per state and local
+  minor mode (`openstack-evil-show-keys`,
+  `openstack-evil-list-keys`,
+  `openstack-evil-list-visual-keys`).  Keep the evil motions
+  untouched: show buffers keep `RET`, `q`, `gr`, `p`, `c` and
+  `w` because the operators do nothing in a read-only buffer;
+  list buffers treat a row as the unit (`n`/`p` move by row,
+  `S` sorts, visual `y` copies the IDs of the selected rows).
 - Tests use `unwind-protect` around temporary buffers.
 - The Org link type lives in `ol-openstack.el` and is opt-in:
   users add `(require 'ol-openstack)` to their init.  Link paths
