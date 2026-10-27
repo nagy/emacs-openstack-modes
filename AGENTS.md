@@ -354,6 +354,14 @@ includes evil.
   around the render and then calls the state-change hook; a mode
   that renders its own view must go through the same helpers to
   keep faces, changes and the hook.
+- Every face of the package inherits a standard one and lives in
+  `openstack-mode.el`: `openstack-status-ok`, `openstack-status-off`,
+  `openstack-status-pending`, `openstack-status-error`,
+  `openstack-field-changed`, `openstack-field-name` (inherits
+  `font-lock-variable-name-face`) and `openstack-error` (inherits
+  `error`).  Do not apply a font-lock or message face directly:
+  then a user who restyles the OpenStack buffers changes code
+  buffers or every message as well.
 - The refresh delay of `openstack--buffer-stale-p` comes from
   `openstack--refresh-delay`: `openstack-refresh-fast-interval`
   while a status in `openstack-transitional-states` shows,

@@ -775,8 +775,22 @@ the full ID from the property."
               'openstack-status-error))
   (should (eq (openstack--status-face "status" "BUILD")
               'openstack-status-pending))
+  ;; The three status fields of the default map take a face.
+  (should (eq (openstack--status-face "host_status" "UP")
+              'openstack-status-ok))
+  (should (eq (openstack--status-face "health_status" "unhealthy")
+              'openstack-status-error))
+  (should (eq (openstack--status-face "vm_state" "paused")
+              'openstack-status-off))
+  (should (eq (openstack--status-face "status" "attaching")
+              'openstack-status-pending))
   (should (null (openstack--status-face "name" "ACTIVE")))
   (should (null (openstack--status-face "status" "made-up"))))
+
+(ert-deftest openstack-status-faces-are-faces ()
+  "Every face of `openstack-status-faces' exists."
+  (dolist (entry openstack-status-faces)
+    (should (facep (cdr entry)))))
 
 (ert-deftest openstack-render-fields-status-face ()
   "A status value renders with its status face."
@@ -788,6 +802,31 @@ the full ID from the property."
       (should (eq (openstack-test--face-at "ACTIVE")
                   'openstack-status-ok))
       (should (null (openstack-test--face-at "web-1"))))))
+
+(ert-deftest openstack-render-fields-field-name-face ()
+  "Field names take `openstack-field-name', not a font-lock face."
+  (let ((data (openstack-test--parse
+               "{\"id\": \"srv-1\", \"status\": \"ACTIVE\"}"))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data nil)
+      (should (eq (openstack-test--face-at "ID") 'openstack-field-name))
+      (should (eq (openstack-test--face-at "status")
+                  'openstack-field-name)))))
+
+(ert-deftest openstack-render-error-uses-error-face ()
+  "The buffer and header line show a fetch error in `openstack-error'."
+  (let ((err '(openstack-cli-error "failed" :stderr "auth failed")))
+    (with-temp-buffer
+      (let ((inhibit-read-only t))
+        (openstack--render-error err))
+      (should (eq (get-text-property (point-min) 'face) 'openstack-error)))
+    (let ((header-line-format nil))
+      (openstack--display-error-in-header err)
+      (should (eq (get-text-property 0 'face header-line-format)
+                  'openstack-error))
+      (openstack--display-error-in-header nil)
+      (should-not header-line-format))))
 
 (ert-deftest openstack-render-fields-marks-changed ()
   "A value that differs from the previous render takes the change face."

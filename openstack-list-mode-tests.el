@@ -216,8 +216,11 @@ The columns come from `openstack-list-test--fields'."
       (setq openstack--last-error '(error "the client failed"))
       (funcall openstack-error-display-function openstack--last-error)
       (should (eq header header-line-format))
-      (should (string-match-p "the client failed"
-                              (openstack-list--mode-line))))))
+      (let ((line (openstack-list--mode-line)))
+        (should (string-match "the client failed" line))
+        ;; The error segment takes the package error face.
+        (should (eq (get-text-property (match-beginning 0) 'face line)
+                    'openstack-error))))))
 
 ;;; Row commands
 

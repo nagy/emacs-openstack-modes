@@ -262,7 +262,8 @@ not use the macro."
                        (symbol :tag "Display command")))
   :group 'openstack)
 
-(defcustom openstack-status-fields '("status" "vm_state" "health_status")
+(defcustom openstack-status-fields '("status" "vm_state" "host_status"
+                                     "health_status")
   "Fields rendered as a status in display buffers.
 A value of such a field takes its face from
 `openstack-status-faces'; the field name comparison ignores
@@ -271,23 +272,49 @@ case."
   :group 'openstack)
 
 (defcustom openstack-status-faces
-  '(("active" . openstack-status-ok)
+  '(;; Healthy states.
+    ("active" . openstack-status-ok)
     ("available" . openstack-status-ok)
     ("in-use" . openstack-status-ok)
+    ("healthy" . openstack-status-ok)
+    ("up" . openstack-status-ok)
+    ;; Inactive states.
     ("down" . openstack-status-off)
     ("shutoff" . openstack-status-off)
+    ("stopped" . openstack-status-off)
+    ("paused" . openstack-status-off)
+    ("suspended" . openstack-status-off)
+    ("shelved" . openstack-status-off)
     ("shelved_offloaded" . openstack-status-off)
+    ;; States that still change.
     ("build" . openstack-status-pending)
+    ("building" . openstack-status-pending)
     ("reboot" . openstack-status-pending)
+    ("rebuild" . openstack-status-pending)
+    ("resize" . openstack-status-pending)
+    ("resizing" . openstack-status-pending)
+    ("migrating" . openstack-status-pending)
     ("deleting" . openstack-status-pending)
     ("creating" . openstack-status-pending)
     ("queued" . openstack-status-pending)
     ("saving" . openstack-status-pending)
+    ("uploading" . openstack-status-pending)
+    ("attaching" . openstack-status-pending)
+    ("detaching" . openstack-status-pending)
+    ("extending" . openstack-status-pending)
+    ("maintenance" . openstack-status-pending)
+    ("unknown" . openstack-status-pending)
+    ("pending_delete" . openstack-status-pending)
+    ;; Failure states.
     ("error" . openstack-status-error)
-    ("error_deleting" . openstack-status-error))
+    ("error_deleting" . openstack-status-error)
+    ("unhealthy" . openstack-status-error)
+    ("killed" . openstack-status-error))
   "Faces of the status values in display buffers.
-Each entry maps a status value, compared without case, to a
-face.  A value missing here keeps the default face."
+Each entry maps a status value to a face.  The comparison
+ignores case, because `RESOURCE show' and `RESOURCE list' spell
+the same state differently.  A value missing here keeps the
+default face."
   :type '(repeat (cons (string :tag "Status") (symbol :tag "Face")))
   :group 'openstack)
 
@@ -316,6 +343,20 @@ face.  A value missing here keeps the default face."
 (defface openstack-field-changed
   '((t :inherit highlight))
   "Face for a field whose value changed since the last refresh."
+  :group 'openstack)
+
+(defface openstack-field-name
+  '((t :inherit font-lock-variable-name-face))
+  "Face for the field names of a resource display.
+It inherits the font-lock face of variable names, so a theme
+that styles code names styles these names too.  Set this face
+alone to style the OpenStack displays without touching code
+buffers."
+  :group 'openstack)
+
+(defface openstack-error
+  '((t :inherit error))
+  "Face for a fetch error, in the buffer, header line or mode line."
   :group 'openstack)
 
 
@@ -436,7 +477,8 @@ and falls back to the error message of the condition."
 (defun openstack--display-error-in-header (err)
   "Show fetch error ERR in the header line, or clear it when ERR is nil."
   (setq header-line-format
-        (and err (propertize (openstack--error-string err) 'face 'error))))
+        (and err (propertize (openstack--error-string err)
+                             'face 'openstack-error))))
 
 (defun openstack--render-error (err)
   "Insert an error message for CLI condition ERR into the buffer.
@@ -448,7 +490,7 @@ failed to load."
                     (format "%s" (plist-get data :stderr)))
                 (error nil)))
          (text (or msg "Unknown OpenStack CLI error")))
-    (insert (propertize text 'face 'error))))
+    (insert (propertize text 'face 'openstack-error))))
 
 
 ;;; Helper functions
@@ -972,7 +1014,7 @@ previous refresh takes `openstack-field-changed'."
     (when id
       (setq text (propertize text 'openstack-id id
                              'mouse-face 'highlight)))
-    (insert (propertize field 'face 'font-lock-variable-name-face
+    (insert (propertize field 'face 'openstack-field-name
                         'openstack-field field)
             ": " text "\n")))
 
@@ -989,8 +1031,9 @@ resource modes call this from their
                   (or (and (hash-table-p data) (gethash "name" data))
                       id)))
   (when id
-    (insert "ID: " (propertize id 'openstack-id id
-                                'mouse-face 'highlight)
+    (insert (propertize "ID" 'face 'openstack-field-name)
+            ": " (propertize id 'openstack-id id
+                            'mouse-face 'highlight)
             "\n\n"))
   (when (hash-table-p data)
     (let ((unshown (make-hash-table :test #'equal)))
@@ -1456,7 +1499,7 @@ error.  The header line cannot carry them, because
           (when openstack--last-error
             (propertize (concat " [" (openstack--error-string
                                       openstack--last-error) "]")
-                        'face 'error))))
+                        'face 'openstack-error))))
 
 (defun openstack-list--display-error (_err)
   "Force a mode line redraw, which shows the last fetch error.
