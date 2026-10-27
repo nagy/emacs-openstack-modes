@@ -28,8 +28,8 @@
 
 ;; This package provides `openstack-server-list-mode', a mode for
 ;; listing OpenStack servers.  Unlike the single-resource modes it
-;; displays a collection: there is no resource ID, so it sets
-;; `openstack-collection' and lets the same refresh pipeline
+;; displays a collection.  It derives from `openstack-list-mode',
+;; which has no resource ID and lets the same refresh pipeline
 ;; (asynchronous fetch, self-refreshing display buffer) fetch all
 ;; servers with `openstack server list'.
 ;;
@@ -37,7 +37,7 @@
 ;;
 ;;   M-x openstack-server-list-display RET  - list all servers
 ;;
-;; The rows render as a padded table.  The columns of
+;; The rows render as a `tabulated-list-mode' table.  The columns of
 ;; `openstack-server-list-fields' come first, in that order; all
 ;; remaining fields follow, sorted by name.  The buffer refreshes
 ;; itself through `auto-revert-mode' like every other
@@ -45,7 +45,7 @@
 
 ;;; Code:
 
-(require 'openstack-mode)
+(require 'openstack-list-mode)
 
 ;; Forward reference: RET on a row calls the server show command.
 (declare-function openstack-server-display "openstack-server" (id))
@@ -113,25 +113,26 @@ delivers data, and keeps itself up to date afterwards."
         (origin (current-buffer)))
     (with-current-buffer buf
       (openstack-server-list-mode)
-      (setq-local openstack-collection t)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))
     (pop-to-buffer buf)))
 
 ;;;###autoload
-(define-derived-mode openstack-server-list-mode openstack-mode
+(define-derived-mode openstack-server-list-mode openstack-list-mode
   "OpenStack Servers"
   "Major mode for listing OpenStack servers.
-Derives from `openstack-mode' as a collection view: the buffer
-has no resource ID (`openstack-collection' is set) and the
-ID commands do not apply.  The servers are fetched with
-`openstack server list' through the asynchronous CLI layer and
-rendered as a padded table; RET or `mouse-2' on a row opens the
-server's show buffer (`openstack-server-display')."
+Derives from `openstack-list-mode', a `tabulated-list-mode'
+for OpenStack collections, so the table has a clickable column
+header, per-column sorting and column resizing.  The buffer has
+no resource ID and the ID commands do not apply.  The servers are
+fetched with `openstack server list' through the asynchronous CLI
+layer; RET or `mouse-2' on a row opens the server's show buffer
+\(`openstack-server-display')."
   (setq-local openstack-fetch-function #'openstack-server-list--fetch)
   (setq-local openstack-render-function #'openstack-server-list--render)
   (setq-local openstack-id-prefix "compute")
   ;; RET on a row opens the server's show buffer.
+  (setq-local openstack-list--noun "servers")
   (setq-local openstack-show-command #'openstack-server-display))
 
 (provide 'openstack-server-list)

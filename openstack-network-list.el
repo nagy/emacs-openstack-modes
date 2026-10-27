@@ -27,17 +27,17 @@
 ;;; Commentary:
 
 ;; This package provides `openstack-network-list-mode', a mode for
-;; listing OpenStack networks.  It is a collection view like
-;; `openstack-server-list-mode': there is no resource ID, so it
-;; sets `openstack-collection' and lets the same refresh pipeline
-;; (asynchronous fetch, self-refreshing display buffer) fetch all
+;; listing OpenStack networks.  It derives from
+;; `openstack-list-mode', which has no resource ID and lets the same
+;; refresh pipeline (asynchronous fetch, self-refreshing display
+;; buffer) fetch all
 ;; networks with `openstack network list'.
 ;;
 ;; Entry point:
 ;;
 ;;   M-x openstack-network-list-display RET  - list all networks
 ;;
-;; The rows render as a padded table.  The columns of
+;; The rows render as a `tabulated-list-mode' table.  The columns of
 ;; `openstack-network-list-fields' come first, in that order; all
 ;; remaining fields follow, sorted by name.  The buffer refreshes
 ;; itself through `auto-revert-mode' like every other
@@ -45,7 +45,7 @@
 
 ;;; Code:
 
-(require 'openstack-mode)
+(require 'openstack-list-mode)
 
 ;; Forward reference: RET on a row calls the network show command.
 (declare-function openstack-network-display "openstack-network" (id))
@@ -111,25 +111,28 @@ client delivers data, and keeps itself up to date afterwards."
         (origin (current-buffer)))
     (with-current-buffer buf
       (openstack-network-list-mode)
-      (setq-local openstack-collection t)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))
     (pop-to-buffer buf)))
 
 ;;;###autoload
-(define-derived-mode openstack-network-list-mode openstack-mode
+(define-derived-mode openstack-network-list-mode openstack-list-mode
   "OpenStack Networks"
   "Major mode for listing OpenStack networks.
-Derives from `openstack-mode' as a collection view: the buffer
-has no resource ID (`openstack-collection' is set) and the
-ID commands do not apply.  The networks are fetched with
-`openstack network list' through the asynchronous CLI layer and
-rendered as a padded table; RET or `mouse-2' on a row opens the
+Derives from `openstack-list-mode', a `tabulated-list-mode'
+for OpenStack collections, so the table has a clickable column
+header, per-column sorting and column resizing.  The buffer has
+no resource ID and the ID commands do not apply.  The networks
+are fetched with `openstack network list' through the
+asynchronous CLI layer; RET or `mouse-2' on a row opens the
 network's show buffer (`openstack-network-display')."
   (setq-local openstack-fetch-function #'openstack-network-list--fetch)
   (setq-local openstack-render-function #'openstack-network-list--render)
   (setq-local openstack-id-prefix "project/networks")
   ;; RET on a row opens the network's show buffer.
+  (setq-local openstack-list--noun "networks")
+  ;; The row command `w' opens the network detail page.
+  (setq-local openstack-url-suffix "/detail")
   (setq-local openstack-show-command #'openstack-network-display))
 
 (provide 'openstack-network-list)

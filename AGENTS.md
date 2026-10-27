@@ -17,13 +17,14 @@ their own rendering.
 | `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, opt-in via `(require 'openstack-xref)` |
 | `openstack-server.el` | First derived mode: fetches `openstack server show` (async), renders server fields; `openstack-server-display` entry point |
-| `openstack-server-list.el` | Collection mode: `openstack server list` as a padded table; `openstack-server-list-display` |
+| `openstack-server-list.el` | Collection mode: `openstack server list` as a `tabulated-list-mode` table; `openstack-server-list-display` |
 | `openstack-volume.el` | Volume mode: `openstack volume show` via the generic helpers |
 | `openstack-image.el` | Image mode: `openstack image show` via the generic helpers |
-| `openstack-volume-list.el` | Volume list mode: `openstack volume list` as a padded table; `openstack-volume-list-display` |
-| `openstack-image-list.el` | Image list mode: `openstack image list` as a padded table; `openstack-image-list-display` |
+| `openstack-volume-list.el` | Volume list mode: `openstack volume list` as a `tabulated-list-mode` table; `openstack-volume-list-display` |
+| `openstack-image-list.el` | Image list mode: `openstack image list` as a `tabulated-list-mode` table; `openstack-image-list-display` |
 | `openstack-network.el` | Network mode: `openstack network show` via the generic helpers; `openstack-network-display` |
-| `openstack-network-list.el` | Network list mode: `openstack network list` as a padded table; `openstack-network-list-display` |
+| `openstack-network-list.el` | Network list mode: `openstack network list` as a `tabulated-list-mode` table; `openstack-network-list-display` |
+| `openstack-list-mode.el` | Collection base mode over `tabulated-list-mode`: generic fetch, table renderer, column widths, typed sorters, row commands, mode line status |
 | `openstack-mode-tests.el` | ERT tests for the mode |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-server-tests.el` | ERT tests for the server mode |
@@ -34,6 +35,7 @@ their own rendering.
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `openstack-network-tests.el` | ERT tests for the network mode |
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
+| `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
 | `ol-openstack-tests.el` | ERT tests for the Org link type |
 | `openstack-read-tests.el` | ERT tests for the ID completion and the cache |
@@ -75,6 +77,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
   -l openstack-network-tests.el -l openstack-network-list-tests.el \
+  -l openstack-list-mode-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
   -l openstack-xref-tests.el \
   -f ert-run-tests-batch-and-exit
@@ -104,7 +107,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
 - Derived modes go in their own file and require
-  `openstack-mode`.  The repo ships one Emacs package:
+  `openstack-mode`; the list modes require `openstack-list-mode`.
+  The repo ships one Emacs package:
   `packages.openstack-mode` (aliased as `packages.default`) builds
   the whole tree with one `melpaBuild`, because `package-build`
   packages every `*.el` file in the source and no mode carries its
@@ -119,6 +123,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   `(declare-function openstack-server-display "openstack-server" (id))`.
   The list modes and their tests need this for the show entry
   points they bind to `openstack-show-command`.
+  `tabulated-list-print` requires an entry as a list `(ID COLS)`:
+  a cons of ID and column vector makes it signal a type error.
 - Derived modes override fetching and rendering by setting the
   `openstack-fetch-function` and `openstack-render-function`
   defcustoms (buffer-locally in the mode body, or globally).
@@ -139,23 +145,56 @@ emacs --batch -L . -l openstack-mode-tests.el \
   it per mode.  A mode whose Horizon page has trailing segments
   sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
   go into `openstack-id-prefix`.
-- Collection buffers (lists) have no resource ID: the entry point
-  sets the buffer-local `openstack-collection` flag, so
-  `openstack--refresh` runs and the fetcher receives nil as the
-  ID.  The ID commands user-error on collection buffers.
-- List modes are thin like show modes: a fetch wrapper over
-  `openstack-list-fetch` (generic `RESOURCE list` via the async
-  CLI layer) and a render wrapper over `openstack-list-render`
-  (placeholder for an empty list; column ordering via
-  `openstack-list-columns`), plus display command and mode.
+- Collection buffers (lists) have no resource ID:
+  `openstack-list-mode` sets the buffer-local `openstack-collection`
+  flag, so `openstack--refresh` runs and the fetcher receives nil as
+  the ID.  The ID commands user-error on collection buffers.
+- The collection base mode derives from `tabulated-list-mode`:
+  `openstack-list-mode` is the parent of every `*-list-mode`, which
+  only set `openstack-fetch-function`, `openstack-render-function`,
+  `openstack-id-prefix`, `openstack-show-command` and
+  `openstack-list--noun`.  Do not derive a list mode from
+  `openstack-mode` directly, and do not hand-pad a table.
+- List modes are thin: a fetch wrapper over `openstack-list-fetch`
+  (generic `RESOURCE list` via the async CLI layer) and a render
+  wrapper over `openstack-list-render` (placeholder for an empty
+  list; column ordering via `openstack-list-columns`), plus display
+  command and mode.  `openstack-list-render` sets
+  `tabulated-list-format` (widths fitted to the window, typed
+  sorters per column, numbers right-aligned) and
+  `tabulated-list-entries` (ID plus cell vector), then calls
+  `tabulated-list-print`.
+- `openstack-render-manages-buffer` tells `openstack--refresh-done`
+  that the renderer prints the buffer itself: the pipeline does not
+  erase beforehand and does not move point afterwards, because
+  `tabulated-list-print` restores point by row ID.  A list row's ID
+  is the resource ID, so an update or a re-sort keeps point on the
+  same resource.
+- The header line holds the tabulated column labels.  A list mode
+  must not write it: the row count, the sort state and the last
+  fetch error go to the mode line through
+  `openstack-list--mode-line`, and list modes bind
+  `openstack-error-display-function` to
+  `openstack-list--display-error`.  Show modes keep the default
+  `openstack--display-error-in-header`.
+- `openstack-list-mode-map` builds on `tabulated-list-mode-map`,
+  so `n`/`p` move by line and `S` sorts; `openstack-pop` stays a
+  show-mode command.  `RET` and `mouse-2` open the row's resource,
+  `c` copies the row ID and `w` opens the row's dashboard page.
+  The printer adds `openstack-id` and `mouse-face` to the whole
+  row, not just the ID cell.
+- Column widths depend on the window width, so
+  `window-size-change-functions` redraws visible list buffers from
+  the cached rows (`openstack-list--redraw`, no new CLI call).
 - Navigation: the renderers attach an `openstack-id` text
-  property to ID field lines and list rows; RET and `mouse-2`
-  (`openstack-display-at-point`) open the resource at point with
-  the buffer-local `openstack-show-command`, which list modes
-  bind to their resource's display command (default
+  property to ID field lines and to whole list rows; RET and
+  `mouse-2` (`openstack-display-at-point`) open the resource at
+  point with the buffer-local `openstack-show-command`, which list
+  modes bind to their resource's display command (default
   `openstack-display`).
-- Display buffers refresh themselves: `openstack-mode` wires
-  `revert-buffer-function`, `buffer-stale-function` and
+- Display buffers refresh themselves: `openstack-mode` and
+  `openstack-list-mode` call `openstack--init-display-buffer`, which
+  wires `revert-buffer-function`, `buffer-stale-function` and
   `auto-revert-mode` into the async pipeline
   (`openstack--refresh` / `openstack--refresh-done`), throttled by
   `openstack-refresh-interval` and limited to visible buffers
@@ -163,7 +202,9 @@ emacs --batch -L . -l openstack-mode-tests.el \
   structurally via `openstack--data-equal-p`, `equal` fails on hash
   tables) is not re-rendered, keeping point and marks.  A refresh
   requested during a running fetch is served on completion.
-  Errors keep the last good content and go to the header line.
+  Errors keep the last good content and go to
+  `openstack-error-display-function` (header line for show modes,
+  mode line for list modes).
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode
   cancels any in-flight fetch via `openstack--kill-pending`);

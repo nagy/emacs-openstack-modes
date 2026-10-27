@@ -341,6 +341,20 @@ desktop notifications.")
 (defvar-local openstack--last-error nil
   "Error condition reported by the last fetch, or nil when none.")
 
+(defvar-local openstack-error-display-function
+    #'openstack--display-error-in-header
+  "Function that shows the last fetch error in the current buffer.
+It receives the error condition, or nil to clear the display.
+The default writes the header line; `openstack-list-mode' replaces
+it, because the tabulated list modes use the header line for the
+column labels and report the error in the mode line instead.")
+
+(defvar-local openstack-render-manages-buffer nil
+  "Non-nil when `openstack-render-function' prints the whole buffer.
+A tabulated list renderer erases the buffer and restores point by
+row identity itself, so `openstack--refresh-done' must not erase
+before the call nor move point after it.")
+
 (defvar-local openstack-collection nil
   "Non-nil when the buffer displays a collection of resources.
 Collections (e.g. a server list) have no single resource ID:
@@ -370,6 +384,23 @@ collection buffer).")
 
 (defconst openstack--saved-id-suffix " ::OpenStack"
   "Suffix appended to the ID in the bookmark record.")
+
+(defun openstack--error-string (err)
+  "Return a short message for CLI error condition ERR.
+The message carries the client's standard error when it exists,
+and falls back to the error message of the condition."
+  (format "OpenStack error: %s"
+          (or (plist-get (cdr err) :stderr)
+              (let ((data (cdr err)))
+                (and (consp data)
+                     (stringp (car data))
+                     (car data)))
+              (error-message-string err))))
+
+(defun openstack--display-error-in-header (err)
+  "Show fetch error ERR in the header line, or clear it when ERR is nil."
+  (setq header-line-format
+        (and err (propertize (openstack--error-string err) 'face 'error))))
 
 (defun openstack--render-error (err)
   "Insert an error message for CLI condition ERR into the buffer.
@@ -670,9 +701,10 @@ when the fetcher returns a process object, it is remembered so
   "Complete the fetch of BUF marked MARKER for ID with DATA or ERR.
 Called by the callbacks of `openstack--refresh'.  ERR is the error
 condition of a failed fetch: the last good content stays in the
-buffer and the error goes to the header line.  Rendering is
-skipped when DATA has the same content as the previously rendered
-data, keeping point, marks and window start intact.  A refresh
+buffer and the error goes to the buffer's status display (see
+`openstack-error-display-function').  Rendering is skipped when
+DATA has the same content as the previously rendered data,
+keeping point, marks and window start intact.  A refresh
 requested while this fetch ran is served now.  Do nothing when
 BUF is already dead or when MARKER is stale, i.e. when the fetch
 was superseded while it ran."
@@ -681,27 +713,20 @@ was superseded while it ran."
       (when (eq marker openstack--fetch-marker)
         (setq openstack--pending nil
               openstack--fetch-marker nil
-              openstack--last-fetch-time (float-time))
-        (if err
-            (setq openstack--last-error err
-                  header-line-format
-                  (propertize
-                   (format "OpenStack error: %s"
-                           (or (plist-get (cdr err) :stderr)
-                               (let ((data (cdr err)))
-                                 (and (consp data)
-                                      (stringp (car data))
-                                      (car data)))
-                               (error-message-string err)))
-                   'face 'error))
-          (setq openstack--last-error nil
-                header-line-format nil)
-          (unless (and openstack--rendered
-                       (openstack--data-equal-p data openstack--last-data))
-            (let ((openstack--previous-data
-                   (and openstack--rendered openstack--last-data)))
-              (setq openstack--last-data data
-                    openstack--rendered t)
+              openstack--last-fetch-time (float-time)
+              openstack--last-error err)
+        (funcall openstack-error-display-function err)
+        (unless (or err
+                    (and openstack--rendered
+                         (openstack--data-equal-p data openstack--last-data)))
+          (let ((openstack--previous-data
+                 (and openstack--rendered openstack--last-data)))
+            (setq openstack--last-data data
+                  openstack--rendered t)
+            (if openstack-render-manages-buffer
+                ;; The renderer prints the buffer itself and keeps the
+                ;; position by row identity: no erase, no point move.
+                (funcall openstack-render-function id data)
               (let* ((window (get-buffer-window buf 0))
                      (point (point))
                      (start (and (window-live-p window)
@@ -711,8 +736,8 @@ was superseded while it ran."
                   (funcall openstack-render-function id data))
                 (goto-char (min point (point-max)))
                 (when (window-live-p window)
-                  (set-window-start window (min start (point-max)))))
-              (openstack--notify-state-changes data openstack--previous-data))))
+                  (set-window-start window (min start (point-max))))))
+            (openstack--notify-state-changes data openstack--previous-data)))
         (when openstack--refresh-requested
           (setq openstack--refresh-requested nil)
           (openstack--refresh))))))
@@ -903,113 +928,31 @@ resource modes call this from their
            field (gethash field data)
            (and id (string= field "id") id)))))))
 
-;;; Generic collection fetch and render
+;;; Collection helpers
 
-(defun openstack-list-fetch (resource _id success-fn error-fn)
-  "Fetch all resources of RESOURCE type for a collection buffer.
-RESOURCE is the client's resource command name, e.g. `server' or
-`volume'.  Run `RESOURCE list' through
-`openstack-cli-async-request' and call SUCCESS-FN with the
-parsed JSON (a list of resource hash tables), or ERROR-FN with
-an `openstack-cli-error' condition.  Return the client process,
-so the display machinery can cancel the fetch.  The ID argument
-is ignored: a collection buffer has no single resource ID.
-Collection modes wrap this with their own resource name as their
-`openstack-fetch-function'."
-  (openstack-cli-async-request
-   (list resource "list")
-   :success-fn success-fn
-   :error-fn error-fn))
-
-(defun openstack-list-columns (rows fields)
-  "Return the table columns of ROWS in display order.
-FIELDS names the columns shown first, in that order; every
-remaining field of ROWS follows, sorted by name.  The field
-names are the title-case names the client prints for lists,
-for example `ID' or `Volume Type'."
-  (let ((unseen (make-hash-table :test #'equal))
-        (columns nil))
-    (dolist (row rows)
-      (maphash (lambda (key _value) (puthash key t unseen)) row))
-    (dolist (field fields)
-      (when (gethash field unseen)
-        (remhash field unseen)
-        (push field columns)))
-    (let ((remaining nil))
-      (maphash (lambda (key _value) (push key remaining)) unseen)
-      (nconc (nreverse columns) (sort remaining #'string<)))))
-
-(defun openstack-list--insert-row (cells widths &optional face id)
-  "Insert CELLS as one padded table row of column widths WIDTHS.
-When FACE is non-nil, the cells are drawn in that face.  When ID
-is non-nil, the cells carry the `openstack-id' text property with
-ID and `mouse-face' for click feedback, so
-`openstack-display-at-point' can open the resource of the row."
-  (cl-loop for cell in cells
-           for width in widths
-           when id
-             do (setq cell (propertize cell 'openstack-id id
-                                       'mouse-face 'highlight))
-           do (insert (if face (propertize cell 'face face) cell))
-              (insert (make-string (- width (string-width cell)) ?\s)
-                      "  "))
-  (insert "\n"))
-
-(defun openstack-list-render (placeholder rows fields)
-  "Insert PLACEHOLDER or the table of collection ROWS.
-PLACEHOLDER is inserted when ROWS is empty, e.g. `(no
-servers)'; ROWS is the parsed `RESOURCE list' JSON, a list of
-hash tables.  The columns come from `openstack-list-columns'
-with FIELDS first, padded to the widest cell in each column.
-Collection modes call this from their
-`openstack-render-function' with their own field order."
-  (let ((rows (cl-remove-if-not #'hash-table-p
-                                (if (listp rows) rows (list rows)))))
-    (if (null rows)
-        (insert placeholder "\n")
-      (let* ((columns (openstack-list-columns rows fields))
-             (cell-rows
-              (mapcar (lambda (row)
-                        (let ((previous
-                               (and (listp openstack--previous-data)
-                                    (openstack--row-match
-                                     openstack--previous-data row))))
-                          (mapcar
-                           (lambda (column)
-                             (let* ((value (gethash column row))
-                                    (changed
-                                     (and previous
-                                          (not (openstack--data-equal-p
-                                                value
-                                                (gethash column previous)))))
-                                    (face (openstack--cell-face
-                                           column value changed))
-                                    (text (openstack--format-value value)))
-                               (if face
-                                   (propertize text 'face face)
-                                 text)))
-                           columns)))
-                      rows))
-             (widths (let ((ws (mapcar #'string-width columns)))
-                       (dolist (cells cell-rows ws)
-                         (setq ws (cl-mapcar
-                                   (lambda (width cell)
-                                     (max width (string-width cell)))
-                                   ws cells))))))
-        (openstack-list--insert-row columns widths 'bold)
-        (insert (make-string (+ (apply #'+ widths)
-                                (* 2 (length widths)))
-                             ?-)
-                "\n")
-        ;; The `ID' column carries the resource ID: propertize every
-        ;; data row with it, so RET opens the row's resource.
-        (let ((id-column (cl-position "ID" columns :test #'string=)))
-          (dolist (cells cell-rows)
-            (openstack-list--insert-row
-             cells widths nil
-             (and id-column (nth id-column cells)))))))))
+;; The table renderer and the collection base mode live in
+;; openstack-list-mode.el.  Nothing here requires that file: the
+;; list modes derive from `openstack-list-mode', which derives from
+;; `tabulated-list-mode' and calls `openstack--init-display-buffer'.
 
 ;;; Major mode
+
+(defun openstack--init-display-buffer ()
+  "Prepare the current buffer for displaying OpenStack data.
+Shared by `openstack-mode' and `openstack-list-mode': it cancels a
+fetch left over from a previous mode, wires the asynchronous
+refresh into `revert-buffer', bookmark and `auto-revert-mode'.
+A caller runs it after its parent mode, so these settings win
+over the parent's own `revert-buffer-function'."
+  (openstack--kill-pending)
+  (setq-local revert-buffer-function #'openstack--revert-buffer)
+  (setq-local buffer-stale-function #'openstack--buffer-stale-p)
+  (add-hook 'kill-buffer-hook #'openstack--kill-pending nil t)
+  (when openstack-auto-revert
+    ;; A refresh is asynchronous and invisible: the auto-revert
+    ;; "Reverting buffer ..." message would only spam the echo area.
+    (setq-local auto-revert-verbose nil)
+    (auto-revert-mode 1)))
 
 ;;;###autoload
 (define-derived-mode openstack-mode special-mode
@@ -1033,17 +976,10 @@ field lines and to the rows of collection buffers: RET or
   ;; or `openstack-display' on an existing buffer) replaces the
   ;; fetcher and renderer: cancel any in-flight fetch so the buffer
   ;; starts from a clean slate.
-  (openstack--kill-pending)
-  (setq-local revert-buffer-function #'openstack--revert-buffer)
-  (setq-local buffer-stale-function #'openstack--buffer-stale-p)
+  (openstack--init-display-buffer)
+  ;; A resource buffer bookmarks its ID; a collection buffer has none.
   (setq-local bookmark-make-record-function
-              #'openstack--bookmark-make-record)
-  (add-hook 'kill-buffer-hook #'openstack--kill-pending nil t)
-  (when openstack-auto-revert
-    ;; A refresh is asynchronous and invisible: the auto-revert
-    ;; "Reverting buffer ..." message would only spam the echo area.
-    (setq-local auto-revert-verbose nil)
-    (auto-revert-mode 1)))
+              #'openstack--bookmark-make-record))
 
 (defun openstack--revert-buffer (&rest _args)
   "Re-fetch and re-render the current OpenStack resource.

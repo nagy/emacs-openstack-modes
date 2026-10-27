@@ -18,6 +18,7 @@
 
 (require 'ert)
 (require 'openstack-mode)
+(require 'openstack-list-mode)
 
 ;;; Helpers
 
@@ -548,7 +549,7 @@ The fetcher receives nil as the ID; without the
 ;;; Navigation
 
 (ert-deftest openstack-list-render-propertizes-rows-with-id ()
-  "Data rows carry `openstack-id' and `mouse-face'; the header does not."
+  "Data rows carry `openstack-id' and `mouse-face' over the whole line."
   (let ((data (with-temp-buffer
                 (insert "[{\"ID\": \"id-1\", \"Name\": \"web-1\"}, "
                         "{\"ID\": \"id-2\", \"Name\": \"web-2\"}]")
@@ -556,20 +557,23 @@ The fetcher receives nil as the ID; without the
                 (json-parse-buffer :object-type 'hash-table
                                    :array-type 'list
                                    :null-object nil
-                                   :false-object nil)))
-        (inhibit-read-only t))
+                                   :false-object nil))))
     (with-temp-buffer
       (openstack-list-render "(none)" data '("ID" "Name"))
+      ;; The header line holds the column labels, so the buffer starts
+      ;; with the first row; the property covers its padding too.
+      (should (equal (get-text-property (point-min) 'openstack-id)
+                     "id-1"))
+      (should (eq (get-text-property (point-min) 'mouse-face)
+                  'highlight))
       (goto-char (point-min))
-      (should (null (get-text-property (point) 'openstack-id)))
-      (search-forward "id-1")
+      (search-forward "web-1")
       (should (equal (get-text-property (match-beginning 0) 'openstack-id)
                      "id-1"))
-      (should (eq (get-text-property (match-beginning 0) 'mouse-face)
-                  'highlight))
-      (search-forward "web-1")
-      ;; The whole row carries the property, not just the ID cell.
-      (should (equal (get-text-property (match-beginning 0) 'openstack-id)
+      ;; The padding between two cells carries the property as well.
+      (goto-char (point-min))
+      (search-forward "id-1")
+      (should (equal (get-text-property (1+ (match-end 0)) 'openstack-id)
                      "id-1"))
       (search-forward "id-2")
       (should (equal (get-text-property (match-beginning 0) 'openstack-id)
@@ -697,14 +701,12 @@ The fetcher receives nil as the ID; without the
 {\"ID\": \"srv-2\", \"Name\": \"web-2\", \"Status\": \"ACTIVE\"}]"))
          (new (openstack-test--parse
                "[{\"ID\": \"srv-1\", \"Name\": \"web-1\", \"Status\": \"ACTIVE\"}, \
-{\"ID\": \"srv-2\", \"Name\": \"web-2\", \"Status\": \"ACTIVE\"}]"))
-         (inhibit-read-only t))
+{\"ID\": \"srv-2\", \"Name\": \"web-2\", \"Status\": \"ACTIVE\"}]")))
     (with-temp-buffer
       (let ((openstack--previous-data old))
         (openstack-list-render "(no servers)" new '("ID" "Name" "Status")))
       (goto-char (point-min))
-      (search-forward "srv-1")
-      (let ((faces (text-properties-at (match-beginning 0))))
+      (let ((faces (text-properties-at (point))))
         (should (plist-get faces 'openstack-id)))
       ;; The changed row shows both faces, the unchanged row only the status.
       (goto-char (point-min))

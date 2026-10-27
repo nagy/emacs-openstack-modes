@@ -27,17 +27,17 @@
 ;;; Commentary:
 
 ;; This package provides `openstack-volume-list-mode', a mode for
-;; listing OpenStack block storage volumes.  It is a collection view
-;; like `openstack-server-list-mode': there is no resource ID, so it
-;; sets `openstack-collection' and lets the same refresh pipeline
-;; (asynchronous fetch, self-refreshing display buffer) fetch all
+;; listing OpenStack block storage volumes.  It derives from
+;; `openstack-list-mode', which has no resource ID and lets the same
+;; refresh pipeline (asynchronous fetch, self-refreshing display
+;; buffer) fetch all
 ;; volumes with `openstack volume list'.
 ;;
 ;; Entry point:
 ;;
 ;;   M-x openstack-volume-list-display RET  - list all volumes
 ;;
-;; The rows render as a padded table.  The columns of
+;; The rows render as a `tabulated-list-mode' table.  The columns of
 ;; `openstack-volume-list-fields' come first, in that order; all
 ;; remaining fields follow, sorted by name.  The buffer refreshes
 ;; itself through `auto-revert-mode' like every other
@@ -45,7 +45,7 @@
 
 ;;; Code:
 
-(require 'openstack-mode)
+(require 'openstack-list-mode)
 
 ;; Forward reference: RET on a row calls the volume show command.
 (declare-function openstack-volume-display "openstack-volume" (id))
@@ -112,25 +112,26 @@ delivers data, and keeps itself up to date afterwards."
         (origin (current-buffer)))
     (with-current-buffer buf
       (openstack-volume-list-mode)
-      (setq-local openstack-collection t)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))
     (pop-to-buffer buf)))
 
 ;;;###autoload
-(define-derived-mode openstack-volume-list-mode openstack-mode
+(define-derived-mode openstack-volume-list-mode openstack-list-mode
   "OpenStack Volumes"
   "Major mode for listing OpenStack volumes.
-Derives from `openstack-mode' as a collection view: the buffer
-has no resource ID (`openstack-collection' is set) and the
-ID commands do not apply.  The volumes are fetched with
-`openstack volume list' through the asynchronous CLI layer and
-rendered as a padded table; RET or `mouse-2' on a row opens the
-volume's show buffer (`openstack-volume-display')."
+Derives from `openstack-list-mode', a `tabulated-list-mode'
+for OpenStack collections, so the table has a clickable column
+header, per-column sorting and column resizing.  The buffer has
+no resource ID and the ID commands do not apply.  The volumes are
+fetched with `openstack volume list' through the asynchronous CLI
+layer; RET or `mouse-2' on a row opens the volume's show buffer
+\(`openstack-volume-display')."
   (setq-local openstack-fetch-function #'openstack-volume-list--fetch)
   (setq-local openstack-render-function #'openstack-volume-list--render)
   (setq-local openstack-id-prefix "volumes")
   ;; RET on a row opens the volume's show buffer.
+  (setq-local openstack-list--noun "volumes")
   (setq-local openstack-show-command #'openstack-volume-display))
 
 (provide 'openstack-volume-list)

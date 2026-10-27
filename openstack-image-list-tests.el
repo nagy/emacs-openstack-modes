@@ -37,12 +37,16 @@ sorting of unlisted columns.")
 ;;; Tests
 
 (ert-deftest openstack-image-list-mode-is-derived ()
-  "The list mode derives from `openstack-mode' with buffer-locals."
+  "The list mode derives from `openstack-list-mode' with buffer-locals."
   (let ((buf (generate-new-buffer " *openstack-image-list-test*")))
     (unwind-protect
         (with-current-buffer buf
           (openstack-image-list-mode)
-          (should (derived-mode-p 'openstack-mode))
+          (should (derived-mode-p 'openstack-list-mode))
+          (should (derived-mode-p 'tabulated-list-mode))
+          (should openstack-collection)
+          (should openstack-render-manages-buffer)
+          (should (equal openstack-list--noun "images"))
           (should (eq openstack-fetch-function
                       #'openstack-image-list--fetch))
           (should (eq openstack-render-function
@@ -86,7 +90,7 @@ sorting of unlisted columns.")
                    '("ID" "Name" "Status" "Size" "Alpha" "Zebra")))))
 
 (ert-deftest openstack-image-list-render-table ()
-  "The renderer draws a padded table with a header and all rows."
+  "The renderer fills the tabulated list with a header and all rows."
   (let ((data (with-temp-buffer
                 (insert openstack-image-list-test--list-json)
                 (goto-char (point-min))
@@ -95,15 +99,16 @@ sorting of unlisted columns.")
                                    :null-object nil
                                    :false-object nil))))
     (with-temp-buffer
-      (let ((inhibit-read-only t))
-        (openstack-image-list--render nil data))
-      (let ((text (buffer-string)))
-        (should (string-match-p "^ID +Name +Status +Size +Alpha +Zebra *$" text))
-        (should (string-match-p "^img-1 +ubuntu-24\\.04 +active +234881024 +early +late *$" text))
-        (should (string-match-p "^img-2 +debian-12 +active +117440512 +early +late *$" text))
-        ;; A separator line under the header, at least as long as it.
-        (should (string-match "^\\(-+\\)\n" text))
-        (should (>= (length (match-string 1 text)) 10))))))
+      (openstack-image-list-mode)
+      (openstack-image-list--render nil data)
+      (let ((header (prin1-to-string header-line-format))
+            (text (buffer-string)))
+        (dolist (column '("ID" "Name" "Status" "Size" "Alpha" "Zebra"))
+          (should (string-match-p (regexp-quote column) header)))
+        (should (string-match-p "^img-1 +ubuntu-24\.04 +active +234881024 +early +late" text))
+        (should (string-match-p "^img-2 +debian-12 +active +117440512 +early +late" text))
+        ;; The first row is the row at point, with its resource ID.
+        (should (equal (tabulated-list-get-id) "img-1"))))))
 
 (ert-deftest openstack-image-list-render-empty ()
   "An empty list renders a placeholder instead of an empty buffer."
@@ -137,8 +142,9 @@ refresh pipeline runs without a resource ID."
                (with-current-buffer buf
                  (should openstack-collection)
                  (should (null openstack--id))
+                 (should (string-match-p
+                          "Name" (prin1-to-string header-line-format)))
                  (let ((text (buffer-string)))
-                   (should (string-match-p "^ID +Name +Status" text))
                    (should (string-match-p "^img-1 +ubuntu-24\\.04" text)))
                  (should (null openstack--last-error)))))
          (let ((buf (get-buffer openstack-image-list-buffer-name)))
