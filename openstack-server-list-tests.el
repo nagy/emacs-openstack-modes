@@ -20,6 +20,9 @@
 (require 'openstack-cli-tests)
 (require 'openstack-server-list)
 
+;; Forward reference: the list buffer's RET command.
+(declare-function openstack-server-display "openstack-server" (id))
+
 (defconst openstack-server-list-test--list-json
   (concat
    "[{\"ID\": \"id-1\", \"Name\": \"web-1\", \"Status\": \"ACTIVE\", "

@@ -47,6 +47,9 @@
 
 (require 'openstack-mode)
 
+;; Forward reference: RET on a row calls the volume show command.
+(declare-function openstack-volume-display "openstack-volume" (id))
+
 (defgroup openstack-volume-list nil
   "Display OpenStack volume lists in Emacs."
   :prefix "openstack-volume-list-"

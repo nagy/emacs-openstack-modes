@@ -47,6 +47,9 @@
 
 (require 'openstack-mode)
 
+;; Forward reference: RET on a row calls the server show command.
+(declare-function openstack-server-display "openstack-server" (id))
+
 (defgroup openstack-server-list nil
   "Display OpenStack server lists in Emacs."
   :prefix "openstack-server-list-"

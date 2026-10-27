@@ -20,6 +20,9 @@
 (require 'openstack-cli-tests)
 (require 'openstack-image-list)
 
+;; Forward reference: the list buffer's RET command.
+(declare-function openstack-image-display "openstack-image" (id))
+
 (defconst openstack-image-list-test--list-json
   (concat
    "[{\"ID\": \"img-1\", \"Name\": \"ubuntu-24.04\", \"Status\": \"active\", "

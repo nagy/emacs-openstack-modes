@@ -1,5 +1,5 @@
 {
-  description = "Base major mode for displaying OpenStack resources (Emacs package)";
+  description = "Emacs major modes for displaying OpenStack resources";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -37,7 +37,6 @@
 
       perSystem =
         {
-          system,
           pkgs,
           lib,
           config,
@@ -52,7 +51,6 @@
 
           # Every Elisp source in the repo, compiled with warnings as
           # errors in the check phase, followed by the full ERT suite.
-          # Both packages share one source tree and one gate.
           elispFiles = [
             "openstack-mode.el"
             "openstack-cli.el"
@@ -66,6 +64,18 @@
             "openstack-cli-tests.el"
             "openstack-server-tests.el"
             "openstack-server-list-tests.el"
+            "openstack-volume-tests.el"
+            "openstack-image-tests.el"
+            "openstack-volume-list-tests.el"
+            "openstack-image-list-tests.el"
+          ];
+          testFiles = [
+            "openstack-mode-tests.el"
+            "openstack-cli-tests.el"
+            "openstack-server-tests.el"
+            "openstack-server-list-tests.el"
+            "openstack-volume-tests.el"
+            "openstack-image-tests.el"
             "openstack-volume-list-tests.el"
             "openstack-image-list-tests.el"
           ];
@@ -80,169 +90,83 @@
 
             echo '=== ERT tests ==='
             emacs --batch -L . \
-              -l openstack-mode-tests.el \
-              -l openstack-cli-tests.el \
-              -l openstack-server-tests.el \
-              -l openstack-server-list-tests.el \
-              -l openstack-volume-tests.el \
-              -l openstack-image-tests.el \
-              -l openstack-volume-list-tests.el \
-              -l openstack-image-list-tests.el \
+              ${lib.concatMapStringsSep "\\\n  " (file: "-l ${file}") testFiles} \
               -f ert-run-tests-batch-and-exit
 
             runHook postCheck
           '';
 
-          # Per-mode packages: one melpaBuild each.  All share the
-          # same source tree and the same check gate.
-          mkOpenstackPackage =
-            {
-              pname,
-              description,
-              longDescription,
-            }:
-            melpaBuild {
-              inherit pname;
-              version = "0.1.0-unstable-${commitDate}";
+          # One package for the whole repo: package-build packages every
+          # `*.el' file in the source by default, so the base mode, the
+          # CLI layer and each derived show/list mode travel together.
+          openstackPackage = melpaBuild {
+            pname = "openstack-mode";
+            version = "0.1.0-unstable-${commitDate}";
 
-              src = lib.cleanSource ./.;
+            src = lib.cleanSource ./.;
 
-              packageRequires = [ ];
+            packageRequires = [ ];
 
-              # The shared openstack-cli.el shells out to the client;
-              # bake its store path in so the default value works.
-              postPatch = ''
-                substituteInPlace openstack-cli.el \
-                  --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+            # The shared openstack-cli.el shells out to the client;
+            # bake its store path in so the default value works.
+            postPatch = ''
+              substituteInPlace openstack-cli.el \
+                --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
+            '';
+
+            turnCompilationWarningToError = true;
+
+            doCheck = true;
+            checkPhase = elispCheckPhase;
+
+            meta = {
+              description = "Emacs major modes for displaying OpenStack resources";
+              longDescription = ''
+                A base major mode for displaying OpenStack resources in
+                Emacs buffers, plus derived show and list modes for
+                servers, volumes and images.
+
+                Every OpenStack resource has a unique ID, so the base
+                mode handles the ID: a buffer-local copy, a command to
+                copy it to the kill ring, a dashboard URL command, and a
+                pop-back command.  Resource-specific modes derive from it
+                and inherit that handling, the asynchronous refresh
+                pipeline and the bookmark support.
+
+                Show modes fetch one resource with `openstack server
+                show' and friends and render its fields.  List modes
+                fetch the whole collection and render it as a padded,
+                self-refreshing table.
+
+                The package interfaces with OpenStack through the
+                python-openstackclient command line program (nixpkgs
+                package openstackclient-full).  The build substitutes the
+                default value of openstack-program with the store path of
+                that program.
               '';
-
-              turnCompilationWarningToError = true;
-
-              doCheck = true;
-              checkPhase = elispCheckPhase;
-
-              meta = {
-                inherit description longDescription;
-                license = lib.licenses.agpl3Plus;
-                homepage = "https://github.com/nagy/emacs-openstack-modes";
-                maintainers = with lib.maintainers; [ nagy ];
-                platforms = lib.platforms.unix;
-              };
+              license = lib.licenses.agpl3Plus;
+              homepage = "https://github.com/nagy/emacs-openstack-modes";
+              maintainers = with lib.maintainers; [ nagy ];
+              platforms = lib.platforms.unix;
             };
+          };
+
+          modeFiles = [
+            "openstack-mode.el"
+            "openstack-cli.el"
+            "openstack-server.el"
+            "openstack-server-list.el"
+            "openstack-volume.el"
+            "openstack-image.el"
+            "openstack-volume-list.el"
+            "openstack-image-list.el"
+          ];
         in
         {
-          packages.openstack-mode = mkOpenstackPackage {
-            pname = "openstack-mode";
-            description = "Base major mode for displaying OpenStack resources";
-            longDescription = ''
-              Base major mode for displaying OpenStack resources in Emacs
-              buffers.  Every OpenStack resource has a unique ID, so this
-              mode handles the ID: a buffer-local copy, a command to copy
-              it to the kill ring, a dashboard URL command, and a pop-back
-              command.  Future resource-specific modes (servers, volumes,
-              images, networks, ...) derive from this mode and inherit the
-              ID handling.
-
-              The package interfaces with OpenStack through the
-              python-openstackclient command line program (nixpkgs package
-              openstackclient-full).  The build substitutes the default
-              value of openstack-program with the store path of that
-              program.
-            '';
-          };
-
-          packages.openstack-server = mkOpenstackPackage {
-            pname = "openstack-server";
-            description = "Display OpenStack servers";
-            longDescription = ''
-              The first resource-specific mode derived from
-              openstack-mode.  It fetches a server with
-              `openstack server show' through the asynchronous CLI
-              layer and renders the server's fields, inheriting the
-              ID handling, refresh pipeline and bookmark support of
-              the base mode.
-            '';
-          };
-
-          packages.openstack-volume = mkOpenstackPackage {
-            pname = "openstack-volume";
-            description = "Display OpenStack volumes";
-            longDescription = ''
-              A resource-specific mode derived from openstack-mode.
-              It fetches a volume with `openstack volume show'
-              through the asynchronous CLI layer and renders the
-              volume's fields, inheriting the ID handling,
-              refresh pipeline and bookmark support of the base
-              mode.
-            '';
-          };
-
-          packages.openstack-image = mkOpenstackPackage {
-            pname = "openstack-image";
-            description = "Display OpenStack images";
-            longDescription = ''
-              A resource-specific mode derived from openstack-mode.
-              It fetches an image with `openstack image show'
-              through the asynchronous CLI layer and renders the
-              image's fields, inheriting the ID handling,
-              refresh pipeline and bookmark support of the base
-              mode.
-            '';
-          };
-
-          packages.openstack-server-list = mkOpenstackPackage {
-            pname = "openstack-server-list";
-            description = "List OpenStack servers";
-            longDescription = ''
-              A collection view derived from openstack-mode: it
-              fetches all servers with `openstack server list'
-              through the asynchronous CLI layer and renders them as
-              a padded table in a self-refreshing buffer.  The
-              buffer has no resource ID (`openstack-collection' is
-              set), so the ID commands do not apply.
-            '';
-          };
-
-          packages.openstack-volume-list = mkOpenstackPackage {
-            pname = "openstack-volume-list";
-            description = "List OpenStack volumes";
-            longDescription = ''
-              A collection view derived from openstack-mode: it
-              fetches all volumes with `openstack volume list'
-              through the asynchronous CLI layer and renders them
-              as a padded table in a self-refreshing buffer.  The
-              buffer has no resource ID (`openstack-collection' is
-              set), so the ID commands do not apply.
-            '';
-          };
-
-          packages.openstack-image-list = mkOpenstackPackage {
-            pname = "openstack-image-list";
-            description = "List OpenStack images";
-            longDescription = ''
-              A collection view derived from openstack-mode: it
-              fetches all images with `openstack image list'
-              through the asynchronous CLI layer and renders them
-              as a padded table in a self-refreshing buffer.  The
-              buffer has no resource ID (`openstack-collection' is
-              set), so the ID commands do not apply.
-            '';
-          };
-
-          # `nix build` installs every mode of the repo: the base mode
-          # package plus one package per derived mode.
-          packages.default = pkgs.symlinkJoin {
-            name = "emacs-openstack-modes";
-            paths = [
-              config.packages.openstack-mode
-              config.packages.openstack-server
-              config.packages.openstack-server-list
-              config.packages.openstack-volume
-              config.packages.openstack-image
-              config.packages.openstack-volume-list
-              config.packages.openstack-image-list
-            ];
-          };
+          # One package for the whole repo: `nix build' installs the base
+          # mode together with every derived mode.
+          packages.openstack-mode = openstackPackage;
+          packages.default = config.packages.openstack-mode;
 
           # Lint gate: checkdoc + package-lint.  They catch what
           # byte-compilation cannot — docstring conventions and ELPA
@@ -257,10 +181,7 @@
               }
               ''
                 export HOME=$TMPDIR
-                cp "$src"/openstack-mode.el "$src"/openstack-cli.el \
-                  "$src"/openstack-server.el "$src"/openstack-server-list.el \
-                  "$src"/openstack-volume.el "$src"/openstack-image.el \
-                  "$src"/openstack-volume-list.el "$src"/openstack-image-list.el .
+                cp "$src"/*.el .
 
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
@@ -272,17 +193,13 @@
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
-                  openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el openstack-volume.el openstack-image.el \
-                  openstack-volume-list.el openstack-image-list.el
+                  ${lib.escapeShellArgs modeFiles}
 
                 # checkdoc exits 0 even on findings — gate on non-empty output.
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                  openstack-mode.el openstack-cli.el openstack-server.el \
-                  openstack-server-list.el openstack-volume.el openstack-image.el \
-                  openstack-volume-list.el openstack-image-list.el 2>&1)
+                  ${lib.escapeShellArgs modeFiles} 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';

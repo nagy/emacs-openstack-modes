@@ -47,6 +47,9 @@
 
 (require 'openstack-mode)
 
+;; Forward reference: RET on a row calls the image show command.
+(declare-function openstack-image-display "openstack-image" (id))
+
 (defgroup openstack-image-list nil
   "Display OpenStack image lists in Emacs."
   :prefix "openstack-image-list-"

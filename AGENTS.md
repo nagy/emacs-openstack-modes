@@ -29,7 +29,7 @@ their own rendering.
 | `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
-| `flake.nix` | Flake (flake-parts) with `melpaBuild`, patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
+| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; `checks.lint` runs checkdoc + package-lint |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |
@@ -87,10 +87,19 @@ emacs --batch -L . -l openstack-mode-tests.el \
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
 - Derived modes go in their own file and require
-  `openstack-mode`.  Add a package entry per `.el` package
-  (one `melpaBuild` per mode) to `flake.nix` when a mode is added;
-  `packages.default` symlink-joins all of them.  Flakes copy only
-  git-tracked files, so `git add` new files before `nix build`.
+  `openstack-mode`.  The repo ships one Emacs package:
+  `packages.openstack-mode` (aliased as `packages.default`) builds
+  the whole tree with one `melpaBuild`, because `package-build`
+  packages every `*.el` file in the source and no mode carries its
+  own version.  Do not add a `melpaBuild` per mode.  Add new `.el`
+  files to `elispFiles` and `modeFiles` in `flake.nix`, and new
+  test files to `testFiles` too.  Flakes copy only git-tracked
+  files, so `git add` new files before `nix build`.
+- Byte-compilation runs with warnings as errors.  When file A calls
+  a function defined in file B without requiring B, declare it:
+  `(declare-function openstack-server-display "openstack-server" (id))`.
+  The list modes and their tests need this for the show entry
+  points they bind to `openstack-show-command`.
 - Derived modes override fetching and rendering by setting the
   `openstack-fetch-function` and `openstack-render-function`
   defcustoms (buffer-locally in the mode body, or globally).

@@ -20,6 +20,9 @@
 (require 'openstack-cli-tests)
 (require 'openstack-volume-list)
 
+;; Forward reference: the list buffer's RET command.
+(declare-function openstack-volume-display "openstack-volume" (id))
+
 (defconst openstack-volume-list-test--list-json
   (concat
    "[{\"ID\": \"vol-1\", \"Name\": \"data-1\", \"Status\": \"in-use\", "
