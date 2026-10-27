@@ -89,6 +89,10 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
+`openstack-evil-tests.el` needs evil on the load path.  Add its
+elisp directory with `-L`, or start Emacs from a wrapper that
+includes evil.
+
 ## Conventions
 
 - CLI access goes through `openstack-cli.el`: `openstack-cli-request`
@@ -225,11 +229,13 @@ emacs --batch -L . -l openstack-mode-tests.el \
   exist.  Add new commands to those tests when adding them to the
   files.
 - The evil layer is optional and lives in `openstack-evil.el`:
-  the file requires evil, but `Package-Requires` does not name
-  it, so users without evil install nothing.
-  `openstack-evil-mode` is a global minor mode with an
-  `;;;###autoload` cookie; it enables `openstack-evil-show-mode`
-  or `openstack-evil-list-mode` from
+  the file requires evil 1.14 or later, but `Package-Requires`
+  does not name it, so users without evil install nothing.
+  `package.el` compiles every file during install, so an install
+  without evil prints one `Cannot open load file: evil` line and
+  still succeeds.  `openstack-evil-mode` is a global minor mode
+  with an `;;;###autoload` cookie; it enables
+  `openstack-evil-show-mode` or `openstack-evil-list-mode` from
   `after-change-major-mode-hook` and scans open buffers.  Do not
   add evil to `packageRequires` in the flake: that turns the
   optional layer into a hard dependency for Nix consumers.  The
@@ -241,10 +247,12 @@ emacs --batch -L . -l openstack-mode-tests.el \
   minor mode (`openstack-evil-show-keys`,
   `openstack-evil-list-keys`,
   `openstack-evil-list-visual-keys`).  Keep the evil motions
-  untouched: show buffers keep `RET`, `q`, `gr`, `p`, `c` and
-  `w` because the operators do nothing in a read-only buffer;
-  list buffers treat a row as the unit (`n`/`p` move by row,
-  `S` sorts, visual `y` copies the IDs of the selected rows).
+  untouched: show buffers keep `RET`, `<mouse-2>`, `q`, `gr`,
+  `p`, `c` and `w` because the operators do nothing in a
+  read-only buffer; list buffers treat a row as the unit
+  (`<mouse-2>` opens, `c` or `Y` copies, `S` sorts, `j`/`k`
+  move, `n`/`N` repeat the search, visual `y` copies the IDs of
+  the selected rows and leaves visual state).
 - Tests use `unwind-protect` around temporary buffers.
 - The Org link type lives in `ol-openstack.el` and is opt-in:
   users add `(require 'ol-openstack)` to their init.  Link paths

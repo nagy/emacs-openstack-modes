@@ -249,8 +249,11 @@ The =M-?= prompt completes the cached IDs.
 * Evil bindings
 
 The evil integration is optional and lives in =openstack-evil.el=.
-The file requires evil, but the package does not: users without
-evil install nothing.
+The file requires evil 1.14 or later, but the package does not:
+users without evil install nothing.  =package.el= compiles every
+file during install, so an install without evil prints one
+=Cannot open load file: evil= line.  The install still succeeds.
+Install evil first to avoid the message.
 
 #+begin_src elisp
   (require 'openstack-evil)
@@ -263,17 +266,20 @@ OpenStack buffers and leaves the evil motions alone: =j=, =k=,
 Evil state maps take precedence over a major mode map, so a mode
 key such as RET or =q= needs a state binding to reach the buffer.
 
-Show buffers keep the command keys of the mode: RET opens the
-resource at point, =q= quits the window, =gr= refreshes, =p=
-pops back to the origin buffer, =c= copies the resource ID and
-=w= opens the dashboard page.  The evil operators on those keys
-do nothing in a read-only buffer, so the commands win.
+Show buffers keep the command keys of the mode: RET or
+=<mouse-2>= opens the resource at point, =q= quits the window,
+=gr= refreshes, =p= pops back to the origin buffer, =c= copies
+the resource ID and =w= opens the dashboard page.  The evil
+operators on those keys do nothing in a read-only buffer, so the
+commands win.
 
-List buffers treat a row as the unit: RET opens the row, =c=
-copies its ID, =w= opens its dashboard page, =q= quits the
-window, =gr= refreshes, =n= and =p= move by row and =S= sorts
-the current column.  Select rows with =V= and press =y= to copy
-the IDs of every selected row, one per line.
+List buffers treat a row as the unit: RET or =<mouse-2>= opens the
+row, =c= or =Y= copies its ID, =w= opens its dashboard page, =q=
+quits the window, =gr= refreshes and =S= sorts the current
+column.  The evil motions stay untouched, so =j= and =k= move by
+row and =n= and =N= repeat a search.  Select rows with =V= and
+press =y= to copy the IDs of every selected row, one per line.
+The command leaves visual state.
 
 * Status, changes and notifications
 

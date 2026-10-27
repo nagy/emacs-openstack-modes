@@ -50,17 +50,23 @@
     (openstack-evil-test--normal)
     (dolist (binding openstack-evil-show-keys)
       (should (eq (key-binding (key-parse (car binding)))
-                  (cdr binding))))))
+                  (cdr binding))))
+    (should (eq (key-binding [mouse-2])
+                #'openstack-mouse-display-at-point))))
 
 (ert-deftest openstack-evil-list-keys ()
-  "Normal state moves by row and sorts with S."
+  "Normal state sorts with S, copies the row ID and keeps the search."
   (with-temp-buffer
     (openstack-list-mode)
     (openstack-evil-list-mode 1)
     (openstack-evil-test--normal)
     (dolist (binding openstack-evil-list-keys)
       (should (eq (key-binding (key-parse (car binding)))
-                  (cdr binding))))))
+                  (cdr binding))))
+    (should (eq (key-binding (kbd "n")) #'evil-search-next))
+    (should (eq (key-binding (kbd "N")) #'evil-search-previous))
+    (should (eq (key-binding [mouse-2])
+                #'openstack-mouse-display-at-point))))
 
 (ert-deftest openstack-evil-list-visual-yank ()
   "Visual state binds y to the ID copy of the selected rows."
@@ -85,7 +91,37 @@
     (should (eq (key-binding (kbd "j")) #'evil-next-line))
     (should (eq (key-binding (kbd "G")) #'evil-goto-line))))
 
+;;; Sorting
+
+(ert-deftest openstack-evil-list-sorts-with-S ()
+  "S sorts the column at point and reprints the table."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (openstack-evil-test--render
+     (openstack-evil-test--rows "id-3" "id-1" "id-2"))
+    (openstack-evil-list-mode 1)
+    (openstack-evil-test--normal)
+    (goto-char (point-min))
+    (call-interactively (key-binding (kbd "S")))
+    (should (equal (buffer-string) "id-1\nid-2\nid-3\n"))))
+
 ;;; Selection
+
+(ert-deftest openstack-evil-list-copy-ids-visual-selection ()
+  "A visual line selection copies its IDs and leaves visual state."
+  (let ((kill-ring nil)
+        (kill-ring-yank-pointer nil))
+    (with-temp-buffer
+      (openstack-list-mode)
+      (openstack-evil-test--render
+       (openstack-evil-test--rows "id-1" "id-2" "id-3"))
+      (openstack-evil-list-mode 1)
+      (evil-local-mode 1)
+      (goto-char (point-min))
+      (evil-visual-select (point-min) (line-beginning-position 3) 'line)
+      (call-interactively #'openstack-evil-list-copy-ids)
+      (should (equal (car kill-ring) "id-1\nid-2"))
+      (should-not (evil-visual-state-p)))))
 
 (ert-deftest openstack-evil-list-copy-ids-copies-selection ()
   "A region copies the IDs of the rows it touches, one per line."

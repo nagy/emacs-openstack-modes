@@ -28,7 +28,7 @@
 
 ;; Optional evil integration for the OpenStack modes.  The file is
 ;; separate and declares no evil dependency, so users without evil
-;; install nothing.
+;; install nothing.  It needs evil 1.14 or later.
 ;;
 ;;   (require 'openstack-evil)
 ;;   (openstack-evil-mode 1)
@@ -45,9 +45,10 @@
 ;; dashboard page.  Evil operators on those keys do nothing in a
 ;; read-only buffer, so the commands win.
 ;;
-;; List buffers treat a row as the unit: RET opens the row, c copies
-;; its ID, w opens its dashboard page, q quits the window, gr
-;; refreshes, n and p move by row and S sorts the current column.  A
+;; List buffers treat a row as the unit: RET opens the row, c or Y
+;; copies its ID, w opens its dashboard page, q quits the window, gr
+;; refreshes and S sorts the current column.  The evil motions stay
+;; untouched, so n and N repeat a search and j and k move by row.  A
 ;; visual line selection followed by y copies the IDs of every
 ;; selected row, one per line.
 ;;
@@ -64,6 +65,7 @@
 
 (defvar openstack-evil-show-keys
   '(("RET" . openstack-display-at-point)
+    ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)
     ("p" . openstack-pop)
@@ -76,17 +78,17 @@ buffer, such as paste on p and change on c.")
 
 (defvar openstack-evil-list-keys
   '(("RET" . openstack-display-at-point)
+    ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)
-    ("n" . next-line)
-    ("p" . previous-line)
     ("S" . tabulated-list-sort)
     ("c" . openstack-list-copy-id)
+    ("Y" . openstack-list-copy-id)
     ("w" . openstack-list-open-web))
   "Keys that `openstack-evil-mode' binds in list buffers.
 Each entry is a key description and the command it runs.  A row is
-the unit: n and p move by row, S sorts the column at point, and c
-copies the ID of the row at point.")
+the unit: S sorts the column at point, and c or Y copies the ID of
+the row at point.  n, N, j and k stay evil motions.")
 
 (defvar openstack-evil-list-visual-keys
   '(("y" . openstack-evil-list-copy-ids))
@@ -144,15 +146,23 @@ resource."
 
 (defun openstack-evil-list-copy-ids (start end)
   "Copy the IDs of the OpenStack list rows between START and END.
-One ID goes per line, in row order."
-  (interactive "r")
+One ID goes per line, in row order.  A visual selection supplies
+START and END from `evil-visual-range', so a line selection that
+reaches beyond the last row still stops at its last ID."
+  (interactive
+   (if (evil-visual-state-p)
+       (let ((range (evil-visual-range)))
+         (list (nth 0 range) (nth 1 range)))
+     (list (region-beginning) (region-end))))
   (let ((ids (openstack-evil--ids-between start end)))
     (unless ids
       (user-error "No OpenStack resource in the selection"))
     (kill-new (mapconcat #'identity ids "\n"))
     (message "Copied %d OpenStack resource ID%s"
              (length ids)
-             (if (= (length ids) 1) "" "s"))))
+             (if (= (length ids) 1) "" "s")))
+  (when (evil-visual-state-p)
+    (evil-exit-visual-state)))
 
 ;;; Global minor mode
 
