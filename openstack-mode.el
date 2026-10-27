@@ -85,16 +85,44 @@
 ;; (see openstack-cli.el), which wraps `openstack-program' with
 ;; synchronous and asynchronous request functions and caches
 ;; authentication tokens across calls.
+;;
+;; The file also holds the two layers that every resource type uses:
+;;
+;;   `openstack-list-mode' is the parent of the collection buffers
+;;   (servers, volumes, images, networks, containers).  It derives
+;;   from `tabulated-list-mode', so a table comes with a clickable
+;;   column header, per-column sorting, column resizing and point
+;;   keeping across refreshes.
+;;
+;;   `openstack-define-resource' writes a whole resource type from
+;;   one form: the show mode, the list mode, their display commands,
+;;   fetchers, renderers and defcustoms.  It also records the type in
+;;   `openstack-resource-definitions' and appends its entry to
+;;   `openstack-resource-types', which the ID prompts, the Org links
+;;   and the xref backend read.  The resource types themselves live
+;;   in openstack-resources.el, one macro call each, so a resource
+;;   name appears once and the parts cannot drift.
 
 ;;; Code:
 
 (require 'bookmark)
 (require 'autorevert)
 (require 'cl-lib)
+(require 'tabulated-list)
 (require 'openstack-cli)
 
 ;; Forward reference: the desktop notification of a state change.
 (declare-function notifications-notify "notifications" (&rest params))
+;; Forward reference: the generated display commands complete their ID.
+(declare-function openstack-read-id "openstack-read" (type &optional prompt))
+
+(defun openstack--read-resource-id (type prompt)
+  "Read the ID of resource TYPE, prompting with PROMPT.
+Load the ID completion on demand, so the macro expansion calls one
+function that this file declares, and the base mode keeps no hard
+dependency on the prompt layer (see openstack-read.el)."
+  (require 'openstack-read)
+  (openstack-read-id type prompt))
 
 
 ;;; Customization
@@ -930,10 +958,10 @@ resource modes call this from their
 
 ;;; Collection helpers
 
-;; The table renderer and the collection base mode live in
-;; openstack-list-mode.el.  Nothing here requires that file: the
-;; list modes derive from `openstack-list-mode', which derives from
-;; `tabulated-list-mode' and calls `openstack--init-display-buffer'.
+;; The table renderer and the collection base mode live further down
+;; in this file, after the base mode: `openstack-list-mode' derives
+;; from `tabulated-list-mode' and calls
+;; `openstack--init-display-buffer'.
 
 ;;; Major mode
 
@@ -987,6 +1015,694 @@ Ignoring ARGS, as required by `revert-buffer-function'.  The
 refresh is asynchronous: this function returns immediately and
 the buffer updates when `openstack-fetch-function' delivers data."
   (openstack--refresh))
+
+
+;;; Collection buffers
+
+(defgroup openstack-list nil
+  "Display OpenStack resource collections as tables."
+  :prefix "openstack-list-"
+  :group 'openstack)
+
+(defcustom openstack-list-min-column-width 6
+  "Narrowest width of a table column, in characters.
+`openstack-list-render' shrinks the widest columns first when the
+table does not fit the window, and stops at this width, so every
+column keeps a readable part of its value."
+  :type 'natnum
+  :group 'openstack-list)
+
+;;; Fetcher and columns
+
+(defun openstack-list-fetch (resource _id success-fn error-fn &optional args)
+  "Fetch all resources of RESOURCE type for a collection buffer.
+RESOURCE is the client's resource command name, e.g. `server' or
+`volume'.  Run `RESOURCE list' through
+`openstack-cli-async-request' and call SUCCESS-FN with the
+parsed JSON (a list of resource hash tables), or ERROR-FN with
+an `openstack-cli-error' condition.  ARGS appends extra client
+arguments to the command, for a resource whose list needs an
+option.  Return the client process,
+so the display machinery can cancel the fetch.  The ID argument
+is ignored: a collection buffer has no single resource ID.
+Collection modes wrap this with their own resource name as their
+`openstack-fetch-function'."
+  (openstack-cli-async-request
+   (append (list resource "list") args)
+   :success-fn success-fn
+   :error-fn error-fn))
+
+(defun openstack-list-columns (rows fields)
+  "Return the table columns of ROWS in display order.
+FIELDS names the columns shown first, in that order; every
+remaining field of ROWS follows, sorted by name.  The field
+names are the title-case names the client prints for lists,
+for example `ID' or `Volume Type'."
+  (let ((unseen (make-hash-table :test #'equal))
+        (columns nil))
+    (dolist (row rows)
+      (maphash (lambda (key _value) (puthash key t unseen)) row))
+    (dolist (field fields)
+      (when (gethash field unseen)
+        (remhash field unseen)
+        (push field columns)))
+    (let ((remaining nil))
+      (maphash (lambda (key _value) (push key remaining)) unseen)
+      (nconc (nreverse columns) (sort remaining #'string<)))))
+
+;;; Buffer state
+
+(defvar-local openstack-list--noun "rows"
+  "Plural resource name of the current list, used in the mode line.
+A derived mode sets it, for example to \"servers\".")
+
+(defvar-local openstack-list--count 0
+  "Number of rows in the table of the current buffer.")
+
+(defvar-local openstack-list--rows nil
+  "Hash table that maps the row identities of the current buffer.
+The sorters read the typed cell values through it.")
+
+;;; Rows and cells
+
+(defun openstack-list--rows (rows)
+  "Return ROWS as a list of hash tables.
+The client returns an empty string or nil for an empty list, and
+a single hash table when the list holds one resource; normalize
+both cases."
+  (cl-remove-if-not #'hash-table-p
+                    (cond ((null rows) nil)
+                          ((listp rows) rows)
+                          (t (list rows)))))
+
+(defun openstack-list--row-identity-field (row name)
+  "Return the value of ROW field NAME when it is a non-empty string."
+  (let ((value (openstack--hash-field row name)))
+    (and (stringp value) (not (string-empty-p value)) value)))
+
+(defun openstack-list--row-id (row number)
+  "Return the identity of ROW, a string.
+Use the resource ID of ROW, then its name, because a Swift
+container has no UUID; use NUMBER for a row without either
+field, so `tabulated-list-print' can find the row again."
+  (or (openstack-list--row-identity-field row "ID")
+      (openstack-list--row-identity-field row "Name")
+      (format "row-%d" number)))
+
+(defun openstack-list--row-index (rows)
+  "Return a hash table that maps the row identities of ROWS to rows.
+The sorters of `tabulated-list-format' receive entry identities
+only, so they read the typed cell values through this index."
+  (let ((index (make-hash-table :test #'equal))
+        (number 0))
+    (dolist (row rows index)
+      (setq number (1+ number))
+      (puthash (openstack-list--row-id row number) row index))))
+
+(defun openstack-list--cell (row column)
+  "Return the display text of ROW's COLUMN, with its face.
+A status value takes its face from `openstack-status-faces', and
+a value that differs from the previous refresh takes
+`openstack-field-changed'."
+  (let* ((value (gethash column row))
+         (previous (and (listp openstack--previous-data)
+                        (openstack--row-match openstack--previous-data row)))
+         (changed (and previous
+                       (not (openstack--data-equal-p
+                             value (gethash column previous)))))
+         (face (openstack--cell-face column value changed))
+         (text (openstack--format-value value)))
+    (if face (propertize text 'face face) text)))
+
+(defun openstack-list--entries (rows columns)
+  "Return `tabulated-list-entries' for ROWS and COLUMNS.
+Each element pairs the row identity with a vector of cell
+strings.  The identity keeps point on the same resource when a
+refresh re-sorts the table.  Emacs 31 requires a list here: a
+cons makes `tabulated-list-print-entry' signal a type error."
+  (let ((number 0))
+    (mapcar
+     (lambda (row)
+       (setq number (1+ number))
+       (list (openstack-list--row-id row number)
+             (vconcat (mapcar (lambda (column)
+                                (openstack-list--cell row column))
+                              columns))))
+     rows)))
+
+;;; Sorting
+
+(defun openstack-list--numeric-string-p (string)
+  "Return non-nil when STRING holds a decimal number."
+  (and (string-match-p "\\`[+-]?[0-9]+\\(?:\\.[0-9]+\\)?\\'" string) t))
+
+(defun openstack-list--value-lessp (a b)
+  "Return non-nil when value A sorts before value B.
+Numbers compare as numbers, numeric strings compare as numbers,
+and every other pair compares as strings, ignoring case."
+  (cond
+   ((and (numberp a) (numberp b)) (< a b))
+   ((and (stringp a) (stringp b))
+    (if (and (openstack-list--numeric-string-p a)
+             (openstack-list--numeric-string-p b))
+        (< (string-to-number a) (string-to-number b))
+      (string-collate-lessp a b nil t)))
+   (t (string-collate-lessp (format "%s" a) (format "%s" b) nil t))))
+
+(defun openstack-list--sort-value (column entry)
+  "Return the value of COLUMN for ENTRY, or nil when the row has none."
+  (when-let* ((row (gethash (car entry) openstack-list--rows)))
+    (gethash column row)))
+
+(defun openstack-list--sorter (column)
+  "Return the sort predicate of COLUMN.
+The predicate compares typed values, so a numeric column sorts as
+numbers.  Rows without a value sort last."
+  (lambda (entry-a entry-b)
+    (let ((a (openstack-list--sort-value column entry-a))
+          (b (openstack-list--sort-value column entry-b)))
+      (cond ((and a b) (openstack-list--value-lessp a b))
+            ((null a) nil)
+            (t t)))))
+
+(defun openstack-list--numeric-column-p (rows column)
+  "Return non-nil when every value in ROWS of COLUMN is a number.
+An empty column does not count as numeric."
+  (let ((seen nil)
+        (numeric t))
+    (dolist (row rows)
+      (let ((value (gethash column row)))
+        (when value
+          (setq seen t)
+          (unless (or (numberp value)
+                      (and (stringp value)
+                           (openstack-list--numeric-string-p value)))
+            (setq numeric nil)))))
+    (and seen numeric)))
+
+;;; Column widths
+
+(defun openstack-list--natural-widths (rows columns)
+  "Return the width that each column needs to show all ROWS.
+There is one width for every name in COLUMNS."
+  (mapcar
+   (lambda (column)
+     (let ((width (string-width column)))
+       (dolist (row rows width)
+         (setq width
+               (max width
+                    (string-width
+                     (openstack--format-value (gethash column row))))))))
+   columns))
+
+(defun openstack-list--available-width (columns)
+  "Return the cell width available for COLUMNS in the current window.
+The result leaves room for `tabulated-list-padding' and for the
+separator that `tabulated-list-print-col' inserts after every
+column but the last."
+  (let* ((window (or (get-buffer-window (current-buffer) 0)
+                     (selected-window)))
+         (separators (max 0 (1- (length columns)))))
+    (max (* (length columns) openstack-list-min-column-width)
+         (- (window-width window) tabulated-list-padding separators))))
+
+(defun openstack-list--fit-widths (widths available)
+  "Return WIDTHS shrunk to fit AVAILABLE characters.
+Shrink the widest column first, and stop shrinking at
+`openstack-list-min-column-width'; `tabulated-list-print-col'
+then truncates the cells that still overflow."
+  (let ((widths (copy-sequence widths))
+        (total (apply #'+ widths)))
+    (while (and (> (length widths) 0)
+                (> total available)
+                (> (apply #'max widths) openstack-list-min-column-width))
+      (let* ((widest (apply #'max widths))
+             (position (cl-position widest widths))
+             (width (max openstack-list-min-column-width
+                         (- widest (- total available)))))
+        (setf (nth position widths) width)
+        (setq total (apply #'+ widths))))
+    widths))
+
+(defun openstack-list--format (rows columns)
+  "Return `tabulated-list-format' for ROWS and COLUMNS.
+Every column sorts through `openstack-list--sorter', a numeric
+column is right-aligned, and the widths fit the current window."
+  (let ((widths (openstack-list--fit-widths
+                 (openstack-list--natural-widths rows columns)
+                 (openstack-list--available-width columns)))
+        (format nil))
+    (dolist (column columns)
+      (push (list column
+                  (pop widths)
+                  (openstack-list--sorter column)
+                  :right-align (openstack-list--numeric-column-p rows column))
+            format))
+    (vconcat (nreverse format))))
+
+;;; Rendering
+
+(defun openstack-list--print-entry (id columns)
+  "Print the table row of ID with cell strings COLUMNS.
+`tabulated-list-print-entry' draws the cells; this function then
+adds `openstack-id' and `mouse-face' to the whole line, so RET and
+`mouse-2' open the row's resource from any column."
+  (let ((start (point)))
+    (tabulated-list-print-entry id columns)
+    (add-text-properties start (1- (point))
+                         (list 'openstack-id id
+                               'mouse-face 'highlight))))
+
+(defun openstack-list-render (placeholder rows fields)
+  "Render PLACEHOLDER or ROWS as a `tabulated-list-mode' table.
+PLACEHOLDER is a string such as \"(no servers)\", inserted when
+ROWS is empty.  ROWS is the parsed `RESOURCE list' JSON, a list
+of hash tables.  FIELDS names the columns shown first, in that
+order; the remaining fields follow, sorted by name.  Collection
+modes call this from their `openstack-render-function' with their
+own column order."
+  (let* ((rows (openstack-list--rows rows))
+         (columns (or (openstack-list-columns rows fields) fields)))
+    (setq-local openstack-list--count (length rows))
+    (setq-local openstack-list--rows (openstack-list--row-index rows))
+    (setq-local tabulated-list-format (openstack-list--format rows columns))
+    (setq-local tabulated-list-entries
+                (and rows (openstack-list--entries rows columns)))
+    ;; The renderer supplies its own printer, so it can fill a plain
+    ;; buffer as well as a buffer in `openstack-list-mode'.
+    (setq-local tabulated-list-printer #'openstack-list--print-entry)
+    (tabulated-list-init-header)
+    (tabulated-list-print t)
+    (when (null rows)
+      (let ((inhibit-read-only t))
+        (goto-char (point-min))
+        (insert placeholder "\n")))))
+
+(defun openstack-list--redraw ()
+  "Redraw the table from the cached rows, without a new fetch.
+`window-size-change-functions' calls this after a resize, because
+the column widths depend on the window width.  The rows stay the
+same, so no cell takes the change face."
+  (when (and openstack--rendered openstack--last-data)
+    (let ((openstack--previous-data openstack--last-data))
+      (funcall openstack-render-function nil openstack--last-data))))
+
+(defun openstack-list--window-size-changed (frame)
+  "Redraw the OpenStack list buffers shown in FRAME.
+A resize changes the width that the columns can use."
+  (dolist (window (window-list frame 'nomini))
+    (with-current-buffer (window-buffer window)
+      (when (derived-mode-p 'openstack-list-mode)
+        (openstack-list--redraw)))))
+
+(add-hook 'window-size-change-functions #'openstack-list--window-size-changed)
+
+;;; Row commands
+
+(defun openstack-list--id-at-point ()
+  "Return the resource ID of the row at point, or nil."
+  (get-text-property (line-beginning-position) 'openstack-id))
+
+;;;###autoload
+(defun openstack-list-copy-id ()
+  "Copy the ID of the resource on the current row to the kill ring."
+  (interactive)
+  (let ((id (openstack-list--id-at-point)))
+    (unless id
+      (user-error "No OpenStack resource on this line"))
+    (kill-new id)
+    (message "Copied OpenStack resource ID: %s" id)))
+
+;;;###autoload
+(defun openstack-list-open-web ()
+  "Open the dashboard page of the resource on the current row."
+  (interactive)
+  (let ((id (openstack-list--id-at-point)))
+    (unless id
+      (user-error "No OpenStack resource on this line"))
+    (browse-url (openstack--format-url id))))
+
+;;; Mode line
+
+(defun openstack-list--mode-line ()
+  "Return the status segment of the mode line for a collection buffer.
+Show the number of rows, the current sort order and the last fetch
+error.  The header line cannot carry them, because
+`tabulated-list-mode' uses it for the column labels."
+  (concat " [" (number-to-string openstack-list--count)
+          " " openstack-list--noun "]"
+          (when tabulated-list-sort-key
+            (format " [sort: %s %s]"
+                    (car tabulated-list-sort-key)
+                    (if (cdr tabulated-list-sort-key) "desc" "asc")))
+          (when openstack--last-error
+            (propertize (concat " [" (openstack--error-string
+                                      openstack--last-error) "]")
+                        'face 'error))))
+
+(defun openstack-list--display-error (_err)
+  "Force a mode line redraw, which shows the last fetch error.
+ERR is accepted for `openstack-error-display-function' and not
+needed: `openstack-list--mode-line' reads `openstack--last-error'."
+  (force-mode-line-update))
+
+;;; Major mode
+
+(defvar-keymap openstack-list-mode-map
+  :doc "Local keymap for `openstack-list-mode' buffers."
+  :parent tabulated-list-mode-map
+  "RET" #'openstack-display-at-point
+  "<mouse-2>" #'openstack-mouse-display-at-point
+  "c" #'openstack-list-copy-id
+  "w" #'openstack-list-open-web)
+
+;;;###autoload
+(define-derived-mode openstack-list-mode tabulated-list-mode "OpenStack List"
+  "Display a collection of OpenStack resources as a table.
+This is the base mode for the resource list modes, which derive
+from it.  It derives from `tabulated-list-mode', so the table gets
+a clickable column header, per-column sorting, column resizing and
+point keeping across refreshes.
+
+A derived mode sets `openstack-fetch-function' and
+`openstack-render-function' to its resource's functions, and
+`openstack-list--noun' to the plural resource name of the mode
+line.  The refresh pipeline of `openstack-mode' drives the buffer,
+so a list fetches asynchronously and keeps itself up to date with
+`auto-revert-mode'.
+
+RET and `mouse-2' open the resource of the row with the
+buffer-local `openstack-show-command'.  Errors go to the mode
+line, because the header line holds the column labels.
+
+\\{openstack-list-mode-map}"
+  :group 'openstack-list
+  (openstack--init-display-buffer)
+  (setq-local openstack-collection t)
+  (setq-local openstack-render-manages-buffer t)
+  (setq-local openstack-error-display-function
+              #'openstack-list--display-error)
+  (setq-local openstack-list--noun "rows")
+  (setq-local openstack-list--count 0)
+  (setq-local openstack-list--rows nil)
+  (setq-local tabulated-list-padding 0)
+  (setq-local tabulated-list-sort-key nil)
+  (setq-local tabulated-list-printer #'openstack-list--print-entry)
+  (setq-local mode-line-format
+              (append (default-value 'mode-line-format)
+                      '((:eval (openstack-list--mode-line)))))
+  (hl-line-mode 1))
+
+
+;;; Resource definitions
+
+(defvar openstack-resource-definitions nil
+  "Alist of resource type to the definition plist of that type.
+`openstack-define-resource' fills it when a resource file loads.
+Each plist holds :type, :cli, :noun, :id-prefix, :url-suffix,
+:fields, :list-fields, :list-arguments, :mode, :display, :list-mode
+and :list-display.  The registry is the single source of truth for
+the resource names: `openstack-resource-types' is its view for the
+ID prompts, the Org links and the xref backend.")
+
+(defun openstack-resource-definition (type)
+  "Return the definition plist of resource TYPE, or nil."
+  (alist-get type openstack-resource-definitions nil nil #'equal))
+
+(defun openstack-resource-cli-name (type)
+  "Return the client resource command name of resource TYPE.
+The type string is the command name, unless the definition sets a
+different :cli value."
+  (or (plist-get (openstack-resource-definition type) :cli) type))
+
+(defun openstack--register-resource (type definition)
+  "Record resource TYPE with the definition plist DEFINITION.
+Store the plist in `openstack-resource-definitions', and append
+TYPE to `openstack-resource-types' unless an entry exists there
+already.  An existing entry stays, so a user customization does not
+lose the display command it names."
+  (let ((cell (assoc type openstack-resource-definitions)))
+    (if cell
+        (setcdr cell definition)
+      (setq openstack-resource-definitions
+            (append openstack-resource-definitions
+                    (list (cons type definition))))))
+  (unless (assoc type openstack-resource-types)
+    (setq openstack-resource-types
+          (append openstack-resource-types
+                  (list (list type
+                              (plist-get definition :mode)
+                              (plist-get definition :display))))))
+  definition)
+
+(defun openstack-define-resource--value (properties key &optional default)
+  "Return the value of a property of PROPERTIES, the macro argument plist.
+Read the form stored under KEY, and return DEFAULT when
+PROPERTIES holds no KEY.  Evaluate the form, so a quoted list in the
+macro call arrives here as a list."
+  (let ((form (plist-get properties key)))
+    (if (null form) default (eval form t))))
+
+(defun openstack-define-resource--fill (text)
+  "Return TEXT with its lines wrapped to fit a docstring.
+The type name goes into the text, so a long resource name would
+push a line past the byte-compiler's limit without the fill."
+  (with-temp-buffer
+    (insert text)
+    (let ((fill-column 74))
+      (fill-region (point-min) (point-max)))
+    (buffer-string)))
+
+(defun openstack-define-resource--doc (format-string &rest args)
+  "Return the docstring of FORMAT-STRING applied to ARGS, wrapped.
+The macro passes FORMAT-STRING and its ARGS, so every generated
+docstring reaches the byte-compiler in a form that respects the
+line limit."
+  (openstack-define-resource--fill (apply #'format format-string args)))
+
+(defmacro openstack-define-resource (type &rest properties)
+  "Define the show and list modes of the OpenStack resource TYPE.
+TYPE is the client's resource command name as a string, for example
+\"server\" or \"container\".  Every symbol the macro defines starts
+with `openstack-TYPE': the show and list modes, their display
+commands, fetchers, renderers and the defcustoms of their buffer
+names, field orders and client arguments.
+
+PROPERTIES is a plist with these keys:
+
+  :noun          plural resource name, default TYPE plus \"s\"
+  :cli           client resource command, default TYPE
+  :id-prefix     leading dashboard URL segments, default :cli
+  :url-suffix    trailing dashboard URL segments, default \"\"
+  :fields        fields rendered first by the show mode
+  :list-fields   columns shown first by the list mode
+  :list-arguments  extra client arguments of `RESOURCE list'
+
+The macro records the definition in `openstack-resource-definitions'
+and adds its entry to `openstack-resource-types', so the ID prompts,
+the Org links and the xref backend learn about the new type."
+  (declare (indent 1) (debug (stringp &rest sexp)))
+  (let* ((type (eval type t))
+         (cli (openstack-define-resource--value properties :cli type))
+         (noun (openstack-define-resource--value properties :noun
+                                                 (concat type "s")))
+         (id-prefix (openstack-define-resource--value properties :id-prefix
+                                                      cli))
+         (url-suffix (openstack-define-resource--value properties
+                                                       :url-suffix ""))
+         (fields (openstack-define-resource--value properties :fields))
+         (list-fields (openstack-define-resource--value properties
+                                                        :list-fields))
+         (list-arguments (openstack-define-resource--value properties
+                                                          :list-arguments))
+         (title (capitalize type))
+         (plural (capitalize noun))
+         (base (format "openstack-%s" type))
+         (buffer-name (intern (format "%s-buffer-name" base)))
+         (fields-var (intern (format "%s-fields" base)))
+         (fetch (intern (format "%s--fetch" base)))
+         (render (intern (format "%s--render" base)))
+         (display (intern (format "%s-display" base)))
+         (mode (intern (format "%s-mode" base)))
+         (list-buffer-name (intern (format "%s-list-buffer-name" base)))
+         (list-fields-var (intern (format "%s-list-fields" base)))
+         (list-arguments-var (intern (format "%s-list-arguments" base)))
+         (list-fetch (intern (format "%s-list--fetch" base)))
+         (list-columns (intern (format "%s-list--columns" base)))
+         (list-render (intern (format "%s-list--render" base)))
+         (list-display (intern (format "%s-list-display" base)))
+         (list-mode (intern (format "%s-list-mode" base)))
+         (list-group (intern (format "%s-list" base))))
+    `(progn
+       (defcustom ,buffer-name
+         ,(openstack-define-resource--doc "*OpenStack %s*" title)
+         ,(openstack-define-resource--doc "Name prefix of the buffer used to display an OpenStack %s.
+`%s' appends the %s ID, so each %s gets its own buffer; the same
+ID always reuses its buffer." type display type type)
+         :type 'string
+         :group 'openstack)
+
+       (defcustom ,fields-var
+         ',fields
+         ,(openstack-define-resource--doc "Fields shown first, in this order, by `%s'.
+Fields missing from the %s data are skipped; every other field of
+`openstack %s show' is rendered after them, sorted by name."
+                  mode type cli)
+         :type '(repeat string)
+         :group 'openstack)
+
+       (defun ,fetch (id success-fn error-fn)
+         ,(openstack-define-resource--doc "Fetch the data of %s ID with `openstack-show-fetch'.
+Run `openstack %s show ID' and call SUCCESS-FN with the parsed
+JSON, or ERROR-FN with an `openstack-cli-error' condition.  Return
+the client process, so the display machinery can cancel the fetch.
+This is the value of `openstack-fetch-function' in `%s'."
+                  type cli mode)
+         (openstack-show-fetch ,cli id success-fn error-fn))
+
+       (defun ,render (id data)
+         ,(openstack-define-resource--doc "Insert the display of %s ID with DATA into the buffer.
+DATA is the parsed `openstack %s show' JSON, rendered by
+`openstack-render-fields' with the field order of `%s'.  This is
+the value of `openstack-render-function' in `%s'."
+                  type cli fields-var mode)
+         (openstack-render-fields ,title id data ,fields-var))
+
+       (defun ,display (id)
+         ,(openstack-define-resource--doc "Display the OpenStack %s with ID in a dedicated buffer.
+The buffer is named by `%s' and put into `%s', which fetches the
+%s with `openstack %s show' and renders its fields.  The fetch is
+asynchronous: the buffer fills in when the client delivers data,
+and keeps itself up to date afterwards."
+                  type buffer-name mode type cli)
+         (interactive (list (openstack--read-resource-id
+                             ,type
+                             ,(openstack-define-resource--doc "OpenStack %s ID: "
+                                                              type))))
+         (let ((openstack-buffer-name ,buffer-name))
+           (openstack-display id #',mode)))
+
+       (define-derived-mode ,mode openstack-mode
+         ,title
+         ,(openstack-define-resource--doc "Major mode for displaying an OpenStack %s resource.
+Derives from `openstack-mode', inheriting the ID handling, the
+refresh pipeline and bookmark support.  Fetching and rendering are
+set buffer-locally to the %s-specific fetcher and renderer; they
+can be overridden globally like any other `openstack-mode' buffer.
+The dashboard URL uses the `%s' prefix." type type id-prefix)
+         (setq-local openstack-fetch-function #',fetch)
+         (setq-local openstack-render-function #',render)
+         (setq-local openstack-id-prefix ,id-prefix)
+         (setq-local openstack-url-suffix ,url-suffix))
+
+       (defgroup ,list-group nil
+         ,(openstack-define-resource--doc "Display OpenStack %s lists in Emacs." type)
+         :prefix ,(openstack-define-resource--doc "%s-list-" base)
+         :group 'openstack)
+
+       (defcustom ,list-buffer-name
+         ,(openstack-define-resource--doc "*OpenStack %s*" plural)
+         ,(openstack-define-resource--doc "Name of the buffer listing OpenStack %s.
+The list shows all %s, so unlike single-resource buffers the name
+carries no ID suffix." noun noun)
+         :type 'string
+         :group ',list-group)
+
+       (defcustom ,list-fields-var
+         ',list-fields
+         ,(openstack-define-resource--doc "Columns shown first, in this order, by `%s'.
+Columns missing from the data are skipped; every remaining field is
+appended, sorted by name." list-mode)
+         :type '(repeat string)
+         :group ',list-group)
+
+       (defcustom ,list-arguments-var
+         ',list-arguments
+         ,(openstack-define-resource--doc "Extra client arguments of `openstack %s list'.
+The list fetcher appends them to the command; the default asks for
+nothing beyond the client's own default output." cli)
+         :type '(repeat string)
+         :group ',list-group)
+
+       (defun ,list-fetch (id success-fn error-fn)
+         ,(openstack-define-resource--doc "Fetch all %s with `openstack %s list' asynchronously.
+The ID argument is ignored: a collection buffer has no single
+resource ID.  The list runs with the extra arguments of `%s'.
+Call SUCCESS-FN with the parsed JSON (a list of %s hash tables), or
+ERROR-FN with an `openstack-cli-error' condition.  Return the
+client process, so the display machinery can cancel the fetch.
+This is the value of `openstack-fetch-function' in `%s'."
+                  noun cli list-arguments-var type list-mode)
+         (openstack-list-fetch ,cli id success-fn error-fn
+                               ,list-arguments-var))
+
+       (defun ,list-columns (rows)
+         ,(openstack-define-resource--doc "Return the table columns of ROWS in display order.
+The fields of `%s' present in the data come first, in that order;
+every remaining field of ROWS follows, sorted by name."
+                  list-fields-var)
+         (openstack-list-columns rows ,list-fields-var))
+
+       (defun ,list-render (_id data)
+         ,(openstack-define-resource--doc "Insert the table of %s DATA into the current buffer.
+DATA is the parsed `openstack %s list' JSON, a list of hash tables.
+The columns come from `%s', padded to the widest cell in each
+column.  This is the value of `openstack-render-function' in `%s'."
+                  noun cli list-fields-var list-mode)
+         (openstack-list-render ,(openstack-define-resource--doc "(no %s)" noun) data
+                                ,list-fields-var))
+
+       (defun ,list-display ()
+         ,(openstack-define-resource--doc "Display all OpenStack %s in a dedicated table buffer.
+The buffer is named by `%s' and put into `%s', which fetches the
+%s with `openstack %s list' and renders them as a table.  The fetch
+is asynchronous: the buffer fills in when the client delivers
+data, and keeps itself up to date afterwards."
+                  noun list-buffer-name list-mode noun cli)
+         (interactive)
+         (let ((buf (get-buffer-create ,list-buffer-name))
+               (origin (current-buffer)))
+           (with-current-buffer buf
+             (,list-mode)
+             (setq-local openstack--origin-buffer origin)
+             (openstack--refresh))
+           (pop-to-buffer buf)))
+
+       (define-derived-mode ,list-mode openstack-list-mode
+         ,(openstack-define-resource--doc "OpenStack %s" plural)
+         ,(openstack-define-resource--doc "Major mode for listing OpenStack %s.
+Derives from `openstack-list-mode', a `tabulated-list-mode' for
+OpenStack collections, so the table has a clickable column header,
+per-column sorting and column resizing.  The buffer has no resource
+ID and the ID commands do not apply.  The %s are fetched with
+`openstack %s list' through the asynchronous CLI layer; RET or
+`mouse-2' on a row opens the %s's show buffer (`%s')."
+                  noun noun cli type display)
+         (setq-local openstack-fetch-function #',list-fetch)
+         (setq-local openstack-render-function #',list-render)
+         (setq-local openstack-id-prefix ,id-prefix)
+         (setq-local openstack-url-suffix ,url-suffix)
+         (setq-local openstack-list--noun ,noun)
+         (setq-local openstack-show-command #',display))
+
+       (openstack--register-resource
+        ,type
+        (list :type ,type
+              :cli ,cli
+              :noun ,noun
+              :id-prefix ,id-prefix
+              :url-suffix ,url-suffix
+              :fields ',fields
+              :list-fields ',list-fields
+              :list-arguments ',list-arguments
+              :mode ',mode
+              :display ',display
+              :list-mode ',list-mode
+              :list-display ',list-display)))))
+
+;; The definitions in openstack-resources.el fill the type
+;; registries, so an installed package loads them at startup.
+;;;###autoload (require 'openstack-resources)
 
 (provide 'openstack-mode)
 ;;; openstack-mode.el ends here

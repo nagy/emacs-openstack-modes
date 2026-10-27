@@ -12,32 +12,20 @@ resource-specific modes can depend on it.
 
 | File                              | Purpose                                                    |
 |-----------------------------------+------------------------------------------------------------|
-| =openstack-mode.el=               | Base major mode for OpenStack resources (ID handling)      |
-| =openstack-list-mode.el=          | Collection base mode over =tabulated-list-mode=            |
+| =openstack-mode.el=               | Core: base mode, collection base mode, resource macro      |
+| =openstack-resources.el=          | The five resource types, one macro call each               |
 | =openstack-evil.el=               | Optional evil bindings for show and list buffers           |
 | =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=        |
 | =openstack-read.el=               | ID completion and the =RESOURCE list= cache                |
 | =openstack-xref.el=               | xref backend: =M-.= on a resource ID                       |
-| =openstack-resource.el=           | =openstack-define-resource= macro and the type registry     |
-| =openstack-server.el=             | Server show and list modes                                 |
-| =openstack-volume.el=             | Volume show and list modes                                 |
-| =openstack-image.el=              | Image show and list modes                                  |
-| =openstack-network.el=            | Network show and list modes                                |
-| =openstack-container.el=          | Container show and list modes (Object Storage)             |
 | =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
-| =openstack-mode-tests.el=         | ERT test suite for the mode                                |
+| =openstack-mode-tests.el=         | ERT tests: base mode, collections, resource registry       |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
-| =openstack-server-tests.el=       | ERT test suite for the server mode                         |
-| =openstack-server-list-tests.el=  | ERT test suite for the server list mode                    |
-| =openstack-volume-tests.el=       | ERT test suite for the volume mode                         |
-| =openstack-image-tests.el=        | ERT test suite for the image mode                          |
-| =openstack-volume-list-tests.el=  | ERT test suite for the volume list mode                    |
-| =openstack-image-list-tests.el=   | ERT test suite for the image list mode                     |
-| =openstack-network-tests.el=      | ERT test suite for the network mode                        |
-| =openstack-network-list-tests.el= | ERT test suite for the network list mode                   |
-| =openstack-container-tests.el=    | ERT test suite for the container mode                      |
-| =openstack-container-list-tests.el= | ERT test suite for the container list mode               |
-| =openstack-resource-tests.el=     | ERT test suite for the macro and the type registry         |
+| =openstack-server-tests.el=       | ERT tests for the server show and list modes               |
+| =openstack-volume-tests.el=       | ERT tests for the volume show and list modes               |
+| =openstack-image-tests.el=        | ERT tests for the image show and list modes                |
+| =openstack-network-tests.el=      | ERT tests for the network show and list modes              |
+| =openstack-container-tests.el=    | ERT tests for the container show and list modes            |
 | =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
 | =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
@@ -239,28 +227,25 @@ and object counts).  The table logic lives in the base mode
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.
 
-* Resource files
+* Resource types
 
-Every resource type lives in one file with one form:
+The file =openstack-resources.el= holds every resource type, one form
+each:
 
 #+begin_src elisp
-  (require 'openstack-resource)
-
   (openstack-define-resource "volume"
     :noun "volumes"
     :id-prefix "volumes"
     :fields '("name" "status" "size")
     :list-fields '("ID" "Name" "Status"))
-
-  ;;;###autoload (require 'openstack-volume)
 #+end_src
 
-The macro writes both modes (=openstack-volume-mode= and
-=openstack-volume-list-mode=), their display commands, fetchers and
-renderers, and the defcustoms of their buffer names, field orders
-and list arguments.  The resource name appears once, so the ID
-prompt, the two fetchers, the buffer names, the dashboard URL and
-the type registry cannot disagree.
+The macro in =openstack-mode.el= writes both modes
+(=openstack-volume-mode= and =openstack-volume-list-mode=), their
+display commands, fetchers and renderers, and the defcustoms of their
+buffer names, field orders and list arguments.  The resource name
+appears once, so the ID prompt, the two fetchers, the buffer names,
+the dashboard URL and the type registry cannot disagree.
 
 The optional keys of the form:
 
@@ -271,9 +256,10 @@ The optional keys of the form:
 
 The macro records the definition in =openstack-resource-definitions=
 and adds the type to =openstack-resource-types=, so the ID prompts,
-the Org links and the xref backend learn about it.  The trailing
-autoloaded =require= loads the file, and so fills the registry, when
-an installed package starts.
+the Org links and the xref backend learn about it.  The order of the
+forms is the order of that table.  =openstack-mode.el= ends with an
+autoloaded =require= of the file, so an installed package fills the
+registry at startup.
 
 * Org links
 

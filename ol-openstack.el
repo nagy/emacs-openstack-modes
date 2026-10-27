@@ -50,11 +50,7 @@
 
 (require 'ol)
 (require 'openstack-mode)
-(require 'openstack-server)
-(require 'openstack-volume)
-(require 'openstack-image)
-(require 'openstack-network)
-(require 'openstack-container)
+(require 'openstack-resources)
 
 (defun openstack-org--split (path)
   "Split the `openstack' link PATH into a (TYPE . ID) pair.

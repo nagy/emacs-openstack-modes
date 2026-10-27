@@ -18,7 +18,7 @@
 
 (require 'ert)
 (require 'openstack-xref)
-(require 'openstack-server)
+(require 'openstack-resources)
 
 (defconst openstack-xref-test--uuid "6f1e2d3c-0000-4000-8000-0000000000cc"
   "A UUID that no test row carries.")

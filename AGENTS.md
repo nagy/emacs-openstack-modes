@@ -13,31 +13,19 @@ name as the ID.
 
 | File | Purpose |
 |---|---|
-| `openstack-mode.el` | Base major mode, handles the resource ID, `openstack-resource-types` |
+| `openstack-mode.el` | Core: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, the type registry (`openstack-resource-definitions`, `openstack-resource-types`) |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
-| `openstack-resource.el` | `openstack-define-resource` macro: writes a resource's show and list modes from one form, records it in `openstack-resource-definitions`, fills `openstack-resource-types` |
+| `openstack-resources.el` | The five resource types, one `openstack-define-resource` form each: server, volume, image, network, container |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, opt-in via `(require 'openstack-xref)` |
-| `openstack-server.el` | Server resource: one macro call defines `openstack-server-mode` (`openstack server show`) and `openstack-server-list-mode` (`openstack server list`) |
-| `openstack-volume.el` | Volume resource: `openstack-volume-mode` + `openstack-volume-list-mode` |
-| `openstack-image.el` | Image resource: `openstack-image-mode` + `openstack-image-list-mode` |
-| `openstack-network.el` | Network resource: `openstack-network-mode` + `openstack-network-list-mode`, dashboard prefix `project/networks` with `/detail` |
-| `openstack-container.el` | Container resource (Object Storage, Swift): show and list modes, the container name is the ID, list runs with `--long` |
-| `openstack-list-mode.el` | Collection base mode over `tabulated-list-mode`: generic fetch, table renderer, column widths, typed sorters, row commands, mode line status |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
-| `openstack-mode-tests.el` | ERT tests for the mode |
+| `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
-| `openstack-server-tests.el` | ERT tests for the server modes |
-| `openstack-server-list-tests.el` | ERT tests for the server list mode |
-| `openstack-volume-tests.el` | ERT tests for the volume mode |
-| `openstack-image-tests.el` | ERT tests for the image mode |
-| `openstack-volume-list-tests.el` | ERT tests for the volume list mode |
-| `openstack-image-list-tests.el` | ERT tests for the image list mode |
-| `openstack-resource-tests.el` | ERT tests for the macro and the registry: definitions, generated symbols and `openstack-resource-types` agree |
-| `openstack-network-tests.el` | ERT tests for the network mode |
-| `openstack-network-list-tests.el` | ERT tests for the network list mode |
-| `openstack-container-tests.el` | ERT tests for the container mode |
-| `openstack-container-list-tests.el` | ERT tests for the container list mode |
+| `openstack-server-tests.el` | ERT tests for the server show and list modes |
+| `openstack-volume-tests.el` | ERT tests for the volume show and list modes |
+| `openstack-image-tests.el` | ERT tests for the image show and list modes |
+| `openstack-network-tests.el` | ERT tests for the network show and list modes |
+| `openstack-container-tests.el` | ERT tests for the container show and list modes |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
@@ -79,13 +67,10 @@ Without Nix:
 
 ```sh
 emacs --batch -L . -l openstack-mode-tests.el \
-  -l openstack-cli-tests.el -l openstack-resource-tests.el \
-  -l openstack-server-tests.el \
-  -l openstack-server-list-tests.el -l openstack-volume-tests.el \
-  -l openstack-image-tests.el -l openstack-volume-list-tests.el \
-  -l openstack-image-list-tests.el \
-  -l openstack-network-tests.el -l openstack-network-list-tests.el \
-  -l openstack-container-tests.el -l openstack-container-list-tests.el \
+  -l openstack-cli-tests.el \
+  -l openstack-server-tests.el -l openstack-volume-tests.el \
+  -l openstack-image-tests.el -l openstack-network-tests.el \
+  -l openstack-container-tests.el \
   -l openstack-list-mode-tests.el \
   -l openstack-evil-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
@@ -120,29 +105,29 @@ includes evil.
 - The `openstack-program` defcustom lives in `openstack-cli.el`
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
-- Every resource type lives in one file that holds a single
-  `(openstack-define-resource "TYPE" ...)` form; the macro in
-  `openstack-resource.el` writes the show mode, the list mode,
-  their display commands, fetchers, renderers and defcustoms from
-  that form.  The type string appears once per resource.  Do not
+- The resource types live in `openstack-resources.el`, one
+  `(openstack-define-resource "TYPE" ...)` form each; the macro in
+  `openstack-mode.el` writes the show mode, the list mode, their
+  display commands, fetchers, renderers and defcustoms from that
+  form.  The type string appears once per resource.  Do not
   hand-write `openstack-*-mode`, `openstack-*-display`,
   `openstack-*-fetch` or the `*-fields` defcustoms again: derive
   them through the macro, and add a keyword when the macro lacks
-  what a new resource needs.
+  what a new resource needs.  A new resource that the client serves
+  differently gets a new keyword, not a hand-written mode.
 - `openstack-define-resource` registers the type in
   `openstack-resource-definitions`, the registry, and appends its
   entry to `openstack-resource-types`, which the ID prompts, the
   Org links and the xref backend read.  The table therefore starts
-  empty and fills in load order, so a resource file ends with
-  `;;;###autoload (require 'openstack-FILE)`: the autoload
-  generator copies that form into the package autoloads, and the
-  installed package loads every resource mode (and so the
-  registry) at startup.  The macro writes its commands, so no
-  cookie can precede them in the source; the per-file autoload
-  tests assert the require instead.
-  `openstack-resource-tests.el` walks the registry and checks that
-  every definition, its generated symbols and its table entry
-  agree, so a new resource file cannot drift.
+  empty and fills in the order of the forms in
+  `openstack-resources.el`.  `openstack-mode.el` ends with
+  `;;;###autoload (require 'openstack-resources)`, so the autoload
+  generator copies that form into the package autoloads and the
+  installed package fills the registry at startup.  The macro writes
+  its commands, so no cookie can precede them in the source;
+  `openstack-mode-tests.el` asserts the autoloaded require instead,
+  and its registry tests check that every definition, its generated
+  symbols and its table entry agree.
 - The repo ships one Emacs package:
   `packages.openstack-mode` (aliased as `packages.default`) builds
   the whole tree with one `melpaBuild`, because `package-build`

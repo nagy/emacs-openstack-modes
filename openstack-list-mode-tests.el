@@ -17,7 +17,7 @@
 ;; <https://www.gnu.org/licenses/>.
 
 (require 'ert)
-(require 'openstack-list-mode)
+(require 'openstack-mode)
 
 ;;; Helpers
 

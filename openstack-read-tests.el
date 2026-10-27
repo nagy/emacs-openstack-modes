@@ -18,11 +18,7 @@
 
 (require 'ert)
 (require 'openstack-read)
-(require 'openstack-server)
-(require 'openstack-volume)
-(require 'openstack-image)
-(require 'openstack-network)
-(require 'openstack-container)
+(require 'openstack-resources)
 
 (defun openstack-read-test--row (id name)
   "Return a list row hash table with ID and NAME."

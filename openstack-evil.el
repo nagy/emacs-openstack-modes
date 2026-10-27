@@ -59,7 +59,6 @@
 
 (require 'evil)
 (require 'openstack-mode)
-(require 'openstack-list-mode)
 
 ;;; Bindings
 
