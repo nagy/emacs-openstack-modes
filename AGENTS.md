@@ -22,11 +22,7 @@ name as the ID.
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
-| `openstack-server-tests.el` | ERT tests for the server show and list modes |
-| `openstack-volume-tests.el` | ERT tests for the volume show and list modes |
-| `openstack-image-tests.el` | ERT tests for the image show and list modes |
-| `openstack-network-tests.el` | ERT tests for the network show and list modes |
-| `openstack-container-tests.el` | ERT tests for the container show and list modes |
+| `openstack-resource-tests.el` | ERT tests for the five resource show and list modes, one table of fixtures and one test body per check |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
@@ -70,9 +66,7 @@ Without Nix:
 ```sh
 emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-cli-tests.el \
-  -l openstack-server-tests.el -l openstack-volume-tests.el \
-  -l openstack-image-tests.el -l openstack-network-tests.el \
-  -l openstack-container-tests.el \
+  -l openstack-resource-tests.el \
   -l openstack-list-mode-tests.el \
   -l openstack-evil-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
@@ -147,6 +141,18 @@ includes evil.
   bind to `openstack-show-command`.
   `tabulated-list-print` requires an entry as a list `(ID COLS)`:
   a cons of ID and column vector makes it signal a type error.
+- The resource show and list tests live in one table, not one file
+  per resource: `openstack-resource-tests.el` holds
+  `openstack-resource-test--fixtures` (the client answers and the
+  expected texts of each type) and defines every check once through
+  `openstack-resource-test--def-type-tests`, which expands one
+  `openstack-TYPE-SUFFIX` test per fixture.  A new resource type
+  needs a fixture entry, not a new test file; the
+  `openstack-resource-tests-cover-registry` test fails until the
+  fixture table lists it in registry order.  Because the symbol
+  names of a type are built at runtime, the tests call the modes and
+  fetchers with `funcall` and compare `openstack-fetch-function`
+  and friends with interned symbols.
 - Derived modes override fetching and rendering by setting the
   `openstack-fetch-function` and `openstack-render-function`
   defcustoms (buffer-locally in the mode body, or globally).

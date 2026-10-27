@@ -22,11 +22,7 @@ resource-specific modes can depend on it.
 | =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
 | =openstack-mode-tests.el=         | ERT tests: base mode, collections, resource registry       |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
-| =openstack-server-tests.el=       | ERT tests for the server show and list modes               |
-| =openstack-volume-tests.el=       | ERT tests for the volume show and list modes               |
-| =openstack-image-tests.el=        | ERT tests for the image show and list modes                |
-| =openstack-network-tests.el=      | ERT tests for the network show and list modes              |
-| =openstack-container-tests.el=    | ERT tests for the container show and list modes            |
+| =openstack-resource-tests.el=     | ERT tests: the five resource show and list modes           |
 | =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
 | =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
