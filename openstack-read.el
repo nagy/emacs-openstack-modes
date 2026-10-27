@@ -87,9 +87,14 @@ show' reports lower case ones."
             names))
 
 (defun openstack-read--row-id (row)
-  "Return the ID field of the list ROW, or nil."
-  (and (hash-table-p row)
-       (openstack-read--row-value row '("ID"))))
+  "Return the identifier of the list ROW, or nil.
+Read the ID field of ROW; a resource without one, such as a Swift
+container, uses its Name field."
+  (when (hash-table-p row)
+    (let ((id (openstack-read--row-value row '("ID")))
+          (name (openstack-read--row-value row '("Name"))))
+      (or (and (stringp id) (not (string-empty-p id)) id)
+          (and (stringp name) (not (string-empty-p name)) name)))))
 
 (defun openstack-read--row-name (row)
   "Return the name field of the list ROW, or nil."
@@ -126,7 +131,8 @@ and call the client otherwise."
               (when-let* ((id (openstack-read--row-id row)))
                 (let ((name (openstack-read--row-name row)))
                   (cons (if (and (stringp name)
-                                 (not (string-empty-p name)))
+                                 (not (string-empty-p name))
+                                 (not (equal name id)))
                             (format "%s (%s)" name id)
                           id)
                         id))))

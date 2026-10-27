@@ -72,19 +72,21 @@ column keeps a readable part of its value."
 
 ;;; Fetcher and columns
 
-(defun openstack-list-fetch (resource _id success-fn error-fn)
+(defun openstack-list-fetch (resource _id success-fn error-fn &optional args)
   "Fetch all resources of RESOURCE type for a collection buffer.
 RESOURCE is the client's resource command name, e.g. `server' or
 `volume'.  Run `RESOURCE list' through
 `openstack-cli-async-request' and call SUCCESS-FN with the
 parsed JSON (a list of resource hash tables), or ERROR-FN with
-an `openstack-cli-error' condition.  Return the client process,
+an `openstack-cli-error' condition.  ARGS appends extra client
+arguments to the command, for a resource whose list needs an
+option.  Return the client process,
 so the display machinery can cancel the fetch.  The ID argument
 is ignored: a collection buffer has no single resource ID.
 Collection modes wrap this with their own resource name as their
 `openstack-fetch-function'."
   (openstack-cli-async-request
-   (list resource "list")
+   (append (list resource "list") args)
    :success-fn success-fn
    :error-fn error-fn))
 
@@ -131,12 +133,18 @@ both cases."
                           ((listp rows) rows)
                           (t (list rows)))))
 
+(defun openstack-list--row-identity-field (row name)
+  "Return the value of ROW field NAME when it is a non-empty string."
+  (let ((value (openstack--hash-field row name)))
+    (and (stringp value) (not (string-empty-p value)) value)))
+
 (defun openstack-list--row-id (row number)
   "Return the identity of ROW, a string.
-Use the resource ID of ROW, and NUMBER for a row without an ID
+Use the resource ID of ROW, then its name, because a Swift
+container has no UUID; use NUMBER for a row without either
 field, so `tabulated-list-print' can find the row again."
-  (or (openstack--hash-field row "ID")
-      (openstack--hash-field row "id")
+  (or (openstack-list--row-identity-field row "ID")
+      (openstack-list--row-identity-field row "Name")
       (format "row-%d" number)))
 
 (defun openstack-list--row-index (rows)

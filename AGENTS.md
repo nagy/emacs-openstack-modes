@@ -6,7 +6,8 @@
 resources.  Every OpenStack resource has a unique ID.  The project
 starts with one base mode that handles the ID; future resource-specific
 modes (servers, volumes, images, networks, …) derive from it and add
-their own rendering.
+their own rendering.  A Swift container has no UUID, so it uses its
+name as the ID.
 
 ## Files
 
@@ -24,6 +25,8 @@ their own rendering.
 | `openstack-image-list.el` | Image list mode: `openstack image list` as a `tabulated-list-mode` table; `openstack-image-list-display` |
 | `openstack-network.el` | Network mode: `openstack network show` via the generic helpers; `openstack-network-display` |
 | `openstack-network-list.el` | Network list mode: `openstack network list` as a `tabulated-list-mode` table; `openstack-network-list-display` |
+| `openstack-container.el` | Container mode (Object Storage, Swift): `openstack container show`; the container name is the ID; `openstack-container-display` |
+| `openstack-container-list.el` | Container list mode: `openstack container list --long` as a `tabulated-list-mode` table; `openstack-container-list-display` |
 | `openstack-list-mode.el` | Collection base mode over `tabulated-list-mode`: generic fetch, table renderer, column widths, typed sorters, row commands, mode line status |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the mode |
@@ -36,6 +39,8 @@ their own rendering.
 | `openstack-image-list-tests.el` | ERT tests for the image list mode |
 | `openstack-network-tests.el` | ERT tests for the network mode |
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
+| `openstack-container-tests.el` | ERT tests for the container mode |
+| `openstack-container-list-tests.el` | ERT tests for the container list mode |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
@@ -82,6 +87,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
   -l openstack-network-tests.el -l openstack-network-list-tests.el \
+  -l openstack-container-tests.el -l openstack-container-list-tests.el \
   -l openstack-list-mode-tests.el \
   -l openstack-evil-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
@@ -173,7 +179,18 @@ includes evil.
   `tabulated-list-format` (widths fitted to the window, typed
   sorters per column, numbers right-aligned) and
   `tabulated-list-entries` (ID plus cell vector), then calls
-  `tabulated-list-print`.
+  `tabulated-list-print`.  `openstack-list-fetch` takes an optional
+  ARGS list appended to `RESOURCE list`, so a collection whose list
+  needs a client option stays a thin wrapper
+  (`openstack-container-list-arguments` passes `--long`).
+- A resource with no UUID takes its name as the ID.
+  `openstack-read--row-id` and `openstack-list--row-id` fall back to
+  the `Name` field of a list row, and a row without either field
+  keeps the positional `row-N` identity.  Swift containers work
+  this way (`openstack-container-mode` uses the container name as
+  `openstack--id`).  Do not invent a prefixed or composite ID for
+  such a resource, and do not repeat the name as a `name (id)`
+  completion label.
 - `openstack-render-manages-buffer` tells `openstack--refresh-done`
   that the renderer prints the buffer itself: the pipeline does not
   erase beforehand and does not move point afterwards, because
@@ -298,11 +315,17 @@ includes evil.
 ## TODO
 
 - Derived modes for more resource types (routers, subnets,
-  ports, flavors, hosts, …); servers, volumes, images and
-  networks exist.
+  ports, flavors, hosts, …); servers, volumes, images,
+  networks and containers exist.
 - Collection modes for more resource types (routers, subnets,
-  ports, flavors, hosts, …); server, volume, image and network
-  lists exist.
+  ports, flavors, hosts, …); server, volume, image, network and
+  container lists exist.
+- Objects of the Object Storage service.  `object list` needs a
+  container argument and an object has no ID at all (its identity
+  is container plus name), so decide the identity scheme first:
+  a composite row ID or a buffer-local container variable.  That
+  choice touches xref, Org links, the bookmark handler and the
+  dashboard URLs.
 - Dashboard deep links per resource type.  `openstack-id-prefix`
   holds the leading path segments and `openstack-url-suffix` the
   trailing ones (networks use `project/networks` and `/detail`).

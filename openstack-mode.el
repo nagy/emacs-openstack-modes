@@ -215,7 +215,8 @@ list buffer opens the right kind of show buffer."
   '(("server" openstack-server-mode openstack-server-display)
     ("volume" openstack-volume-mode openstack-volume-display)
     ("image" openstack-image-mode openstack-image-display)
-    ("network" openstack-network-mode openstack-network-display))
+    ("network" openstack-network-mode openstack-network-display)
+    ("container" openstack-container-mode openstack-container-display))
   "Resource types with a derived mode.
 Each entry is a list of the type name, the mode that displays the
 resource and the command that opens its display buffer.  Prompts,

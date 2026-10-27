@@ -22,11 +22,18 @@
 (require 'openstack-volume)
 (require 'openstack-image)
 (require 'openstack-network)
+(require 'openstack-container)
 
 (defun openstack-read-test--row (id name)
   "Return a list row hash table with ID and NAME."
   (let ((row (make-hash-table :test 'equal)))
     (puthash "ID" id row)
+    (puthash "Name" name row)
+    row))
+
+(defun openstack-read-test--named-row (name)
+  "Return a list row hash table with NAME and no ID field."
+  (let ((row (make-hash-table :test 'equal)))
     (puthash "Name" name row)
     row))
 
@@ -45,6 +52,9 @@
                      (list (openstack-read-test--row "vol-1" "data-1")))
                     ("network"
                      (list (openstack-read-test--row "net-1" "provider")))
+                    ("container"
+                     (list (openstack-read-test--named-row "logs")
+                           (openstack-read-test--named-row "backups")))
                     (_ nil)))))
        ,@body)))
 
@@ -93,6 +103,23 @@
     (should (equal (openstack-read--row-id row) "lower-1"))
     (should (equal (openstack-read--row-name row) "lower-name")))
   (should (null (openstack-read--row-id "not a row"))))
+
+(ert-deftest openstack-read-row-id-falls-back-to-name ()
+  "A row without an ID field takes its name as the identifier.
+A Swift container has a name and no UUID."
+  (let ((row (make-hash-table :test 'equal)))
+    (puthash "Name" "logs" row)
+    (should (equal (openstack-read--row-id row) "logs")))
+  (let ((row (make-hash-table :test 'equal)))
+    (puthash "Name" "" row)
+    (should (null (openstack-read--row-id row)))))
+
+(ert-deftest openstack-read-choices-name-only-rows ()
+  "A name-only row labels without a duplicate."
+  (let ((openstack-read--cache nil))
+    (openstack-read-test--with-client calls
+      (should (equal (openstack-read-choices "container")
+                     '(("logs" . "logs") ("backups" . "backups")))))))
 
 (ert-deftest openstack-read-id-completes ()
   "Picking a candidate returns its ID."
@@ -147,7 +174,7 @@
         (should (equal (openstack-read-type-of-id "net-1") "network"))
         (should (equal (length calls) before)))
       (should (null (openstack-read-type-of-id "nope")))
-      (should (equal (length calls) 4)))))
+      (should (equal (length calls) 5)))))
 
 (ert-deftest openstack-read-type-of-id-failure-is-nil ()
   "A failing client yields nil from the type lookup."
@@ -177,7 +204,7 @@
       (should (equal (car calls) '("server" "list")))
       (should (equal (length calls) 3))
       (openstack-read-refresh)
-      (should (equal (length calls) 7)))))
+      (should (equal (length calls) 8)))))
 
 (ert-deftest openstack-open-id ()
   "A known ID opens the display command of its type."

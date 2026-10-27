@@ -26,6 +26,8 @@ resource-specific modes can depend on it.
 | =openstack-image-list.el=         | Image list mode: =openstack image list=                    |
 | =openstack-network.el=            | Network mode: fetches and renders =openstack network show= |
 | =openstack-network-list.el=       | Network list mode: =openstack network list=                |
+| =openstack-container.el=          | Container mode: =openstack container show=                 |
+| =openstack-container-list.el=     | Container list mode: =openstack container list=            |
 | =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
 | =openstack-mode-tests.el=         | ERT test suite for the mode                                |
 | =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
@@ -37,6 +39,8 @@ resource-specific modes can depend on it.
 | =openstack-image-list-tests.el=   | ERT test suite for the image list mode                     |
 | =openstack-network-tests.el=      | ERT test suite for the network mode                        |
 | =openstack-network-list-tests.el= | ERT test suite for the network list mode                   |
+| =openstack-container-tests.el=    | ERT test suite for the container mode                      |
+| =openstack-container-list-tests.el= | ERT test suite for the container list mode               |
 | =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
 | =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
 | =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
@@ -168,6 +172,26 @@ this mode uses the URL suffix: the dashboard URL is
 defcustom carries the trailing segment; =openstack-id-prefix=
 carries the leading ones.  Other modes leave the suffix empty.
 
+* Object storage
+
+=openstack-container-mode= displays a container of the Object
+Storage service (Swift).  A container holds objects, and its
+name is its identifier:
+
+- =M-x openstack-container-display= -- display a container by
+  name (=openstack container show=)
+
+The mode passes the container name to the base mode as the
+resource ID, because a Swift container has no UUID.  The ID
+completion reads =openstack container list=, whose rows carry a
+=Name= field and no =ID= field.  Horizon shows a container at
+=project/containers/NAME=, so the mode sets
+=openstack-id-prefix= and leaves =openstack-url-suffix= empty.
+
+The S3 API of Swift is a second interface on the same service.
+Its access key and secret come from =ec2 credentials= of the
+Identity service; this package does not display them.
+
 * Collection lists
 
 Collection modes display a list of resources instead of a
@@ -181,6 +205,8 @@ single resource; the server list mode is the reference:
   (=openstack image list=)
 - =M-x openstack-network-list-display= -- list all networks
   (=openstack network list=)
+- =M-x openstack-container-list-display= -- list all containers
+  (=openstack container list=)
 
 Every list mode derives from =openstack-list-mode=, which derives
 from =tabulated-list-mode=.  The table therefore has a clickable
@@ -203,10 +229,15 @@ The list buffer has no resource ID: the buffer-level ID commands
 do not apply there.  Columns come from the mode's =-fields=
 defcustom (=openstack-server-list-fields=,
 =openstack-volume-list-fields=, =openstack-image-list-fields=,
-=openstack-network-list-fields=) first; all remaining fields
+=openstack-network-list-fields=, =openstack-container-list-fields=)
+first; all remaining fields
 follow, sorted by name.  Sorting compares typed values, so a
 numeric column such as =Size= sorts as numbers and shows
-right-aligned.  The table logic lives in the base mode
+right-aligned.  A row identity is the resource ID; a container
+row takes its name instead, because a Swift container has no
+UUID.  =openstack-container-list-arguments= holds extra client
+arguments for =container list= (=--long= by default, for the byte
+and object counts).  The table logic lives in the base mode
 (=openstack-list-fetch=, =openstack-list-columns=,
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.

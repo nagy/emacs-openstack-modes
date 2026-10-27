@@ -54,6 +54,7 @@
 (require 'openstack-volume)
 (require 'openstack-image)
 (require 'openstack-network)
+(require 'openstack-container)
 
 (defun openstack-org--split (path)
   "Split the `openstack' link PATH into a (TYPE . ID) pair.

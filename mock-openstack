@@ -183,6 +183,30 @@ EOF
         ;;
     "network show"*)
         die "network" "No network with a name or ID of '${args[2]}' exists." ;;
+    "container show logs"*)
+        cat <<'EOF'
+{
+  "account": "v1/AUTH_a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "bytes_used": 4096,
+  "container": "logs",
+  "object_count": 2,
+  "read_acl": ".r:*,.rlistings",
+  "storage_policy": "default",
+  "write_acl": "",
+  "properties": {"owner": "ops"}
+}
+EOF
+        ;;
+    "container show"*)
+        die "container" "Container '${args[2]}' not found" ;;
+    "container list"*)
+        cat <<'EOF'
+[
+  {"Name": "logs", "Bytes": 4096, "Count": 2},
+  {"Name": "backups", "Bytes": 1048576, "Count": 12}
+]
+EOF
+        ;;
     "server delete"*|"volume delete"*|"image delete"*|"network delete"*)
         exit 0 ;;
     "server stop"*|"server start"*)
