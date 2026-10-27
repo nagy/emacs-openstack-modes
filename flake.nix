@@ -118,6 +118,10 @@
                 link, stores links from display buffers and exports them as
                 dashboard URLs.
 
+                Resource ID prompts complete from a cached `RESOURCE list',
+                and an xref backend opens the resource of an ID under point
+                with M-. in any buffer.
+
                 The package interfaces with OpenStack through the
                 python-openstackclient command line program (nixpkgs
                 package openstackclient-full).  The build substitutes the

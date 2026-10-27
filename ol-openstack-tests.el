@@ -35,7 +35,7 @@
 
 (ert-deftest ol-openstack-types-are-reachable ()
   "Every link type names a mode and a display command."
-  (dolist (entry openstack-org-types)
+  (dolist (entry openstack-resource-types)
     (should (fboundp (nth 1 entry)))
     (should (fboundp (nth 2 entry)))))
 
@@ -110,7 +110,7 @@
         (with-current-buffer buf
           (openstack-mode)
           (setq-local openstack--id "res-1")
-          ;; The base mode is not in `openstack-org-types'.
+          ;; The base mode is not in `openstack-resource-types'.
           (should (null (openstack-org-store))))
       (kill-buffer buf)))
   (let ((buf (generate-new-buffer " *ol-openstack-store*")))
@@ -125,7 +125,7 @@
 (ert-deftest ol-openstack-dashboard-url-follows-modes ()
   "The exported URL uses the mode's own path settings."
   (let ((openstack-web-base-url "https://horizon.example.org"))
-    (dolist (entry openstack-org-types)
+    (dolist (entry openstack-resource-types)
       (let ((type (nth 0 entry)))
         (with-temp-buffer
           (funcall (nth 1 entry))

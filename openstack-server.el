@@ -46,6 +46,7 @@
 
 (require 'json)
 (require 'openstack-mode)
+(require 'openstack-read)
 
 (defcustom openstack-server-buffer-name "*OpenStack Server*"
   "Name prefix of the buffer used to display an OpenStack server.
@@ -93,7 +94,8 @@ into `openstack-server-mode', which fetches the server with
 `openstack server show' and renders its fields.  The fetch is
 asynchronous: the buffer fills in when the client delivers data,
 and keeps itself up to date afterwards."
-  (interactive "sOpenStack server ID: ")
+  (interactive (list (openstack-read-id "server"
+                                    "OpenStack server ID: ")))
   (let ((openstack-buffer-name openstack-server-buffer-name))
     (openstack-display id #'openstack-server-mode)))
 

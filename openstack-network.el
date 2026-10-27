@@ -49,6 +49,7 @@
 ;;; Code:
 
 (require 'openstack-mode)
+(require 'openstack-read)
 
 (defcustom openstack-network-buffer-name "*OpenStack Network*"
   "Name prefix of the buffer used to display an OpenStack network.
@@ -96,7 +97,8 @@ into `openstack-network-mode', which fetches the network with
 `openstack network show' and renders its fields.  The fetch is
 asynchronous: the buffer fills in when the client delivers data,
 and keeps itself up to date afterwards."
-  (interactive "sOpenStack network ID: ")
+  (interactive (list (openstack-read-id "network"
+                                    "OpenStack network ID: ")))
   (let ((openstack-buffer-name openstack-network-buffer-name))
     (openstack-display id #'openstack-network-mode)))
 

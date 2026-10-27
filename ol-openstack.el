@@ -33,7 +33,7 @@
 ;;   [[openstack:network/6f1e2d3c-0000-4000-8000-0000000000cc]]
 ;;
 ;; Following such a link opens the resource with the display
-;; command of its type (see `openstack-org-types'), so the link
+;; command of its type (see `openstack-resource-types'), so the link
 ;; behaves like RET on a list row.  Storing a link with
 ;; `org-store-link' from a resource buffer writes one back.
 ;;
@@ -49,27 +49,11 @@
 ;;; Code:
 
 (require 'ol)
-(require 'cl-lib)
 (require 'openstack-mode)
 (require 'openstack-server)
 (require 'openstack-volume)
 (require 'openstack-image)
 (require 'openstack-network)
-
-(defcustom openstack-org-types
-  '(("server" openstack-server-mode openstack-server-display)
-    ("volume" openstack-volume-mode openstack-volume-display)
-    ("image" openstack-image-mode openstack-image-display)
-    ("network" openstack-network-mode openstack-network-display))
-  "Resource types accepted in an `openstack' Org link.
-Each entry is a list of the type name used in the link path, the
-mode that displays the resource and the command that opens its
-display buffer.  Add an entry for a new derived mode, so
-`openstack' links reach it."
-  :type '(repeat (list (string :tag "Type")
-                       (symbol :tag "Mode")
-                       (symbol :tag "Display command")))
-  :group 'openstack)
 
 (defun openstack-org--split (path)
   "Split the `openstack' link PATH into a (TYPE . ID) pair.
@@ -80,15 +64,11 @@ TYPE/ID form."
   (cons (match-string 1 path) (match-string 2 path)))
 
 (defun openstack-org--entry (type)
-  "Return the `openstack-org-types' entry of resource TYPE.
-Signal a `user-error' when TYPE is not in the table."
-  (or (assoc type openstack-org-types)
+  "Return the resource entry of link TYPE.
+Signal a `user-error' when TYPE is not in
+`openstack-resource-types'."
+  (or (openstack-resource-type type)
       (user-error "Unknown OpenStack resource type: %s" type)))
-
-(defun openstack-org--type-for-mode (mode)
-  "Return the link type of resource MODE, or nil when unknown."
-  (car (cl-find mode openstack-org-types
-                :key (lambda (entry) (nth 1 entry)))))
 
 (defun openstack-org--dashboard-url (type id)
   "Return the dashboard URL of the resource of TYPE with ID.
@@ -113,7 +93,7 @@ in its own mode.  ARG is ignored."
   "Complete an `openstack' link, prompting for type and ID.
 ARG is ignored.  Return the link path TYPE/ID."
   (let ((type (completing-read "OpenStack resource type: "
-                               (mapcar #'car openstack-org-types)
+                               (mapcar #'car openstack-resource-types)
                                nil t)))
     (format "openstack:%s/%s" type
             (read-string "OpenStack resource ID: "))))
@@ -134,7 +114,7 @@ Return nil outside a resource buffer and in collection buffers,
 which have no resource ID."
   (when (derived-mode-p 'openstack-mode)
     (when-let* ((id (openstack--resource-id))
-                (type (openstack-org--type-for-mode major-mode)))
+                (type (openstack-resource-type-for-mode major-mode)))
       (org-link-store-props
        :type "openstack"
        :link (format "openstack:%s/%s" type id)

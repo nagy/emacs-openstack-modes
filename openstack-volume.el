@@ -45,6 +45,7 @@
 ;;; Code:
 
 (require 'openstack-mode)
+(require 'openstack-read)
 
 (defcustom openstack-volume-buffer-name "*OpenStack Volume*"
   "Name prefix of the buffer used to display an OpenStack volume.
@@ -89,7 +90,8 @@ into `openstack-volume-mode', which fetches the volume with
 `openstack volume show' and renders its fields.  The fetch is
 asynchronous: the buffer fills in when the client delivers data,
 and keeps itself up to date afterwards."
-  (interactive "sOpenStack volume ID: ")
+  (interactive (list (openstack-read-id "volume"
+                                    "OpenStack volume ID: ")))
   (let ((openstack-buffer-name openstack-volume-buffer-name))
     (openstack-display id #'openstack-volume-mode)))
 

@@ -188,6 +188,21 @@ list buffer opens the right kind of show buffer."
   :type 'function
   :group 'openstack)
 
+(defcustom openstack-resource-types
+  '(("server" openstack-server-mode openstack-server-display)
+    ("volume" openstack-volume-mode openstack-volume-display)
+    ("image" openstack-image-mode openstack-image-display)
+    ("network" openstack-network-mode openstack-network-display))
+  "Resource types with a derived mode.
+Each entry is a list of the type name, the mode that displays the
+resource and the command that opens its display buffer.  Prompts,
+Org links and xref navigation read this table, so a new derived
+mode needs one entry here as well as its own file."
+  :type '(repeat (list (string :tag "Type")
+                       (symbol :tag "Mode")
+                       (symbol :tag "Display command")))
+  :group 'openstack)
+
 
 ;;; Mode variables
 
@@ -279,6 +294,15 @@ failed to load."
 
 
 ;;; Helper functions
+
+(defun openstack-resource-type (type)
+  "Return the `openstack-resource-types' entry of resource TYPE."
+  (assoc type openstack-resource-types))
+
+(defun openstack-resource-type-for-mode (mode)
+  "Return the resource type that MODE displays, or nil."
+  (car (cl-find mode openstack-resource-types
+                :key (lambda (entry) (nth 1 entry)))))
 
 (defun openstack--format-url (id)
   "Return the dashboard URL for resource ID.

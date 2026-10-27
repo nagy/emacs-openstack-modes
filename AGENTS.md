@@ -14,6 +14,8 @@ their own rendering.
 |---|---|
 | `openstack-mode.el` | Base major mode, handles the resource ID |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
+| `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
+| `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, opt-in via `(require 'openstack-xref)` |
 | `openstack-server.el` | First derived mode: fetches `openstack server show` (async), renders server fields; `openstack-server-display` entry point |
 | `openstack-server-list.el` | Collection mode: `openstack server list` as a padded table; `openstack-server-list-display` |
 | `openstack-volume.el` | Volume mode: `openstack volume show` via the generic helpers |
@@ -34,6 +36,8 @@ their own rendering.
 | `openstack-network-list-tests.el` | ERT tests for the network list mode |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
 | `ol-openstack-tests.el` | ERT tests for the Org link type |
+| `openstack-read-tests.el` | ERT tests for the ID completion and the cache |
+| `openstack-xref-tests.el` | ERT tests for the xref backend |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
 | `README.org` | Project README |
@@ -71,7 +75,8 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-image-tests.el -l openstack-volume-list-tests.el \
   -l openstack-image-list-tests.el \
   -l openstack-network-tests.el -l openstack-network-list-tests.el \
-  -l ol-openstack-tests.el \
+  -l ol-openstack-tests.el -l openstack-read-tests.el \
+  -l openstack-xref-tests.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -175,14 +180,30 @@ emacs --batch -L . -l openstack-mode-tests.el \
 - Tests use `unwind-protect` around temporary buffers.
 - The Org link type lives in `ol-openstack.el` and is opt-in:
   users add `(require 'ol-openstack)` to their init.  Link paths
-  are `TYPE/ID`; `openstack-org-types` maps type to display mode
-  and display command, so a new derived mode needs one entry
-  there.  Do not repeat dashboard URL paths in the link code:
-  `openstack-org--dashboard-url` reads `openstack-id-prefix` and
-  `openstack-url-suffix` from the mode itself.  Org ships with
-  Emacs, so `ol-openstack.el` does not declare it in
-  `Package-Requires`; the bare `package-lint` environment cannot
-  see builtin packages and rejects the declaration.
+  are `TYPE/ID`; `openstack-resource-types` (base mode) maps type
+  to display mode and display command, so a new derived mode
+  needs one entry there.  Do not repeat dashboard URL paths in
+  the link code: `openstack-org--dashboard-url` reads
+  `openstack-id-prefix` and `openstack-url-suffix` from the mode
+  itself.  Org ships with Emacs, so `ol-openstack.el` does not
+  declare it in `Package-Requires`; the bare `package-lint`
+  environment cannot see builtin packages and rejects the
+  declaration.
+- `openstack-read.el` owns the `RESOURCE list` cache.  Prompts
+  (`openstack-read-id`), type resolution, name lookup and the
+  xref completion table all read it; nothing else caches list
+  rows.  The cache compares type strings with `equal`, and a
+  refresh drops the entry instead of patching it.
+- New display commands read their ID with
+  `(interactive (list (openstack-read-id TYPE "...")))`; a test
+  walks `openstack-resource-types` and compares the interactive
+  forms, so add the same form to the new mode.
+- `openstack-xref.el` registers its backend through an
+  `;;;###autoload` cookie on the `add-hook` form, so `M-.` works
+  after package installation without a `require`.  The backend
+  claims a buffer only when point holds an identifier, and
+  `openstack-read-type-of-id` stays lazy: the text property wins
+  over a UUID, and an unknown ID returns nil definitions.
 
 ## TODO
 

@@ -45,6 +45,7 @@
 ;;; Code:
 
 (require 'openstack-mode)
+(require 'openstack-read)
 
 (defcustom openstack-image-buffer-name "*OpenStack Image*"
   "Name prefix of the buffer used to display an OpenStack image.
@@ -88,7 +89,8 @@ into `openstack-image-mode', which fetches the image with
 `openstack image show' and renders its fields.  The fetch is
 asynchronous: the buffer fills in when the client delivers data,
 and keeps itself up to date afterwards."
-  (interactive "sOpenStack image ID: ")
+  (interactive (list (openstack-read-id "image"
+                                    "OpenStack image ID: ")))
   (let ((openstack-buffer-name openstack-image-buffer-name))
     (openstack-display id #'openstack-image-mode)))
 
