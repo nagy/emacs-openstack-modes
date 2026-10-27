@@ -76,6 +76,13 @@
 ;;   openstack-open-web      - open the dashboard URL
 ;;   openstack-pop           - pop back to the origin buffer
 ;;
+;; The file registers the `openstack-id' thing with `thingatpt', so
+;; `(thing-at-point \='openstack-id)' yields the ID at point in any
+;; buffer: the `openstack-id' text property of a rendered field or
+;; list row first, then a UUID under point.  Display buffers also
+;; provide the `uuid' thing from that property, because a narrow
+;; table truncates the ID text but keeps the full ID in the property.
+;;
 ;; The display buffer name is built from `openstack-buffer-name'
 ;; and the resource ID, so each resource has its own buffer;
 ;; the dashboard URL comes from `openstack-web-base-url',
@@ -109,6 +116,7 @@
 (require 'autorevert)
 (require 'cl-lib)
 (require 'tabulated-list)
+(require 'thingatpt)
 (require 'openstack-cli)
 
 ;; Forward reference: the desktop notification of a state change.
@@ -497,6 +505,47 @@ BOOKMARK is a bookmark record as created by
     (openstack-display id)))
 
 
+;;; Identifier
+
+(defun openstack--id-property-at-point ()
+  "Return the `openstack-id' text property at point, or nil."
+  (get-char-property (point) 'openstack-id))
+
+(defun openstack-id-thing ()
+  "Return the OpenStack resource ID at point, or nil.
+Read the `openstack-id' text property of a rendered field or list
+row first, then a UUID under point.  This function gives the
+value of the `openstack-id' THING, so other packages read an ID
+with (thing-at-point \='openstack-id)."
+  (or (openstack--id-property-at-point)
+      (thing-at-point 'uuid t)))
+
+(defun openstack-id-bounds ()
+  "Return the bounds of the OpenStack resource ID at point, or nil.
+The bounds span the text that carries the `openstack-id' text
+property, which is a whole list row or an ID field line.  Without
+the property the bounds are those of the UUID under point."
+  (if-let* ((id (openstack--id-property-at-point)))
+      (let ((start (if (and (> (point) (point-min))
+                            (equal id (get-char-property
+                                       (1- (point)) 'openstack-id)))
+                       (or (previous-single-property-change
+                            (point) 'openstack-id nil (point-min))
+                           (point-min))
+                     (point)))
+            (end (if (and (< (point) (point-max))
+                          (equal id (get-char-property
+                                     (1+ (point)) 'openstack-id)))
+                     (or (next-single-property-change
+                          (point) 'openstack-id nil (point-max))
+                         (point-max))
+                   (1+ (point)))))
+        (cons start end))
+    (bounds-of-thing-at-point 'uuid)))
+
+(put 'openstack-id 'thing-at-point #'openstack-id-thing)
+(put 'openstack-id 'bounds-of-thing-at-point #'openstack-id-bounds)
+
 ;;; Commands
 
 (defun openstack-render-default (id data)
@@ -858,7 +907,7 @@ collection buffers.  The resource is opened with the buffer-local
 `openstack-show-command' (a collection mode binds it to its
 resource's display command), defaulting to `openstack-display'."
   (interactive)
-  (let ((id (get-char-property (point) 'openstack-id)))
+  (let ((id (openstack--id-property-at-point)))
     (unless id
       (user-error "No OpenStack resource ID at point"))
     (funcall openstack-show-command id)))
@@ -975,6 +1024,12 @@ over the parent's own `revert-buffer-function'."
   (openstack--kill-pending)
   (setq-local revert-buffer-function #'openstack--revert-buffer)
   (setq-local buffer-stale-function #'openstack--buffer-stale-p)
+  ;; A narrow table truncates the ID text but keeps the full ID in
+  ;; the `openstack-id' property, so the `uuid' thing reads the
+  ;; property here.  The thing itself already serves `openstack-id'.
+  (setq-local thing-at-point-provider-alist
+              (cons '(uuid . openstack-id-thing)
+                    thing-at-point-provider-alist))
   (add-hook 'kill-buffer-hook #'openstack--kill-pending nil t)
   (when openstack-auto-revert
     ;; A refresh is asynchronous and invisible: the auto-revert

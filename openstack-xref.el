@@ -37,6 +37,9 @@
 ;;   - the `openstack-id' text property of a rendered field or row
 ;;   - a UUID under point, which needs no fontification
 ;;
+;; Both come through the `openstack-id' thing that `openstack-mode'
+;; registers, so the backend keeps no identifier logic of its own.
+;;
 ;; Enable it in your init file:
 ;;
 ;;   (require 'openstack-xref)
@@ -79,10 +82,10 @@
 
 (defun openstack-xref-identifier-at-point ()
   "Return the OpenStack resource ID at point, or nil.
-Read the `openstack-id' text property of a rendered field or
-list row first, then a UUID under point."
-  (or (get-char-property (point) 'openstack-id)
-      (thing-at-point 'uuid t)))
+Ask the `openstack-id' thing, which prefers the `openstack-id'
+text property of a rendered field or list row and falls back to a
+UUID under point."
+  (thing-at-point 'openstack-id t))
 
 (defun openstack-xref-backend ()
   "Return the OpenStack xref backend when point holds a resource ID.

@@ -222,7 +222,20 @@ includes evil.
   `mouse-2` (`openstack-display-at-point`) open the resource at
   point with the buffer-local `openstack-show-command`, which list
   modes bind to their resource's display command (default
-  `openstack-display`).
+  `openstack-display`).  `openstack-display-at-point` reads the
+  property only: a bare UUID in a log line stays `M-.` territory.
+- `openstack-mode` also registers the `openstack-id` thing:
+  `openstack-id-thing` (property first, then a UUID under point)
+  and `openstack-id-bounds` (the property run, or the UUID bounds)
+  go on the symbol plist under `thing-at-point` and
+  `bounds-of-thing-at-point`.  `openstack--init-display-buffer`
+  adds a buffer-local `thing-at-point-provider-alist` entry that
+  maps `uuid` to `openstack-id-thing`, because a narrow table
+  truncates the ID text and keeps the full ID in the property.
+  `openstack-xref.el` reads `(thing-at-point 'openstack-id t)` and
+  keeps only the type lookup and the fresh-property check.  A
+  custom THING gets no `forward-op`: the region comes from a text
+  property, so a scan for it has no meaning.
 - Display buffers refresh themselves: `openstack-mode` and
   `openstack-list-mode` call `openstack--init-display-buffer`, which
   wires `revert-buffer-function`, `buffer-stale-function` and

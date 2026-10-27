@@ -112,6 +112,12 @@ and a UUID under point second.  Enable it in your init file:
 
 The =M-?= prompt completes the cached IDs.
 
+The same rule defines the =openstack-id= thing, so any package
+reads the ID at point with =(thing-at-point 'openstack-id)= and
+the bounds with =bounds-of-thing-at-point=.  Display buffers also
+answer the =uuid= thing from the property, so a table column
+truncated to the window width still yields the full ID.
+
 * Servers
 
 =openstack-server-mode= is the first resource-specific mode

@@ -648,6 +648,66 @@ The fetcher receives nil as the ID; without the
               #'openstack-mouse-display-at-point)))
 
 
+;;; Things at point
+
+(defconst openstack-test--uuid "6f1e2d3c-0000-4000-8000-0000000000cc"
+  "A UUID that no fixture carries, for the thing tests.")
+
+(ert-deftest openstack-id-thing-prefers-property ()
+  "The `openstack-id' thing returns the property over the UUID text."
+  (with-temp-buffer
+    (insert "web-1 " openstack-test--uuid)
+    (put-text-property (point-min) (point-max) 'openstack-id "srv-1")
+    (goto-char (point-min))
+    (should (equal (thing-at-point 'openstack-id t) "srv-1"))
+    (should (equal (bounds-of-thing-at-point 'openstack-id)
+                   (cons (point-min) (point-max))))
+    (search-forward "6f1e2d3c")
+    (should (equal (thing-at-point 'uuid t) openstack-test--uuid))))
+
+(ert-deftest openstack-id-thing-without-property-returns-uuid ()
+  "Without the property the thing falls back to the UUID under point."
+  (with-temp-buffer
+    (insert "log line " openstack-test--uuid " end")
+    (goto-char (point-min))
+    (search-forward "6f1e2d3c")
+    (should (equal (thing-at-point 'openstack-id t) openstack-test--uuid))
+    (should (equal (bounds-of-thing-at-point 'openstack-id)
+                   (bounds-of-thing-at-point 'uuid)))))
+
+(ert-deftest openstack-id-thing-bounds-cover-the-property-run ()
+  "The bounds stop where the `openstack-id' property stops."
+  (with-temp-buffer
+    (insert "name")
+    (put-text-property (point-min) (point-max) 'openstack-id "srv-1")
+    (insert " tail")
+    (goto-char (+ (point-min) 2))
+    (should (equal (bounds-of-thing-at-point 'openstack-id)
+                   (cons (point-min) (+ (point-min) 4))))
+    ;; No property, no ID.
+    (goto-char (point-max))
+    (should (null (thing-at-point 'openstack-id t)))))
+
+(ert-deftest openstack-mode-uuid-thing-reads-truncated-cell ()
+  "A display buffer answers the `uuid' thing from the property.
+A narrow table truncates the ID text, so the provider must return
+the full ID from the property."
+  (let ((buffer (generate-new-buffer " *openstack-thing-test*")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (openstack-mode)
+          (let ((inhibit-read-only t))
+            (insert "6f1b4\u2026  web-1\n")
+            (add-text-properties (point-min) (point-max)
+                                 (list 'openstack-id
+                                       openstack-test--uuid)))
+          (goto-char (+ (point-min) 2))
+          (should (equal (thing-at-point 'uuid t) openstack-test--uuid))
+          (should (equal (bounds-of-thing-at-point 'openstack-id)
+                         (cons (point-min) (point-max)))))
+      (kill-buffer buffer))))
+
+
 ;;; Status faces, changes and notifications
 
 (defun openstack-test--parse (json)
