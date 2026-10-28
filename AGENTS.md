@@ -15,6 +15,7 @@ name as the ID.
 |---|---|
 | `openstack-mode.el` | Core: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, the type registry (`openstack-resource-definitions`, `openstack-resource-types`) |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
+| `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
 | `openstack-resources.el` | The five resource types, one `openstack-define-resource` form each: server, volume, image, network, container |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
@@ -22,6 +23,7 @@ name as the ID.
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
 | `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
+| `openstack-api-tests.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
 | `openstack-resource-tests.el` | ERT tests for the five resource show and list modes, one table of fixtures and one test body per check |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
@@ -66,6 +68,7 @@ Without Nix:
 ```sh
 emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-cli-tests.el \
+  -l openstack-api-tests.el \
   -l openstack-resource-tests.el \
   -l openstack-list-mode-tests.el \
   -l openstack-evil-tests.el \
@@ -98,6 +101,23 @@ includes evil.
 - CLI tests mock at the process level with `cl-letf` on
   `openstack-cli--run` (sync) and `make-process`/
   `set-process-sentinel` (async); they never hit a real OpenStack.
+- `openstack-api.el` is the native read path in preparation.  It
+  does not parse HTTP and does not open sockets itself: Emacs
+  `url.el` frames the responses, decodes chunked bodies, follows
+  redirects, negotiates TLS and keeps one socket per host open
+  between polls (`url-http-open-connections`).  A hand-written HTTP
+  parser or socket layer is out of scope; add a helper here only
+  when `url.el` lacks it.  The layer adds what `url` lacks: the
+  `openstack-api-request` handle, `openstack-api-cancel`, a
+  per-request `openstack-api-timeout`, JSON parsing and the
+  `openstack-api-error` condition (`openstack-api-timeout` as its
+  subclass).  Cancelling closes the socket, because a half-read
+  response cannot stay usable; the next request reconnects.
+  `openstack-api-tests.el` runs against a loopback fake cloud, so
+  the tests stay offline and count accepted connections to check
+  the keep-alive promise.  The modes still read through the CLI;
+  do not rewire a fetcher until a parity test compares its buffer
+  text against the CLI fixture.
 - The `openstack-program` defcustom lives in `openstack-cli.el`
   (the CLI's program), not in the mode file.
   functions return nil unless called with the `errorp` argument.
@@ -376,6 +396,13 @@ includes evil.
 
 ## TODO
 
+- Native read path (`openstack-api.el`).  The request layer and its
+  offline tests exist; the CLI still serves every fetch.  Next:
+  v3 token auth with catalog lookup, a `openstack-read-backend`
+  defcustom (`cli` default), show and list fetchers over the API,
+  a parity test that compares buffer text against the CLI fixtures,
+  a per-host queue, and the request-object cancellation contract
+  in `openstack--kill-pending` once parity passes.
 - Derived modes for more resource types (routers, subnets,
   ports, flavors, hosts, …); servers, volumes, images,
   networks and containers exist.
