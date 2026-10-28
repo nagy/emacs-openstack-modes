@@ -33,7 +33,7 @@ name as the ID.
 | `openstack-xref-tests.el` | ERT tests for the xref backend |
 | `openstack-url-tests.el` | ERT tests for the `openstack:` URL scheme |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
-| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt` |
+| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt`. The builder takes the Emacs to build for and is exported as `lib.openstackPackage`, so a consumer substitutes its own Emacs (`lib.openstackPackage pkgs { emacs = pkgs.emacs31; }`) or calls `.override { emacs = pkgs.emacs31; }` on the package, and `evil` then comes from that Emacs' package set |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |

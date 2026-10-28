@@ -18,41 +18,45 @@
       treefmt-nix,
       ...
     }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
-      # The treefmt module provides `treefmt' plus the `formatter' output
-      # and a `checks.<system>.treefmt' gate for `nix flake check'.
-      imports = [ treefmt-nix.flakeModule ];
-      # Emacs packages are pure Elisp, but the build bakes in a store
-      # path of the OpenStack client, so every output stays tied to one
-      # platform.  Linux only: extend the list after a real eval on
-      # another system.
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
+    let
+      # One package for the whole repo: package-build packages every
+      # `*.el' file in the source by default, so the base mode, the
+      # CLI layer and each derived show/list mode travel together.
+      #
+      # It takes the nixpkgs instance and, optionally, another Emacs, so a
+      # consumer can substitute the Emacs the package compiles and tests
+      # with.  Everything else (melpaBuild, the optional evil layer) comes
+      # from that Emacs' package set, so the evil .elc files always match
+      # the Emacs that loads them:
+      #
+      #   (inputs.self.lib.openstackPackage pkgs)
+      #   (inputs.self.lib.openstackPackage pkgs { emacs = pkgs.emacs31; })
+      #   (inputs.self.packages.${system}.default.override { emacs = pkgs.emacs31; })
+      #
+      # `makeOverridable' adds the `override' attribute, so the package
+      # behaves like a `callPackage' result: `.override { emacs = ...; }'
+      # rebuilds it against another Emacs.
+      openstackPackage =
+        pkgs:
+        pkgs.lib.makeOverridable (
+          {
+            emacs ? pkgs.emacs,
+          }:
+          let
+            lib = pkgs.lib;
+            emacsPackages = emacs.pkgs;
 
-      perSystem =
-        {
-          pkgs,
-          lib,
-          ...
-        }:
-        let
-          inherit (pkgs.emacsPackages) melpaBuild;
-          # The package shells out to the python-openstackclient CLI at
-          # runtime; bake its store path in so the installed package works
-          # without anything on $PATH.
-          openstackclient = pkgs.openstackclient-full;
+            # The package shells out to the python-openstackclient CLI at
+            # runtime; bake its store path in so the installed package works
+            # without anything on $PATH.
+            openstackclient = pkgs.openstackclient-full;
 
-          # The optional openstack-evil.el layer needs evil to compile and
-          # test, but the package must not depend on it.  Supply the elisp
-          # directory to the build only, never through packageRequires.
-          evil = pkgs.emacsPackages.evil;
-
-          # One package for the whole repo: package-build packages every
-          # `*.el' file in the source by default, so the base mode, the
-          # CLI layer and each derived show/list mode travel together.
-          openstackPackage = melpaBuild {
+            # The optional openstack-evil.el layer needs evil to compile and
+            # test, but the package must not depend on it.  Supply the elisp
+            # directory to the build only, never through packageRequires.
+            evil = emacsPackages.evil;
+          in
+          emacsPackages.melpaBuild {
             pname = "openstack-mode";
             # Nix convention for unreleased packages: <version>-unstable-<date>,
             # the date of the last commit touching the source.  This package
@@ -160,7 +164,35 @@
               maintainers = with lib.maintainers; [ nagy ];
               platforms = lib.platforms.unix;
             };
-          };
+          }
+        );
+    in
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      # The treefmt module provides `treefmt' plus the `formatter' output
+      # and a `checks.<system>.treefmt' gate for `nix flake check'.
+      imports = [ treefmt-nix.flakeModule ];
+      # Emacs packages are pure Elisp, but the build bakes in a store
+      # path of the OpenStack client, so every output stays tied to one
+      # platform.  Linux only: extend the list after a real eval on
+      # another system.
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+
+      # Expose the builder so a consumer can build the package for its own
+      # Emacs without changing this flake.
+      flake.lib.openstackPackage = openstackPackage;
+
+      perSystem =
+        {
+          pkgs,
+          ...
+        }:
+        let
+          # The default package: the builder above, instantiated for the
+          # nixpkgs instance and the default Emacs of this system.
+          package = openstackPackage pkgs { };
 
           # Shell snippet for the ELPA policy checks: copy the packaged
           # Elisp sources into the build directory.  Test files carry the
@@ -176,7 +208,6 @@
               mode_files+=("$(basename "$file")")
             done
           '';
-
         in
         {
           # One canonical formatting config: `nix fmt' runs nixfmt, and
@@ -188,13 +219,13 @@
           };
           # One package for the whole repo: `nix build' installs the base
           # mode together with every derived mode.
-          packages.openstack-mode = openstackPackage;
-          packages.default = openstackPackage;
+          packages.openstack-mode = package;
+          packages.default = package;
 
           # `nix flake check' builds the package too, so the check phase
           # (byte-compile with warnings as errors, full ERT suite) gates
           # the whole repo rather than only `nix build'.
-          checks.package = openstackPackage;
+          checks.package = package;
 
           # package-lint: ELPA policy (headers, symbol prefixes,
           # dependency declarations).
@@ -204,7 +235,7 @@
                 nativeBuildInputs = [
                   (pkgs.emacsPackages.emacsWithPackages (p: [ p.package-lint ]))
                 ];
-                src = openstackPackage.src;
+                src = ./.;
               }
               ''
                 ${lintFiles}
@@ -230,7 +261,7 @@
             pkgs.runCommandLocal "openstack-mode-checkdoc"
               {
                 nativeBuildInputs = [ pkgs.emacs ];
-                src = openstackPackage.src;
+                src = ./.;
               }
               ''
                 ${lintFiles}
@@ -249,7 +280,7 @@
             # it: the external CLI, a real Emacs for interactive testing.
             # Evil comes along for the optional openstack-evil.el layer.
             packages = [
-              openstackclient
+              pkgs.openstackclient-full
               (pkgs.emacsPackages.emacsWithPackages (p: [ p.evil ]))
             ];
           };

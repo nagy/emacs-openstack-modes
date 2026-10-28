@@ -10,28 +10,28 @@ resource-specific modes can depend on it.
 
 * Files
 
-| File                              | Purpose                                                    |
-|-----------------------------------+------------------------------------------------------------|
-| =openstack-mode.el=               | Core: base mode, collection base mode, resource macro      |
-| =openstack-resources.el=          | The five resource types, one macro call each               |
-| =openstack-evil.el=               | Optional evil bindings for show and list buffers           |
-| =openstack-cli.el=                | CLI layer: sync/async access to =openstack-program=        |
-| =openstack-read.el=               | ID completion and the =RESOURCE list= cache                |
-| =openstack-xref.el=               | xref backend: =M-.= on a resource ID                       |
-| =openstack-url.el=                | =openstack:= URL scheme for =browse-url=                    |
-| =ol-openstack.el=                 | Org link type =openstack:= for resources                   |
-| =openstack-mode-tests.el=         | ERT tests: base mode, collections, resource registry       |
-| =openstack-cli-tests.el=          | ERT test suite for the CLI layer (mocked)                  |
-| =openstack-resource-tests.el=     | ERT tests: the five resource show and list modes           |
-| =openstack-list-mode-tests.el=    | ERT test suite for the collection base mode                |
-| =openstack-evil-tests.el=         | ERT test suite for the evil bindings                       |
-| =ol-openstack-tests.el=           | ERT test suite for the Org link type                       |
-| =openstack-read-tests.el=         | ERT test suite for the ID completion                       |
-| =openstack-xref-tests.el=         | ERT test suite for the xref backend                        |
-| =openstack-url-tests.el=          | ERT test suite for the URL scheme                          |
-| =flake.nix=                       | Nix flake with =melpaBuild=, runs ERT tests and checkdoc   |
-| =flake.lock=                      | Pinned flake inputs                                        |
-| =LICENSE=                         | AGPLv3                                                     |
+| File                         | Purpose                                                |
+|------------------------------+--------------------------------------------------------|
+| =openstack-mode.el=            | Core: base mode, collection base mode, resource macro  |
+| =openstack-resources.el=       | The five resource types, one macro call each           |
+| =openstack-evil.el=            | Optional evil bindings for show and list buffers       |
+| =openstack-cli.el=             | CLI layer: sync/async access to =openstack-program=      |
+| =openstack-read.el=            | ID completion and the =RESOURCE list= cache              |
+| =openstack-xref.el=            | xref backend: =M-.= on a resource ID                     |
+| =openstack-url.el=             | =openstack:= URL scheme for =browse-url=                   |
+| =ol-openstack.el=              | Org link type =openstack:= for resources                 |
+| =openstack-mode-tests.el=      | ERT tests: base mode, collections, resource registry   |
+| =openstack-cli-tests.el=       | ERT test suite for the CLI layer (mocked)              |
+| =openstack-resource-tests.el=  | ERT tests: the five resource show and list modes       |
+| =openstack-list-mode-tests.el= | ERT test suite for the collection base mode            |
+| =openstack-evil-tests.el=      | ERT test suite for the evil bindings                   |
+| =ol-openstack-tests.el=        | ERT test suite for the Org link type                   |
+| =openstack-read-tests.el=      | ERT test suite for the ID completion                   |
+| =openstack-xref-tests.el=      | ERT test suite for the xref backend                    |
+| =openstack-url-tests.el=       | ERT test suite for the URL scheme                      |
+| =flake.nix=                    | Nix flake with =melpaBuild=, runs ERT tests and checkdoc |
+| =flake.lock=                   | Pinned flake inputs                                    |
+| =LICENSE=                      | AGPLv3                                                 |
 
 * Usage
 
