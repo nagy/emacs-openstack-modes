@@ -194,7 +194,10 @@ includes evil.
   show ID` via the async CLI layer) and `openstack-render-fields`
   (header + ordered field table, JSON for nested values).  Value
   formatting lives in `openstack--format-value`; do not duplicate
-  it per mode.  The field renderer collects every row first and
+  it per mode.  A list of plain values, such as the `subnets` of a
+  network or the `tags` of an image, prints as comma-separated
+  text (`subnet-1, subnet-2`); a list that holds records stays
+  JSON.  The field renderer collects every row first and
   pads each name after its colon to the longest name, so all
   values start at one column (`openstack--insert-field' takes the
   width); a mode that renders fields by hand must align them the

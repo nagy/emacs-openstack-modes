@@ -98,7 +98,7 @@
                 "\"tags\": [\"latest\"], \"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
-       :show-nested (("tags" . "[\"latest\"]"))
+       :show-nested (("tags" . "latest"))
        :show-unlisted ("zzz_extra")
        :show-values (("size" . "224M") ("virtual_size" . "230M"))
        :list-json
@@ -128,7 +128,7 @@
                 "\"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
-       :show-nested (("subnets" . "[\"subnet-1\"]"))
+       :show-nested (("subnets" . "subnet-1"))
        :show-unlisted ("zzz_extra")
        :list-json
        ,(concat "[{\"ID\": \"net-1\", \"Name\": \"provider\", "
@@ -365,7 +365,8 @@ FORMAT holds one `%s' for the type string."
         (dolist (field (plist-get fixture :show-missing))
           (should-not (string-match-p
                        (concat "^" (regexp-quote field) ": ") text)))
-        ;; Nested values come out as JSON.
+        ;; Nested values render as JSON, a list of plain values as
+        ;; comma-separated text.
         (dolist (entry (plist-get fixture :show-nested))
           (should (string-match-p
                    (concat "^" (regexp-quote (car entry)) ": +"

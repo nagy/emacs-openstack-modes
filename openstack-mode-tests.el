@@ -488,7 +488,16 @@ sees the old mode's fetch and can kill its process; the cached view resets, so t
   (should (equal (openstack--format-value "ACTIVE") "ACTIVE"))
   (should (equal (openstack--format-value 2) "2"))
   (should (equal (openstack--format-value t) "true"))
-  (should (equal (openstack--format-value '(1 2)) "[1,2]"))
+  ;; A list of plain values prints as text, a nested one as JSON.
+  (should (equal (openstack--format-value '(1 2)) "1, 2"))
+  (should (equal (openstack--format-value '("subnet-1" "subnet-2"))
+                 "subnet-1, subnet-2"))
+  (should (equal (openstack--format-value '("latest")) "latest"))
+  (should (equal (openstack--format-value '((1 2) 3)) "[[1,2],3]"))
+  (let ((table (make-hash-table :test #'equal)))
+    (puthash "a" 1 table)
+    (should (equal (openstack--format-value (list table))
+                   "[{\"a\":1}]")))
   ;; A formatter from `openstack-value-formatters' wins for its field,
   ;; and field names compare without case.
   (let ((openstack-value-formatters '(("size" . openstack--format-size))))

@@ -170,7 +170,10 @@ closes the table, one =key: value= line per property, sorted by
 key, instead of one JSON dump.  The same holds for the Glance
 =locations= list: the client flattens that attribute into
 =properties=, so the block nests there and prints each location
-as an indented record with its keys on their own lines.  The
+as an indented record with its keys on their own lines.  A list
+of plain values prints as comma-separated text: the =subnets= of
+a network or the =tags= of an image read =subnet-1, subnet-2=
+instead of a JSON array.  The
 image =size= and =virtual_size= print human readable through
 =file-size-human-readable=, for example =224M=, while the list
 column keeps the raw byte count for sorting.

@@ -1029,12 +1029,24 @@ A non-numeric VALUE falls back to `openstack--format-value'."
       (file-size-human-readable value)
     (openstack--format-value value)))
 
+(defun openstack--plain-list-p (value)
+  "Return non-nil when VALUE is a non-empty list of plain values.
+A plain value is a string, a number, a boolean or nil.  A list
+that holds a hash table or another list stays JSON."
+  (and (consp value)
+       (seq-every-p (lambda (item)
+                      (or (stringp item) (numberp item)
+                          (eq item t) (null item)))
+                    value)))
+
 (defun openstack--format-value (value &optional field)
   "Return the display text of one resource field VALUE.
 FIELD, when non-nil, looks up a formatter in
 `openstack-value-formatters' first.  Strings and numbers are
-shown as they are (an empty string as a dash); booleans, lists,
-hash tables and anything else fall back to their JSON encoding."
+shown as they are (an empty string as a dash); booleans and a
+list of plain values such as the `subnets' of a network or the
+`tags' of an image print as text; nested lists, hash tables and
+anything else fall back to their JSON encoding."
   (let ((formatter (and field
                         (cdr (assoc (downcase field)
                                     openstack-value-formatters)))))
@@ -1044,6 +1056,8 @@ hash tables and anything else fall back to their JSON encoding."
      ((stringp value) (if (string-empty-p value) "-" value))
      ((numberp value) (number-to-string value))
      ((eq value t) "true")
+     ((openstack--plain-list-p value)
+      (mapconcat #'openstack--format-value value ", "))
      (t (json-encode value)))))
 
 (defun openstack--insert-field (field value &optional id width)
