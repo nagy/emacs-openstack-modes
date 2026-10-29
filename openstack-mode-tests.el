@@ -1030,6 +1030,52 @@ the full ID from the property."
       (openstack-render-fields "Server" "srv-1" data '("created_at"))
       (should (null (openstack-test--face-at "2026-01-01"))))))
 
+(ert-deftest openstack-render-fields-id-face ()
+  "The header ID and the `id' field take `openstack-id'."
+  (let ((data (openstack-test--parse
+               "{\"id\": \"srv-1\", \"name\": \"web-1\",
+\"image_id\": \"img-9\"}"))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("name"))
+      ;; The header line above the field table.
+      (goto-char (point-min))
+      (search-forward "srv-1")
+      (should (eq (get-text-property (match-beginning 0) 'face)
+                  'openstack-id))
+      ;; The `id' field row.
+      (should (eq (openstack-test--face-at "srv-1") 'openstack-id))
+      ;; A reference to another resource keeps the default face.
+      (should (null (openstack-test--face-at "img-9"))))))
+
+(ert-deftest openstack-id-face-combines-with-change-face ()
+  "A changed ID takes both the change face and the ID face."
+  (let* ((old (openstack-test--parse
+               "{\"id\": \"srv-1\", \"name\": \"web-1\"}"))
+         (new (openstack-test--parse
+               "{\"id\": \"srv-2\", \"name\": \"web-1\"}"))
+         (inhibit-read-only t))
+    (with-temp-buffer
+      (let ((openstack--previous-data old))
+        (openstack-render-fields "Server" "srv-2" new '("name")))
+      ;; The header line carries the ID face only.
+      (should (eq (openstack-test--face-at "srv-2") 'openstack-id))
+      ;; The `id' field row differs from the previous refresh.
+      (goto-char (point-min))
+      (search-forward "srv-2")
+      (search-forward "srv-2")
+      (should (equal (get-text-property (match-beginning 0) 'face)
+                     '(openstack-field-changed openstack-id))))))
+
+(ert-deftest openstack-list-id-face ()
+  "The `ID' column takes `openstack-id', other columns do not."
+  (let ((rows (openstack-test--parse
+               "[{\"ID\": \"srv-1\", \"Name\": \"web-1\"}]")))
+    (with-temp-buffer
+      (openstack-list-render "(no servers)" rows '("ID" "Name"))
+      (should (eq (openstack-test--face-at "srv-1") 'openstack-id))
+      (should (null (openstack-test--face-at "web-1"))))))
+
 (ert-deftest openstack-render-fields-status-face ()
   "A status value renders with its status face."
   (let ((data (openstack-test--parse

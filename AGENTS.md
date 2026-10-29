@@ -418,10 +418,19 @@ includes evil.
   `openstack-status-pending`, `openstack-status-error`,
   `openstack-field-changed`, `openstack-field-name` (inherits
   `font-lock-variable-name-face`), `openstack-date` (inherits
-  `org-date`) and `openstack-error` (inherits `error`).  Do not
+  `org-date`), `openstack-id` (inherits `marginalia-number`) and
+  `openstack-error` (inherits `error`).  Do not
   apply a font-lock or message face directly: then a user who
   restyles the OpenStack buffers changes code buffers or every
   message as well.
+- The resource ID takes `openstack-id`: `openstack-render-fields`
+  propertizes its `ID' header line with it, and
+  `openstack--cell-face` adds it when the field name is `id'
+  (show) or `ID' (list), so the `id' field row and the `ID'
+  column share the face.  A reference to another resource, such
+  as `image_id', keeps the default face; the face marks the
+  identity of the displayed resource only.  The name-as-ID
+  resource (Swift containers) keeps its `Name' column unfaced.
 - Date fields take `openstack-date`: `openstack--cell-face` adds it
   when the field name matches `openstack-date-fields` (a space in a
   list column matches an underscore in a show field).  Both

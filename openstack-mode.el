@@ -373,6 +373,15 @@ these dates too.  `openstack-date-fields' names the fields that
 take this face."
   :group 'openstack)
 
+(defface openstack-id
+  '((t :inherit marginalia-number))
+  "Face for the ID of a resource in display buffers.
+It inherits `marginalia-number', so a theme that styles
+Marginalia numbers styles these IDs too.  The renderers apply it
+to the `ID' line of a show buffer, to the `id' field and to the
+`ID' column of a resource list."
+  :group 'openstack)
+
 (defface openstack-error
   '((t :inherit error))
   "Face for a fetch error, in the buffer, header line or mode line."
@@ -689,11 +698,19 @@ uses underscores, so both spellings match."
     (cl-some (lambda (other) (string-equal-ignore-case other name))
              openstack-date-fields)))
 
+(defun openstack--id-field-p (field)
+  "Return non-nil when FIELD names the ID of the resource.
+`RESOURCE show' spells the field `id' and `RESOURCE list' spells
+the column `ID', so the comparison ignores case."
+  (string-equal-ignore-case field "id"))
+
 (defun openstack--cell-face (field value changed)
   "Return the face list for FIELD with VALUE.
 CHANGED marks a value that differs from the previous refresh, so
-a status or date face and the change face combine."
+a status, ID or date face and the change face combine."
   (let ((special (or (openstack--status-face field value)
+                     (and (openstack--id-field-p field)
+                          'openstack-id)
                      (and (stringp value)
                           (openstack--date-field-p field)
                           'openstack-date))))
@@ -1169,8 +1186,9 @@ resource from the ID field line.  WIDTH, when a number, gives the
 column at which values start, so the field name gets padded with
 spaces after its colon.  A status value takes its face from
 `openstack-status-faces', a date field named in
-`openstack-date-fields' takes `openstack-date', and a value that
-differs from the previous refresh takes `openstack-field-changed'."
+`openstack-date-fields' takes `openstack-date', the `id' field
+takes `openstack-id', and a value that differs from the previous
+refresh takes `openstack-field-changed'."
   (let* ((text (openstack--format-value value field))
          (name-width (string-width field))
          (face (openstack--cell-face
@@ -1260,7 +1278,8 @@ records.  Derived resource modes call this from their
                       id)))
   (when id
     (insert (propertize "ID" 'face 'openstack-field-name)
-            ": " (propertize id 'openstack-id id
+            ": " (propertize id 'face 'openstack-id
+                            'openstack-id id
                             'mouse-face 'highlight)
             "\n\n"))
   (when (hash-table-p data)
@@ -1509,8 +1528,9 @@ only, so they read the typed cell values through this index."
   "Return the display text of ROW's COLUMN, with its face.
 A status value takes its face from `openstack-status-faces', a
 date column named in `openstack-date-fields' takes
-`openstack-date', and a value that differs from the previous
-refresh takes `openstack-field-changed'."
+`openstack-date', the `ID' column takes `openstack-id', and a
+value that differs from the previous refresh takes
+`openstack-field-changed'."
   (let* ((value (gethash column row))
          (previous (and (listp openstack--previous-data)
                         (openstack--row-match openstack--previous-data row)))

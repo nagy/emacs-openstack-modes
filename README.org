@@ -403,9 +403,12 @@ the field names in =openstack-status-fields=.
 Every face of the package inherits a standard one, so a theme
 styles the buffers without extra setup: field names use
 =openstack-field-name=, fetch errors =openstack-error=, a value
-that changed =openstack-field-changed=, and a date field named
+that changed =openstack-field-changed=, a date field named
 in =openstack-date-fields= uses =openstack-date=, which inherits
-=org-date=.  Set one of them to restyle OpenStack buffers
+=org-date=, and the resource ID uses =openstack-id=, which
+inherits =marginalia-number=.  The ID face covers the =ID= line
+of a detail buffer, its =id= field and the =ID= column of a
+list.  Set one of them to restyle OpenStack buffers
 without touching code buffers.
 
 A field whose value differs from the previous refresh shows
