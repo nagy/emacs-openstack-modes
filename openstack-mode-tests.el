@@ -509,12 +509,39 @@ Missing fields are skipped and nested values render as JSON."
       (let ((text (buffer-string)))
         (should (string-match-p "Volume: data-1\n" text))
         (should (string-match-p "ID: vol-1\n" text))
-        (should (< (string-match "^name: data-1$" text)
-                   (string-match "^size: 20$" text)
-                   (string-match "^aaa: {\"k\":1}$" text)
-                   (string-match "^zzz: late$" text)))
+        (should (< (string-match "^name: +data-1$" text)
+                   (string-match "^size: +20$" text)
+                   (string-match "^aaa: +{\"k\":1}$" text)
+                   (string-match "^zzz: +late$" text)))
         (should-not (string-match-p "^missing:" text))
-        (should (string-match-p "^host: -$" text))))))
+        (should (string-match-p "^host: +-$" text))))))
+
+(ert-deftest openstack-render-fields-aligns-values ()
+  "Every value starts past the longest field name, one column for all.
+A volume detail buffer lines up like a table, however much the
+field names differ in length."
+  (let ((data (json-parse-string
+               (concat "{\"name\": \"data-1\", \"status\": \"active\", "
+                       "\"size\": 1, \"container_format\": \"bare\"}")
+               :object-type 'hash-table :array-type 'list)))
+    (with-temp-buffer
+      (openstack-render-fields "Volume" nil data
+                               '("name" "status" "size"
+                                 "container_format"))
+      (let ((columns nil)
+            (longest "container_format")
+            (case-fold-search nil))
+        (goto-char (point-min))
+        (while (not (eobp))
+          (when (looking-at "\\([a-z_]+\\): +\\(\\S-\\)")
+            (goto-char (match-beginning 2))
+            (push (current-column) columns)
+            (beginning-of-line))
+          (forward-line 1))
+        (should (= (length columns) 4))
+        ;; One column: every entry matches the first.
+        (should (equal columns (make-list (length columns) (car columns))))
+        (should (= (car columns) (+ 2 (length longest))))))))
 
 (ert-deftest openstack-show-fetch-runs-resource-show ()
   "`openstack-show-fetch' runs `RESOURCE show ID' via the CLI layer."
@@ -609,7 +636,7 @@ The fetcher receives nil as the ID; without the
       (should (equal (get-text-property (match-beginning 0) 'openstack-id)
                      "vol-1"))
       ;; The `id' field line, too.
-      (re-search-forward "^id: \\(vol-1\\)$")
+      (re-search-forward "^id: +\\(vol-1\\)$")
       (should (equal (get-text-property (match-beginning 1) 'openstack-id)
                      "vol-1"))
       ;; Other fields do not carry it.

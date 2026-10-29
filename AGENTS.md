@@ -192,7 +192,12 @@ includes evil.
   show ID` via the async CLI layer) and `openstack-render-fields`
   (header + ordered field table, JSON for nested values).  Value
   formatting lives in `openstack--format-value`; do not duplicate
-  it per mode.  A mode whose Horizon page has trailing segments
+  it per mode.  The field renderer collects every row first and
+  pads each name after its colon to the longest name, so all
+  values start at one column (`openstack--insert-field' takes the
+  width); a mode that renders fields by hand must align them the
+  same way or the detail buffers disagree.  A mode whose Horizon
+  page has trailing segments
   sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
   go into `openstack-id-prefix`.  Both come from the macro call
   (`:id-prefix`, `:url-suffix`).

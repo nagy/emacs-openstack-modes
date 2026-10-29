@@ -999,14 +999,17 @@ back to their JSON encoding."
    ((eq value t) "true")
    (t (json-encode value))))
 
-(defun openstack--insert-field (field value &optional id)
+(defun openstack--insert-field (field value &optional id width)
   "Insert one FIELD of a resource with its VALUE into the buffer.
 When ID is non-nil, the value is propertized with `openstack-id'
 and `mouse-face', so `openstack-display-at-point' can open the
-resource from the ID field line.  A status value takes its face
-from `openstack-status-faces', and a value that differs from the
+resource from the ID field line.  WIDTH, when a number, gives the
+column at which values start, so the field name gets padded with
+spaces after its colon.  A status value takes its face from
+`openstack-status-faces', and a value that differs from the
 previous refresh takes `openstack-field-changed'."
   (let* ((text (openstack--format-value value))
+         (name-width (string-width field))
          (face (openstack--cell-face
                 field value (openstack--field-changed-p field value))))
     (when face
@@ -1016,7 +1019,12 @@ previous refresh takes `openstack-field-changed'."
                              'mouse-face 'highlight)))
     (insert (propertize field 'face 'openstack-field-name
                         'openstack-field field)
-            ": " text "\n")))
+            ":"
+            (make-string (if width
+                             (1+ (- width name-width))
+                           1)
+                         ?\s)
+            text "\n")))
 
 (defun openstack-render-fields (title id data fields)
   "Insert a field table titled TITLE into the current buffer.
@@ -1024,9 +1032,10 @@ ID identifies the resource in the header (nil in collection
 buffers); DATA is the parsed `RESOURCE show' JSON and FIELDS
 the list of fields shown first, in that order.  Fields missing
 from the data are skipped; every remaining field follows,
-sorted by name, and nested values render as JSON.  Derived
-resource modes call this from their
-`openstack-render-function' with their own field order."
+sorted by name, and nested values render as JSON.  Every value
+starts at one column, one space past the longest field name, so
+the table lines up.  Derived resource modes call this from
+their `openstack-render-function' with their own field order."
   (insert (format "%s: %s\n" title
                   (or (and (hash-table-p data) (gethash "name" data))
                       id)))
@@ -1036,20 +1045,30 @@ resource modes call this from their
                             'mouse-face 'highlight)
             "\n\n"))
   (when (hash-table-p data)
-    (let ((unshown (make-hash-table :test #'equal)))
+    (let ((unshown (make-hash-table :test #'equal))
+          (rows nil))
       (maphash (lambda (key _value) (puthash key t unshown)) data)
       (dolist (field fields)
         (remhash field unshown)
         (let ((value (gethash field data)))
           (when value
-            (openstack--insert-field field value
-                                     (and id (string= field "id") id)))))
+            (push (list field value
+                        (and id (string= field "id") id))
+                  rows))))
       (let ((remaining nil))
         (maphash (lambda (key _value) (push key remaining)) unshown)
         (dolist (field (sort remaining #'string<))
+          (push (list field (gethash field data)
+                      (and id (string= field "id") id))
+                rows)))
+      (setq rows (nreverse rows))
+      (let ((width (apply #'max 0
+                          (mapcar (lambda (row)
+                                    (string-width (nth 0 row)))
+                                  rows))))
+        (dolist (row rows)
           (openstack--insert-field
-           field (gethash field data)
-           (and id (string= field "id") id)))))))
+           (nth 0 row) (nth 1 row) (nth 2 row) width))))))
 
 ;;; Imenu
 

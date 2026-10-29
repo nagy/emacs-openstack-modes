@@ -340,7 +340,7 @@ FORMAT holds one `%s' for the type string."
         ;; Nested values come out as JSON.
         (dolist (entry (plist-get fixture :show-nested))
           (should (string-match-p
-                   (concat "^" (regexp-quote (car entry)) ": "
+                   (concat "^" (regexp-quote (car entry)) ": +"
                            (regexp-quote (cdr entry)))
                    text)))))))
 
