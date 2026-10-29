@@ -986,17 +986,36 @@ their own resource name as their `openstack-fetch-function'."
    :success-fn success-fn
    :error-fn error-fn))
 
-(defun openstack--format-value (value)
+(defvar-local openstack-value-formatters nil
+  "Alist of field name to formatter function for the show renderer.
+A formatter converts a field value to display text and wins over
+`openstack--format-value'.  Field names compare without case, so
+`size' covers both the show field and a list column of that name.
+A resource definition sets it through `:value-formatters'.")
+
+(defun openstack--format-size (value)
+  "Return byte count VALUE in human readable form.
+A non-numeric VALUE falls back to `openstack--format-value'."
+  (if (numberp value)
+      (file-size-human-readable value)
+    (openstack--format-value value)))
+
+(defun openstack--format-value (value &optional field)
   "Return the display text of one resource field VALUE.
-Strings and numbers are shown as they are (an empty string as
-a dash); booleans, lists, hash tables and anything else fall
-back to their JSON encoding."
-  (cond
-   ((null value) "-")
-   ((stringp value) (if (string-empty-p value) "-" value))
-   ((numberp value) (number-to-string value))
-   ((eq value t) "true")
-   (t (json-encode value))))
+FIELD, when non-nil, looks up a formatter in
+`openstack-value-formatters' first.  Strings and numbers are
+shown as they are (an empty string as a dash); booleans, lists,
+hash tables and anything else fall back to their JSON encoding."
+  (let ((formatter (and field
+                        (cdr (assoc (downcase field)
+                                    openstack-value-formatters)))))
+    (cond
+     (formatter (funcall formatter value))
+     ((null value) "-")
+     ((stringp value) (if (string-empty-p value) "-" value))
+     ((numberp value) (number-to-string value))
+     ((eq value t) "true")
+     (t (json-encode value)))))
 
 (defun openstack--insert-field (field value &optional id width)
   "Insert one FIELD of a resource with its VALUE into the buffer.
@@ -1007,7 +1026,7 @@ column at which values start, so the field name gets padded with
 spaces after its colon.  A status value takes its face from
 `openstack-status-faces', and a value that differs from the
 previous refresh takes `openstack-field-changed'."
-  (let* ((text (openstack--format-value value))
+  (let* ((text (openstack--format-value value field))
          (name-width (string-width field))
          (face (openstack--cell-face
                 field value (openstack--field-changed-p field value))))
@@ -1735,6 +1754,7 @@ PROPERTIES is a plist with these keys:
   :fields        fields rendered first by the show mode
   :list-fields   columns shown first by the list mode
   :list-arguments  extra client arguments of `RESOURCE list'
+  :value-formatters  alist of show field name to formatter function
 
 The macro records the definition in `openstack-resource-definitions'
 and adds its entry to `openstack-resource-types', so the ID prompts,
@@ -1753,6 +1773,8 @@ the Org links and the xref backend learn about the new type."
                                                         :list-fields))
          (list-arguments (openstack-define-resource--value properties
                                                           :list-arguments))
+         (value-formatters (openstack-define-resource--value
+                            properties :value-formatters))
          (title (capitalize type))
          (plural (capitalize noun))
          (base (format "openstack-%s" type))
@@ -1804,7 +1826,8 @@ DATA is the parsed `openstack %s show' JSON, rendered by
 `openstack-render-fields' with the field order of `%s'.  This is
 the value of `openstack-render-function' in `%s'."
                   type cli fields-var mode)
-         (openstack-render-fields ,title id data ,fields-var))
+         (let ((openstack-value-formatters ',value-formatters))
+           (openstack-render-fields ,title id data ,fields-var)))
 
        (defun ,display (id)
          ,(openstack-define-resource--doc "Display the OpenStack %s with ID in a dedicated buffer.

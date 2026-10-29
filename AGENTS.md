@@ -133,6 +133,10 @@ includes evil.
   them through the macro, and add a keyword when the macro lacks
   what a new resource needs.  A new resource that the client serves
   differently gets a new keyword, not a hand-written mode.
+  `:value-formatters` (an alist of show field name to formatter
+  function) changes the display text of one show field, as the
+  image `size` does through `openstack--format-size`; the list
+  mode ignores it, so a numeric column keeps its typed sort.
 - `openstack-define-resource` registers the type in
   `openstack-resource-definitions`, the registry, and appends its
   entry to `openstack-resource-types`, which the ID prompts, the
@@ -202,12 +206,10 @@ includes evil.
   image locations, which the client flattens into `properties')
   prints as an indented block of records, sorted by key, through
   `openstack--insert-records`, also when it appears as a
-  `properties` entry.  A mode whose
-  Horizon
-  page has trailing segments
-  sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
-  go into `openstack-id-prefix`.  Both come from the macro call
-  (`:id-prefix`, `:url-suffix`).
+  `properties` entry.  A mode whose Horizon page has trailing
+  segments sets `openstack-url-suffix` (e.g. "/detail"); the
+  leading ones go into `openstack-id-prefix`.  Both come from the
+  macro call (`:id-prefix`, `:url-suffix`).
 - Collection buffers (lists) have no resource ID:
   `openstack-list-mode` sets the buffer-local `openstack-collection`
   flag, so `openstack--refresh` runs and the fetcher receives nil as

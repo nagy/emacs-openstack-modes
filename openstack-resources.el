@@ -84,6 +84,7 @@
   :id-prefix "images"
   :fields '("name" "status" "visibility" "disk_format" "container_format"
             "size" "owner" "tags" "created_at" "updated_at")
+  :value-formatters '(("size" . openstack--format-size))
   :list-fields '("ID" "Name" "Status" "Disk Format" "Container Format"
                  "Size"))
 

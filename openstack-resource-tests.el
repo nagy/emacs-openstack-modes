@@ -100,6 +100,7 @@
        :show-missing ("updated_at")
        :show-nested (("tags" . "[\"latest\"]"))
        :show-unlisted ("zzz_extra")
+       :show-values (("size" . "224M"))
        :list-json
        ,(concat "[{\"ID\": \"img-1\", \"Name\": \"ubuntu-24.04\", "
                 "\"Status\": \"active\", "
@@ -354,6 +355,12 @@ FORMAT holds one `%s' for the type string."
                   (setq previous pos)))
               (should (> first-property last-body))
               (should-not (string-match-p "^properties: {" text)))))
+        ;; A field formatter rewrites the show value only.
+        (dolist (entry (plist-get fixture :show-values))
+          (should (string-match-p
+                   (concat "^" (regexp-quote (car entry)) ": +"
+                           (regexp-quote (cdr entry)) "$")
+                   text)))
         ;; Missing fields are skipped.
         (dolist (field (plist-get fixture :show-missing))
           (should-not (string-match-p

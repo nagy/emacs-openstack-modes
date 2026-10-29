@@ -488,7 +488,14 @@ sees the old mode's fetch and can kill its process; the cached view resets, so t
   (should (equal (openstack--format-value "ACTIVE") "ACTIVE"))
   (should (equal (openstack--format-value 2) "2"))
   (should (equal (openstack--format-value t) "true"))
-  (should (equal (openstack--format-value '(1 2)) "[1,2]")))
+  (should (equal (openstack--format-value '(1 2)) "[1,2]"))
+  ;; A formatter from `openstack-value-formatters' wins for its field,
+  ;; and field names compare without case.
+  (let ((openstack-value-formatters '(("size" . openstack--format-size))))
+    (should (equal (openstack--format-value 234881024 "size") "224M"))
+    (should (equal (openstack--format-value 0 "Size") "0"))
+    (should (equal (openstack--format-value 5 "other") "5"))
+    (should (equal (openstack--format-value nil "size") "-"))))
 
 (ert-deftest openstack-render-fields-orders-and-sorts ()
   "`openstack-render-fields' lists FIELDS first, the rest sorted.
