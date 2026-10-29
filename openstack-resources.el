@@ -86,6 +86,7 @@
             "size" "owner" "tags" "created_at" "updated_at")
   :value-formatters '(("size" . openstack--format-size)
                       ("virtual_size" . openstack--format-size))
+  :list-prefix-arguments '("--all")
   :list-fields '("ID" "Name" "Status" "Disk Format" "Container Format"
                  "Size"))
 

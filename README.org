@@ -265,6 +265,13 @@ and object counts).  The table logic lives in the base mode
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.
 
+=C-u M-x openstack-image-list-display= lists hidden images too,
+because the prefix argument appends =--all= to =image list= (after
+=openstack-image-list-arguments=).  The image list forgets it on
+the next call without a prefix.  No other resource maps the prefix
+argument: =server list= and =volume list= offer =--all-projects=
+(admin only), =network list= has no all switch.
+
 * JSON view
 
 =M-x openstack-json-view= (=J= in show and list buffers) opens a
@@ -305,6 +312,9 @@ The optional keys of the form:
 - =:url-suffix= -- trailing dashboard URL segments (e.g. =/detail=)
 - =:list-arguments= -- extra client arguments of =RESOURCE list=
   (e.g. =("--long")=)
+- =:list-prefix-arguments= -- extra client arguments of
+  =RESOURCE list= when the display command gets a prefix argument
+  (the image list uses =("--all")=)
 
 The macro records the definition in =openstack-resource-definitions=
 and adds the type to =openstack-resource-types=, so the ID prompts,

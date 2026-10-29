@@ -1319,6 +1319,9 @@ so a definition missing there stays invisible to them."
     (should (equal (plist-get definition :list-arguments) '("--long")))
     (should (equal (plist-get definition :list-fields)
                    '("Name" "Bytes" "Count"))))
+  (should (equal (plist-get (openstack-resource-definition "image")
+                            :list-prefix-arguments)
+                 '("--all")))
   (should (null (openstack-resource-definition "unknown"))))
 
 (provide 'openstack-mode-tests)

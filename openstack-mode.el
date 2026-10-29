@@ -1412,6 +1412,12 @@ column keeps a readable part of its value."
 
 ;;; Fetcher and columns
 
+(defvar-local openstack-list--prefix-arguments nil
+  "Extra client arguments that the last display command requested.
+`openstack-list-fetch' appends them after the resource's
+`:list-arguments'.  A display command sets them from its prefix
+argument; `gr' and the automatic refresh keep them.")
+
 (defun openstack-list-fetch (resource _id success-fn error-fn &optional args)
   "Fetch all resources of RESOURCE type for a collection buffer.
 RESOURCE is the client's resource command name, e.g. `server' or
@@ -1420,13 +1426,15 @@ RESOURCE is the client's resource command name, e.g. `server' or
 parsed JSON (a list of resource hash tables), or ERROR-FN with
 an `openstack-cli-error' condition.  ARGS appends extra client
 arguments to the command, for a resource whose list needs an
-option.  Return the client process,
+option.  The buffer-local `openstack-list--prefix-arguments'
+follow ARGS, so a display command can add the arguments of its
+prefix argument.  Return the client process,
 so the display machinery can cancel the fetch.  The ID argument
 is ignored: a collection buffer has no single resource ID.
 Collection modes wrap this with their own resource name as their
 `openstack-fetch-function'."
   (openstack-cli-async-request
-   (append (list resource "list") args)
+   (append (list resource "list") args openstack-list--prefix-arguments)
    :success-fn success-fn
    :error-fn error-fn))
 
@@ -1824,10 +1832,11 @@ line, because the header line holds the column labels.
   "Alist of resource type to the definition plist of that type.
 `openstack-define-resource' fills it when a resource file loads.
 Each plist holds :type, :cli, :noun, :id-prefix, :url-suffix,
-:fields, :list-fields, :list-arguments, :mode, :display, :list-mode
-and :list-display.  The registry is the single source of truth for
-the resource names: `openstack-resource-types' is its view for the
-ID prompts, the Org links and the xref backend.")
+:fields, :list-fields, :list-arguments, :list-prefix-arguments,
+:mode, :display, :list-mode and :list-display.  The registry is
+the single source of truth for the resource names:
+`openstack-resource-types' is its view for the ID prompts, the
+Org links and the xref backend.")
 
 (defun openstack-resource-definition (type)
   "Return the definition plist of resource TYPE, or nil."
@@ -1901,6 +1910,8 @@ PROPERTIES is a plist with these keys:
   :fields        fields rendered first by the show mode
   :list-fields   columns shown first by the list mode
   :list-arguments  extra client arguments of `RESOURCE list'
+  :list-prefix-arguments  extra client arguments of `RESOURCE list'
+                  when the display command gets a prefix argument
   :value-formatters  alist of show field name to formatter function
 
 The macro records the definition in `openstack-resource-definitions'
@@ -1920,6 +1931,8 @@ the Org links and the xref backend learn about the new type."
                                                         :list-fields))
          (list-arguments (openstack-define-resource--value properties
                                                           :list-arguments))
+         (list-prefix-arguments (openstack-define-resource--value
+                                 properties :list-prefix-arguments))
          (value-formatters (openstack-define-resource--value
                             properties :value-formatters))
          (title (capitalize type))
@@ -2060,18 +2073,24 @@ column.  This is the value of `openstack-render-function' in `%s'."
          (openstack-list-render ,(openstack-define-resource--doc "(no %s)" noun) data
                                 ,list-fields-var))
 
-       (defun ,list-display ()
+       (defun ,list-display (&optional arg)
          ,(openstack-define-resource--doc "Display all OpenStack %s in a dedicated table buffer.
 The buffer is named by `%s' and put into `%s', which fetches the
 %s with `openstack %s list' and renders them as a table.  The fetch
 is asynchronous: the buffer fills in when the client delivers
-data, and keeps itself up to date afterwards."
+data, and keeps itself up to date afterwards.
+
+With a prefix argument, append the `:list-prefix-arguments' of
+the definition to the client arguments.  A resource without them
+ignores the prefix argument."
                   noun list-buffer-name list-mode noun cli)
-         (interactive)
+         (interactive "P")
          (let ((buf (get-buffer-create ,list-buffer-name))
                (origin (current-buffer)))
            (with-current-buffer buf
              (,list-mode)
+             (setq-local openstack-list--prefix-arguments
+                         (and arg ',list-prefix-arguments))
              (setq-local openstack--origin-buffer origin)
              (openstack--refresh))
            (pop-to-buffer buf)))
@@ -2103,6 +2122,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :fields ',fields
               :list-fields ',list-fields
               :list-arguments ',list-arguments
+              :list-prefix-arguments ',list-prefix-arguments
               :mode ',mode
               :display ',display
               :list-mode ',list-mode

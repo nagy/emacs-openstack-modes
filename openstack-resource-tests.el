@@ -476,6 +476,32 @@ FORMAT holds one `%s' for the type string."
       (should (functionp success-seen))
       (should (functionp error-seen)))))
 
+(ert-deftest openstack-image-list-prefix-adds-all ()
+  "A prefix argument makes the image list ask the client for --all.
+The prefix arguments follow the `openstack-image-list-arguments'
+defcustom, and a call without a prefix drops them again."
+  (let ((args-seen nil)
+        (openstack-image-list-arguments '("--long"))
+        (buf nil))
+    (cl-letf (((symbol-function 'openstack-cli-async-request)
+               (cl-function (lambda (args &key success-fn error-fn)
+                              (ignore success-fn error-fn)
+                              (setq args-seen args)
+                              :process-handle))))
+      (unwind-protect
+          (progn
+            (openstack-image-list-display '(4))
+            (setq buf (get-buffer openstack-image-list-buffer-name))
+            (should (equal args-seen
+                           '("image" "list" "--long" "--all")))
+            (with-current-buffer buf
+              (should (equal openstack-list--prefix-arguments '("--all"))))
+            (openstack-image-list-display)
+            (should (equal args-seen '("image" "list" "--long")))
+            (with-current-buffer buf
+              (should-not openstack-list--prefix-arguments)))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
+
 (openstack-resource-test--def-type-tests list-columns-ordered
   (let ((columns (openstack-resource-test--name
                   type "openstack-%s-list--columns")))

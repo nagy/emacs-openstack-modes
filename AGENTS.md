@@ -236,6 +236,11 @@ includes evil.
   `:list-arguments` of the definition, so a collection whose list
   needs a client option stays a thin wrapper
   (`openstack-container-list-arguments` defaults to `--long`).
+  The buffer-local `openstack-list--prefix-arguments` follows ARGS;
+  the generated list display command sets it from its prefix
+  argument through `:list-prefix-arguments` of the definition
+  (only the image definition sets `--all`).  Do not add a second
+  prefix level: the display commands take one universal argument.
 - A resource with no UUID takes its name as the ID.
   `openstack-read--row-id` and `openstack-list--row-id` fall back to
   the `Name` field of a list row, and a row without either field
