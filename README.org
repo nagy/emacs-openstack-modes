@@ -265,6 +265,20 @@ and object counts).  The table logic lives in the base mode
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.
 
+* JSON view
+
+=M-x openstack-json-view= (=J= in show and list buffers) opens a
+read-only buffer with the parsed JSON of the last fetch, pretty
+printed.  The data comes from the same fetch that drew the
+display buffer, so the command makes no new CLI call.  A resource
+buffer shows its hash table, a list buffer its array of rows.
+
+The command shares the buffer: a second call switches to the
+buffer it made before, and a refresh of the display buffer
+redraws it in place.  =gr= in the JSON buffer redraws it from the
+source buffer.  The buffer name is the display buffer name with a
+=JSON= suffix, for example =*OpenStack Server* <id> JSON=.
+
 * Resource types
 
 The file =openstack-resources.el= holds every resource type, one form

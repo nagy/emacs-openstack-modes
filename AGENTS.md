@@ -327,6 +327,16 @@ includes evil.
   Errors keep the last good content and go to
   `openstack-error-display-function` (header line for show modes,
   mode line for list modes).
+- The JSON view is a read-only second buffer over the last fetch:
+  `openstack-json-view` (=J= in both mode maps) pretty prints
+  `openstack--last-data` through `openstack-json-mode`, which
+  derives from `js-json-mode`.  It shares the buffer: the source
+  buffer keeps it in `openstack--json-buffer` and the JSON buffer
+  keeps the source in `openstack-json--source`, so a second call
+  switches instead of recreating, and `openstack--refresh-done`
+  calls `openstack-json--redraw` after a render.  The name is the
+  source name plus " JSON", so it needs no registry.  Do not fetch
+  again from the JSON buffer; `gr` renders the cached data.
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode
   cancels any in-flight fetch via `openstack--kill-pending`);

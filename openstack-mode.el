@@ -114,6 +114,8 @@
 (require 'bookmark)
 (require 'autorevert)
 (require 'cl-lib)
+(require 'js)
+(require 'json)
 (require 'tabulated-list)
 (require 'thingatpt)
 (require 'openstack-cli)
@@ -461,6 +463,7 @@ mode switch back to a single-resource view must clear it.")
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "c") #'openstack-copy-id)
     (define-key map (kbd "w") #'openstack-open-web)
+    (define-key map (kbd "J") #'openstack-json-view)
     (define-key map (kbd "p") #'openstack-pop)
     (define-key map (kbd "RET") #'openstack-display-at-point)
     (define-key map [mouse-2] #'openstack-mouse-display-at-point)
@@ -846,6 +849,103 @@ when the fetcher returns a process object, it is remembered so
                 nil))))
         (setq openstack--pending (and (not settled) (or handle t))))))))
 
+;;; JSON view
+
+(defvar-local openstack--json-buffer nil
+  "JSON view buffer linked to this display buffer.
+`openstack-json-view' sets it, and `openstack--refresh-done'
+redraws the linked buffer after a fetch.")
+
+(defvar-local openstack-json--source nil
+  "OpenStack display buffer whose last fetch this JSON buffer shows.")
+
+(defvar openstack-json-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") #'quit-window)
+    map)
+  "Keymap for `openstack-json-mode'.")
+
+(defun openstack-json--buffer-name (source)
+  "Return the JSON view buffer name for SOURCE."
+  (format "%s JSON" (buffer-name source)))
+
+(defun openstack-json--render (data &optional collection)
+  "Replace the current buffer with DATA as pretty printed JSON.
+COLLECTION marks DATA that a collection fetch returned, whose
+empty nil result prints as an empty JSON array."
+  (let ((inhibit-read-only t))
+    (erase-buffer)
+    (if (and collection (null data))
+        (insert "[]")
+      (when data
+        (insert (json-encode data))
+        (json-pretty-print-buffer)))
+    (goto-char (point-min))))
+
+(defun openstack-json--redraw (source)
+  "Redraw the JSON view linked to SOURCE from its last fetch."
+  (when-let* ((json (buffer-local-value 'openstack--json-buffer source)))
+    (when (buffer-live-p json)
+      (with-current-buffer json
+        (when (eq openstack-json--source source)
+          (openstack-json--render
+           (buffer-local-value 'openstack--last-data source)
+           (buffer-local-value 'openstack-collection source)))))))
+
+(defun openstack-json--revert (&rest _args)
+  "Redraw the current JSON buffer from its OpenStack display buffer."
+  (when (buffer-live-p openstack-json--source)
+    (openstack-json--render
+     (buffer-local-value 'openstack--last-data openstack-json--source)
+     (buffer-local-value 'openstack-collection openstack-json--source))))
+
+(define-derived-mode openstack-json-mode js-json-mode "OpenStack JSON"
+  "Major mode for the JSON view of an OpenStack buffer.
+The buffer shows the last fetch result of the OpenStack display
+buffer in `openstack-json--source' as pretty printed JSON.  It
+is read-only; `openstack-json-view' creates it, and a refresh of
+the display buffer redraws it.
+
+\\{openstack-json-mode-map}"
+  :group 'openstack
+  (setq-local revert-buffer-function #'openstack-json--revert)
+  (setq buffer-read-only t))
+
+;;;###autoload
+(defun openstack-json-view ()
+  "Show the JSON data behind the current OpenStack buffer.
+The new buffer holds the pretty printed JSON of the last fetch of
+this buffer, whether it displays a resource or a collection.
+The command reuses the buffer it created before: a second call
+switches to that buffer instead of making another one, and a
+refresh of this buffer redraws it."
+  (interactive)
+  (unless (derived-mode-p 'openstack-mode 'openstack-list-mode)
+    (user-error "Not an OpenStack buffer"))
+  (unless openstack--rendered
+    (user-error "No OpenStack data to show yet"))
+  (let* ((source (current-buffer))
+         (name (openstack-json--buffer-name source))
+         (buffer (get-buffer name)))
+    (if (and (buffer-live-p buffer)
+             (with-current-buffer buffer
+               (eq major-mode 'openstack-json-mode)))
+        (with-current-buffer buffer
+          (unless (eq openstack-json--source source)
+            (setq-local openstack-json--source source)
+            (openstack-json--render
+             (buffer-local-value 'openstack--last-data source)
+             (buffer-local-value 'openstack-collection source))))
+      (setq buffer (get-buffer-create (generate-new-buffer-name name)))
+      (with-current-buffer buffer
+        (openstack-json-mode)
+        (setq-local openstack-json--source source)
+        (openstack-json--render
+         (buffer-local-value 'openstack--last-data source)
+         (buffer-local-value 'openstack-collection source))))
+    (setq-local openstack--json-buffer buffer)
+    (pop-to-buffer buffer)))
+
 (defun openstack--refresh-done (buf marker id data err)
   "Complete the fetch of BUF marked MARKER for ID with DATA or ERR.
 Called by the callbacks of `openstack--refresh'.  ERR is the error
@@ -886,7 +986,8 @@ was superseded while it ran."
                 (goto-char (min point (point-max)))
                 (when (window-live-p window)
                   (set-window-start window (min start (point-max))))))
-            (openstack--notify-state-changes data openstack--previous-data)))
+            (openstack--notify-state-changes data openstack--previous-data)
+            (openstack-json--redraw buf)))
         (when openstack--refresh-requested
           (setq openstack--refresh-requested nil)
           (openstack--refresh))))))
@@ -1675,6 +1776,7 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   "RET" #'openstack-display-at-point
   "<mouse-2>" #'openstack-mouse-display-at-point
   "c" #'openstack-list-copy-id
+  "J" #'openstack-json-view
   "w" #'openstack-list-open-web)
 
 ;;;###autoload

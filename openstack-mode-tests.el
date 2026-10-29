@@ -51,6 +51,7 @@ an explicit `require'."
     (dolist (entry '("openstack-display" "openstack-copy-id"
                      "openstack-open-web" "openstack-pop"
                      "openstack-set-id" "openstack-mode"
+                     "openstack-json-view"
                      "openstack-display-at-point"
                      "openstack-mouse-display-at-point"))
       (should (string-match-p
@@ -762,7 +763,78 @@ The fetcher receives nil as the ID; without the
   (should (eq (lookup-key openstack-mode-map (kbd "RET"))
               #'openstack-display-at-point))
   (should (eq (lookup-key openstack-mode-map [mouse-2])
-              #'openstack-mouse-display-at-point)))
+              #'openstack-mouse-display-at-point))
+  (should (eq (lookup-key openstack-mode-map (kbd "J"))
+              #'openstack-json-view)))
+
+;;; JSON view
+
+(defmacro openstack-test--with-json-source (data &rest body)
+  "Run BODY with an OpenStack buffer holding DATA and a JSON view.
+Binds `source' to the display buffer and `json' to the buffer
+that `openstack-json-view' opened.  Kill both buffers afterwards."
+  (declare (indent 1) (debug (form body)))
+  `(let ((source (generate-new-buffer " *openstack-json-source*"))
+         (json nil))
+     (unwind-protect
+         (progn
+           (with-current-buffer source
+             (openstack-mode)
+             (setq-local openstack--id "srv-1")
+             (setq-local openstack--rendered t)
+             (setq-local openstack--last-data ,data)
+             (openstack-json-view))
+           (setq json (buffer-local-value 'openstack--json-buffer source))
+           (with-current-buffer json
+             ,@body))
+       (when (buffer-live-p source) (kill-buffer source))
+       (when (buffer-live-p json) (kill-buffer json)))))
+
+(ert-deftest openstack-json-view-renders-last-data ()
+  "The JSON buffer holds the pretty printed last fetch result."
+  (openstack-test--with-json-source
+      (openstack-test--parse "{\"id\": \"srv-1\", \"name\": \"web-1\"}")
+    (should (derived-mode-p 'openstack-json-mode))
+    (should (equal (buffer-name json) " *openstack-json-source* JSON"))
+    (should buffer-read-only)
+    (should (string-match-p "\"name\": \"web-1\"" (buffer-string)))
+    (should (string-match-p "^{\n" (buffer-string)))))
+
+(ert-deftest openstack-json-view-reuses-its-buffer ()
+  "A second call switches to the same JSON buffer."
+  (openstack-test--with-json-source
+      (openstack-test--parse "{\"id\": \"srv-1\"}")
+    (let ((first json))
+      (with-current-buffer source
+        (openstack-json-view))
+      (should (eq (buffer-local-value 'openstack--json-buffer source) first))
+      (should (eq (get-buffer (buffer-name first)) first)))))
+
+(ert-deftest openstack-json-view-follows-a-refresh ()
+  "A refresh of the display buffer redraws the JSON buffer."
+  (openstack-test--with-json-source
+      (openstack-test--parse "{\"id\": \"srv-1\", \"status\": \"BUILD\"}")
+    (should (string-match-p "BUILD" (with-current-buffer json
+                                      (buffer-string))))
+    (with-current-buffer source
+      (setq-local openstack--fetch-marker (list nil))
+      (setq-local openstack-render-function
+                  (lambda (id data)
+                    (openstack-render-fields "Server" id data '("status"))))
+      (let ((inhibit-read-only t))
+        (openstack--refresh-done
+         source openstack--fetch-marker "srv-1"
+         (openstack-test--parse
+          "{\"id\": \"srv-1\", \"status\": \"ACTIVE\"}")
+         nil)))
+    (with-current-buffer json
+      (should (string-match-p "ACTIVE" (buffer-string)))
+      (should-not (string-match-p "BUILD" (buffer-string))))))
+
+(ert-deftest openstack-json-view-rejects-other-buffers ()
+  "The command needs an OpenStack display buffer."
+  (with-temp-buffer
+    (should-error (openstack-json-view) :type 'user-error)))
 
 
 ;;; Things at point

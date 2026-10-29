@@ -56,10 +56,11 @@ The columns come from `openstack-list-test--fields'."
     (should (null tabulated-list-sort-key))))
 
 (ert-deftest openstack-list-mode-keymap ()
-  "RET, `mouse-2', `c' and `w' act on the row, and sorting keeps S."
+  "RET, `mouse-2', `c', `J' and `w' act on the row, and sorting keeps S."
   (dolist (binding (list (cons (kbd "RET") #'openstack-display-at-point)
                          (cons [mouse-2] #'openstack-mouse-display-at-point)
                          (cons (kbd "c") #'openstack-list-copy-id)
+                         (cons (kbd "J") #'openstack-json-view)
                          (cons (kbd "w") #'openstack-list-open-web)))
     (should (eq (lookup-key openstack-list-mode-map (car binding))
                 (cdr binding))))
