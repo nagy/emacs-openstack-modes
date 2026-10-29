@@ -543,6 +543,80 @@ field names differ in length."
         (should (equal columns (make-list (length columns) (car columns))))
         (should (= (car columns) (+ 2 (length longest))))))))
 
+(ert-deftest openstack-render-fields-expands-properties ()
+  "A hash-table `properties' value becomes the final, indented block.
+Keys sort by name and their values line up past the longest key,
+instead of one JSON dump."
+  (let ((data (json-parse-string
+               (concat "{\"name\": \"ubuntu-24.04\", "
+                       "\"status\": \"active\", \"zzz_last\": \"late\", "
+                       "\"properties\": {\"os_hash_value\": \"8cb9b\", "
+                       "\"os_hidden\": \"false\", "
+                       "\"os_hash_algo\": \"sha512\"}}")
+               :object-type 'hash-table :array-type 'list)))
+    (with-temp-buffer
+      (openstack-render-fields "Image" nil data '("name" "status"))
+      (let ((text (buffer-string))
+            (plain (buffer-substring-no-properties
+                    (point-min) (point-max))))
+        (should (string-match-p "^properties:$" text))
+        (should (string-match-p "^  os_hash_algo:  sha512$" text))
+        (should (string-match-p "^  os_hash_value: 8cb9b$" text))
+        (should (string-match-p "^  os_hidden:     false$" text))
+        ;; The block closes the table, after the sorted leftovers.
+        (should (< (string-match "^zzz_last:" text)
+                   (string-match "^properties:$" text)))
+        ;; Keys keep name order, and no JSON braces survive.
+        (should (< (string-match "^  os_hash_algo:" text)
+                   (string-match "^  os_hash_value:" text)
+                   (string-match "^  os_hidden:" text)))
+        (should-not (string-match-p "\"os_hash_algo\"" plain))))))
+
+(ert-deftest openstack-render-fields-expands-locations ()
+  "A `locations' list of hash tables expands to an indented block.
+Every record marks its first line with a dash; keys sort by name
+and the values align past the longest key."
+  (let ((data (json-parse-string
+               (concat "{\"name\": \"ubuntu-24.04\", "
+                       "\"status\": \"active\", "
+                       "\"locations\": ["
+                       "{\"url\": \"rbd://80ec/image\", "
+                       "\"metadata\": {\"store\": \"rbd\"}}, "
+                       "{\"url\": \"swift://images/ubuntu\"}]}")
+               :object-type 'hash-table :array-type 'list)))
+    (with-temp-buffer
+      (openstack-render-fields "Image" nil data '("name" "status"))
+      (let ((text (buffer-string))
+            (plain (buffer-substring-no-properties
+                    (point-min) (point-max))))
+        (should (string-match-p "^locations:$" text))
+        (should (string-match-p "^  - metadata: {\"store\":\"rbd\"}$" text))
+        (should (string-match-p "^    url:      rbd://80ec/image$" text))
+        (should (string-match-p "^  - url:      swift://images/ubuntu$" text))
+        (should-not (string-match-p "\"url\"" plain))))))
+
+(ert-deftest openstack-render-fields-expands-nested-locations ()
+  "The Glance `locations' attribute inside `properties' expands too.
+The client flattens that attribute into the properties hash, so
+the renderer must not leave it as one JSON line."
+  (let ((data (json-parse-string
+               (concat "{\"name\": \"ubuntu-24.04\", "
+                       "\"properties\": {\"os_hash_algo\": \"sha512\", "
+                       "\"locations\": [{\"url\": \"rbd://80ec/image\", "
+                       "\"metadata\": {\"store\": \"rbd\"}}]}}")
+               :object-type 'hash-table :array-type 'list)))
+    (with-temp-buffer
+      (openstack-render-fields "Image" nil data '("name"))
+      (let ((text (buffer-string)))
+        (should (string-match-p "^properties:$" text))
+        (should (string-match-p "^  locations:$" text))
+        (should (string-match-p
+                 "^    - metadata: {\"store\":\"rbd\"}$" text))
+        (should (string-match-p
+                 "^      url:      rbd://80ec/image$" text))
+        (should (string-match-p "^  os_hash_algo: sha512$" text))
+        (should-not (string-match-p "\\[{\"url\"" text))))))
+
 (ert-deftest openstack-show-fetch-runs-resource-show ()
   "`openstack-show-fetch' runs `RESOURCE show ID' via the CLI layer."
   (let ((args-seen nil)

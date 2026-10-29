@@ -194,7 +194,16 @@ includes evil.
   pads each name after its colon to the longest name, so all
   values start at one column (`openstack--insert-field' takes the
   width); a mode that renders fields by hand must align them the
-  same way or the detail buffers disagree.  A mode whose Horizon
+  same way or the detail buffers disagree.  A hash-table
+  `properties` value (Glance image properties, Swift container
+  properties) prints last as an indented `key: value` block,
+  sorted by key, through `openstack--insert-properties`; do not
+  JSON-encode it.  A `locations` list of hash tables (the Glance
+  image locations, which the client flattens into `properties')
+  prints as an indented block of records, sorted by key, through
+  `openstack--insert-records`, also when it appears as a
+  `properties` entry.  A mode whose
+  Horizon
   page has trailing segments
   sets `openstack-url-suffix` (e.g. "/detail"); the leading ones
   go into `openstack-id-prefix`.  Both come from the macro call

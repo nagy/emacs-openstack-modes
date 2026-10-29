@@ -160,6 +160,14 @@ like the server mode, for block storage volumes and disk images:
 - =M-x openstack-image-display= -- display an image by ID
   (=openstack image show=; dashboard prefix =images=)
 
+A =properties= hash table -- the Glance image properties or the
+Swift container properties -- prints as an indented block that
+closes the table, one =key: value= line per property, sorted by
+key, instead of one JSON dump.  The same holds for the Glance
+=locations= list: the client flattens that attribute into
+=properties=, so the block nests there and prints each location
+as an indented record with its keys on their own lines.
+
 Each has its own =openstack-volume-buffer-name= /
 =openstack-image-buffer-name= and =-fields= defcustoms.
 

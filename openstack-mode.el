@@ -1025,6 +1025,59 @@ previous refresh takes `openstack-field-changed'."
                          ?\s)
             text "\n")))
 
+(defun openstack--insert-properties (properties)
+  "Insert PROPERTIES, a hash table of resource metadata, as a block.
+The block starts with a `properties' line and closes the field
+table.  Every key follows on its own indented line, sorted by
+name, with its value aligned one column past the longest key.
+The client flattens the Glance `locations' attribute into this
+hash table, so a list of record values prints as a nested block."
+  (insert (propertize "properties" 'face 'openstack-field-name
+                      'openstack-field "properties")
+          ":\n")
+  (let ((keys nil))
+    (maphash (lambda (key _value) (push key keys)) properties)
+    (setq keys (sort keys #'string<))
+    (let ((width (apply #'max 0 (mapcar #'string-width keys))))
+      (dolist (key keys)
+        (let ((value (gethash key properties)))
+          (if (openstack--record-list-p value)
+              (openstack--insert-records key value 2)
+            (insert "  ")
+            (openstack--insert-field key value nil width)))))))
+
+(defun openstack--record-list-p (value)
+  "Return non-nil when VALUE is a non-empty list of hash tables."
+  (and (listp value) value (seq-every-p #'hash-table-p value)))
+
+(defun openstack--insert-records (field records &optional indent)
+  "Insert FIELD, a list of RECORDS, as an indented block.
+INDENT, the number of leading spaces, defaults to 0.  Every key of
+every record follows on its own line, sorted by name, with a `- '
+marker before the first key of each record and the values aligned
+past the longest key."
+  (setq indent (or indent 0))
+  (insert (make-string indent ?\s)
+          (propertize field 'face 'openstack-field-name
+                      'openstack-field field)
+          ":\n")
+  (let ((keys nil))
+    (dolist (record records)
+      (maphash (lambda (key _value) (cl-pushnew key keys :test #'equal))
+               record))
+    (setq keys (sort keys #'string<))
+    (let ((width (apply #'max 0 (mapcar #'string-width keys))))
+      (dolist (record records)
+        (let ((first t))
+          (dolist (key keys)
+            (let ((value (gethash key record)))
+              (when value
+                (insert (make-string (if first (+ indent 2) (+ indent 4))
+                                     ?\s))
+                (when first (insert "- "))
+                (openstack--insert-field key value nil width)
+                (setq first nil)))))))))
+
 (defun openstack-render-fields (title id data fields)
   "Insert a field table titled TITLE into the current buffer.
 ID identifies the resource in the header (nil in collection
@@ -1033,8 +1086,11 @@ the list of fields shown first, in that order.  Fields missing
 from the data are skipped; every remaining field follows,
 sorted by name, and nested values render as JSON.  Every value
 starts at one column, one space past the longest field name, so
-the table lines up.  Derived resource modes call this from
-their `openstack-render-function' with their own field order."
+the table lines up.  A hash-table `properties' value is the
+last entry and prints as an indented `key: value' block; a
+`locations' list of hash tables prints as an indented block of
+records.  Derived resource modes call this from their
+`openstack-render-function' with their own field order."
   (insert (format "%s: %s\n" title
                   (or (and (hash-table-p data) (gethash "name" data))
                       id)))
@@ -1045,29 +1101,51 @@ their `openstack-render-function' with their own field order."
             "\n\n"))
   (when (hash-table-p data)
     (let ((unshown (make-hash-table :test #'equal))
+          (properties nil)
           (rows nil))
       (maphash (lambda (key _value) (puthash key t unshown)) data)
       (dolist (field fields)
         (remhash field unshown)
         (let ((value (gethash field data)))
           (when value
-            (push (list field value
-                        (and id (string= field "id") id))
-                  rows))))
+            (cond
+             ((and (hash-table-p value)
+                   (string-equal field "properties"))
+              (setq properties value))
+             ((and (string-equal field "locations")
+                   (openstack--record-list-p value))
+              (push (list field value 'records) rows))
+             (t
+              (push (list field value
+                          (and id (string= field "id") id))
+                    rows))))))
       (let ((remaining nil))
         (maphash (lambda (key _value) (push key remaining)) unshown)
         (dolist (field (sort remaining #'string<))
-          (push (list field (gethash field data)
-                      (and id (string= field "id") id))
-                rows)))
+          (let ((value (gethash field data)))
+            (cond
+             ((and (hash-table-p value)
+                   (string-equal field "properties"))
+              (setq properties value))
+             ((and (string-equal field "locations")
+                   (openstack--record-list-p value))
+              (push (list field value 'records) rows))
+             (t
+              (push (list field value
+                          (and id (string= field "id") id))
+                    rows))))))
       (setq rows (nreverse rows))
       (let ((width (apply #'max 0
                           (mapcar (lambda (row)
                                     (string-width (nth 0 row)))
                                   rows))))
         (dolist (row rows)
-          (openstack--insert-field
-           (nth 0 row) (nth 1 row) (nth 2 row) width))))))
+          (if (eq (nth 2 row) 'records)
+              (openstack--insert-records (nth 0 row) (nth 1 row))
+            (openstack--insert-field
+             (nth 0 row) (nth 1 row) (nth 2 row) width))))
+      (when properties
+        (openstack--insert-properties properties)))))
 
 ;;; Imenu
 

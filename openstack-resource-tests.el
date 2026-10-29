@@ -155,8 +155,8 @@
                 "\"zzz_extra\": \"late\", "
                 "\"properties\": {\"owner\": \"ops\"}}")
        :show-missing ("sync_to" "sync_key")
-       :show-nested (("properties" . "{\"owner\":\"ops\"}"))
        :show-unlisted ("zzz_extra")
+       :show-properties (("owner" . "ops"))
        :list-json
        ,(concat "[{\"Name\": \"logs\", \"Bytes\": 4096, "
                 "\"Count\": 2}, "
@@ -332,7 +332,28 @@ FORMAT holds one `%s' for the type string."
               (should pos)
               (should (> pos last-listed))
               (push pos unlisted)))
-          (should (equal unlisted (sort unlisted #'<))))
+          (should (equal unlisted (sort unlisted #'<)))
+          ;; A hash-table `properties' value closes the table as an
+          ;; indented, sorted block instead of a JSON dump.
+          (when-let* ((properties (plist-get fixture :show-properties)))
+            (let ((first-property nil)
+                  (previous nil)
+                  (last-body (apply #'max
+                                    (append (mapcar #'cdr positions)
+                                            unlisted))))
+              (should (string-match-p "^properties:$" text))
+              (dolist (entry properties)
+                (let ((pos (string-match
+                            (concat "^  " (regexp-quote (car entry)) ": +"
+                                    (regexp-quote (cdr entry)) "$")
+                            text)))
+                  (should pos)
+                  (if previous
+                      (should (> pos previous))
+                    (setq first-property pos))
+                  (setq previous pos)))
+              (should (> first-property last-body))
+              (should-not (string-match-p "^properties: {" text)))))
         ;; Missing fields are skipped.
         (dolist (field (plist-get fixture :show-missing))
           (should-not (string-match-p
