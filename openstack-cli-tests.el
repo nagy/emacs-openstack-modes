@@ -47,10 +47,7 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
   `(cl-letf (((symbol-function 'openstack-cli--run)
               (lambda (args)
                 (openstack-cli-test--mock-run args ,status ,stdout))))
-     ;; Keep the token cache out of these tests: they exercise the
-     ;; request mechanics, not authentication.
-     (let ((openstack-cli-use-token nil))
-       ,@body)))
+     ,@body))
 
 (defun openstack-cli-test--wait-until (pred)
   "Wait until PREDFN returns non-nil, at most 5 seconds.
@@ -59,25 +56,6 @@ processes can finish."
   (let ((deadline (+ (float-time) 5)))
     (while (and (not (funcall pred)) (< (float-time) deadline))
       (accept-process-output nil 0.05))))
-
-(defconst openstack-cli-test--token-script
-  "case \"$1\" in\n    token) echo '{\"id\": \"tok-1\", \"expires\": \"2099-01-01T00:00:00+0000\"}' ;;\n    *) printf '{\"token\": \"%s\"}\\n' \"${OS_TOKEN:-none}\" ;;\nesac\n"
-  "Fake client script for the token cache tests.
-Answers `token issue' with a far-future token and every other
-command with the OS_TOKEN it received, so tests can see which
-token (if any) reached the client.")
-
-(defun openstack-cli-test--clean-auth-env (&rest extra)
-  "Return `process-environment' without OpenStack auth variables.
-EXTRA entries are prepended, so a test can set the auth type it
-wants without inheriting the auth type of the test runner."
-  (append extra
-          (cl-remove-if
-           (lambda (entry)
-             (string-match-p
-              "\\`OS_\\(?:AUTH_TYPE\\|APPLICATION_CREDENTIAL_[A-Z_]*\\|TOKEN\\)="
-              entry))
-           process-environment)))
 
 ;;; Tests
 
@@ -209,10 +187,7 @@ ERROR-FN are passed through.
 
 The fake process honors the real :buffer argument, so tests can
 assert that the sentinel kills the process buffers."
-  (let ((proc-buffer (generate-new-buffer "openstack-cli-"))
-        ;; Keep the token cache out of these tests: they exercise the
-        ;; request mechanics, not authentication.
-        (openstack-cli-use-token nil))
+  (let ((proc-buffer (generate-new-buffer "openstack-cli-")))
     (unwind-protect
         (cl-letf (((symbol-function 'make-process)
                    (lambda (&rest plist)
@@ -329,219 +304,6 @@ clobber each other's stderr, and no buffer survives the run."
                                 (buffer-list))))
       (when (get-buffer openstack-cli-buffer-name)
         (kill-buffer openstack-cli-buffer-name)))))
-
-(ert-deftest openstack-cli-async-token-prefetch-and-reuse ()
-  "Requests warm the token cache and later pass the token as OS_TOKEN.
-The first request authenticates on its own while the cache fills
-in the background; the next one rides on the cached token."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (openstack-cli-test--with-fixture-program
-       openstack-cli-test--token-script
-       (lambda (program)
-         (let ((openstack-program program)
-               (openstack-cli-use-token t)
-               (first nil)
-               (second nil))
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq first (gethash "token" r)))
-            :error-fn (lambda (e) (setq first e)))
-           (openstack-cli-test--wait-until (lambda () first))
-           (should (stringp first))
-           ;; The background `token issue' lands asynchronously.
-           (openstack-cli-test--wait-until
-            (lambda () (openstack-cli--cached-token)))
-           (should (equal (openstack-cli--cached-token) "tok-1"))
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq second (gethash "token" r)))
-            :error-fn (lambda (e) (setq second e)))
-           (openstack-cli-test--wait-until (lambda () second))
-           (should (equal second "tok-1")))))
-    (openstack-cli-token-invalidate)))
-
-(ert-deftest openstack-cli-async-token-retry-on-auth-error ()
-  "An authentication failure drops the token and retries once.
-A client that rejects the cached token (expired, revoked, or
-unsupported environment) must not leave the caller with a failed
-request."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (openstack-cli-test--with-fixture-program
-       (concat
-        "if [ \"$1\" = token ]; then\n"
-        "    echo '{\"id\": \"tok-1\", \"expires\": \"2099-01-01T00:00:00+0000\"}'\n"
-        "elif [ -n \"$OS_TOKEN\" ]; then\n"
-        "    echo 'HTTP 401 Unauthorized' >&2\n"
-        "    exit 1\n"
-        "else\n"
-        "    echo '{\"token\": \"none\"}'\n"
-        "fi\n")
-       (lambda (program)
-         (let ((openstack-program program)
-               (openstack-cli-use-token t)
-               (result nil))
-           ;; Warm and verify the cache first.
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn #'ignore :error-fn #'ignore)
-           (openstack-cli-test--wait-until
-            (lambda () (openstack-cli--cached-token)))
-           ;; This call fails once with the token and succeeds on the
-           ;; retry without it.
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq result (gethash "token" r)))
-            :error-fn (lambda (e) (setq result e)))
-           (openstack-cli-test--wait-until (lambda () result))
-           (should (equal result "none"))
-           (should-not (openstack-cli--cached-token)))))
-    (openstack-cli-token-invalidate)))
-
-(ert-deftest openstack-cli-token-store-parses-expiry ()
-  "The token cache remembers the id and parsed expiry of `token issue'.
-An unparseable expiry drops the token instead of caching it: it
-would count as permanently stale and churn `token issue' calls
-without ever serving one."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (progn
-        (let ((result (make-hash-table :test #'equal)))
-          (puthash "id" "tok-2" result)
-          (puthash "expires" "2099-01-01T00:00:00+0000" result)
-          (openstack-cli--token-store result)
-          (should (equal (openstack-cli--cached-token) "tok-2")))
-        (openstack-cli-token-invalidate)
-        (should-not (openstack-cli--cached-token))
-        ;; Unparseable expiry: the token is dropped, not cached.
-        (let ((result (make-hash-table :test #'equal)))
-          (puthash "id" "tok-3" result)
-          (puthash "expires" "not-a-date" result)
-          (openstack-cli--token-store result)
-          (should-not (openstack-cli--cached-token)))
-        ;; Garbage output must not error.
-        (openstack-cli-token-invalidate)
-        (openstack-cli--token-store nil)
-        (should-not (openstack-cli--cached-token)))
-    (openstack-cli-token-invalidate)))
-
-(ert-deftest openstack-cli-use-token-nil-disables-cache ()
-  "With `openstack-cli-use-token' nil no token is fetched or used.
-The client then authenticates on every call, exactly as before
-the token cache existed."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (openstack-cli-test--with-fixture-program
-       openstack-cli-test--token-script
-       (lambda (program)
-         (let ((openstack-program program)
-               (openstack-cli-use-token nil)
-               (result nil))
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq result (gethash "token" r)))
-            :error-fn (lambda (e) (setq result e)))
-           (openstack-cli-test--wait-until (lambda () result))
-           (should (equal result "none"))
-           (should-not (openstack-cli--cached-token)))))
-    (openstack-cli-token-invalidate)))
-
-(ert-deftest openstack-cli-application-credential-auth-p-detection ()
-  "Application credential auth comes from the environment.
-`OS_AUTH_TYPE' wins when set; otherwise an application credential
-variable implies the type."
-  (dolist (type '("v3applicationcredential" "v3ApplicationCredential"))
-    (let ((process-environment
-           (openstack-cli-test--clean-auth-env
-            (concat "OS_AUTH_TYPE=" type))))
-      (should (openstack-cli--application-credential-auth-p))))
-  (let ((process-environment
-         (openstack-cli-test--clean-auth-env "OS_AUTH_TYPE=v3password")))
-    (should-not (openstack-cli--application-credential-auth-p)))
-  (dolist (variable '("OS_APPLICATION_CREDENTIAL_ID"
-                      "OS_APPLICATION_CREDENTIAL_NAME"
-                      "OS_APPLICATION_CREDENTIAL_SECRET"))
-    (let ((process-environment
-           (openstack-cli-test--clean-auth-env
-            (concat variable "=cred"))))
-      (should (openstack-cli--application-credential-auth-p))))
-  (let ((process-environment
-         (openstack-cli-test--clean-auth-env
-          "OS_APPLICATION_CREDENTIAL_ID=")))
-    (should-not (openstack-cli--application-credential-auth-p))))
-
-(ert-deftest openstack-cli-token-skipped-for-application-credentials ()
-  "No OS_TOKEN goes out under application credential auth.
-The client rejects a token argument for that auth type, so the
-cache must neither inject one nor fetch a fresh one.  Password
-auth keeps the token."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (openstack-cli-test--with-fixture-program
-       openstack-cli-test--token-script
-       (lambda (program)
-         ;; Seed the cache with a usable token.
-         (let ((stored (make-hash-table :test #'equal)))
-           (puthash "id" "tok-1" stored)
-           (puthash "expires" "2099-01-01T00:00:00+0000" stored)
-           (openstack-cli--token-store stored))
-         (let ((openstack-program program)
-               (openstack-cli-use-token t)
-               (process-environment
-                (openstack-cli-test--clean-auth-env
-                 "OS_AUTH_TYPE=v3applicationcredential"))
-               (result nil))
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq result (gethash "token" r)))
-            :error-fn (lambda (e) (setq result e)))
-           (openstack-cli-test--wait-until (lambda () result))
-           (should (equal result "none"))
-           (should (equal (gethash "token"
-                                   (openstack-cli-request '("server" "list")))
-                          "none")))
-         ;; Password auth still receives the cached token.
-         (let ((openstack-program program)
-               (openstack-cli-use-token t)
-               (process-environment
-                (openstack-cli-test--clean-auth-env
-                 "OS_AUTH_TYPE=v3password"))
-               (result nil))
-           (openstack-cli-async-request
-            '("server" "list")
-            :success-fn (lambda (r) (setq result (gethash "token" r)))
-            :error-fn (lambda (e) (setq result e)))
-           (openstack-cli-test--wait-until (lambda () result))
-           (should (equal result "tok-1")))))
-    (openstack-cli-token-invalidate)))
-
-(ert-deftest openstack-cli-request-token-retry-on-auth-error ()
-  "A sync call that fails on a stale cached token retries once without it.
-The sync path must self-heal exactly like the async one."
-  (openstack-cli-token-invalidate)
-  (unwind-protect
-      (openstack-cli-test--with-fixture-program
-       (concat
-        "if [ -n \"$OS_TOKEN\" ]; then\n"
-        "    echo 'HTTP 401 Unauthorized' >&2\n"
-        "    exit 1\n"
-        "else\n"
-        "    echo '{\"token\": \"none\"}'\n"
-        "fi\n")
-       (lambda (program)
-         (let ((openstack-program program)
-               (openstack-cli-use-token t))
-           ;; Seed the cache with a token the fixture rejects.
-           (let ((result (make-hash-table :test #'equal)))
-             (puthash "id" "tok-1" result)
-             (puthash "expires" "2099-01-01T00:00:00+0000" result)
-             (openstack-cli--token-store result))
-           (should (equal (gethash "token"
-                                   (openstack-cli-request '("server" "list")))
-                          "none"))
-           (should-not (openstack-cli--cached-token)))))
-    (openstack-cli-token-invalidate)))
 
 (ert-deftest openstack-cli-autoloads ()
   "Both request entry points carry an autoload cookie."

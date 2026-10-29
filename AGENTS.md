@@ -89,13 +89,11 @@ includes evil.
   `openstack-cli-error`), `openstack-cli-async-request` for
   asynchronous ones (mirrors the `jsonrpc` library's sync/async
   split).  Derived modes never call `openstack-program` directly.
-  Calls pass a token warmed by async calls into the cache
-  (`openstack-cli-use-token`) via `OS_TOKEN`; an authentication
-  failure retries once without the token.  The token is skipped
-  and not prefetched when the environment names application
-  credential auth, because that client auth plugin rejects a
-  `token' argument with a TypeError (see
-  `openstack-cli--application-credential-auth-p').
+  Each call authenticates on its own.  Do not inject OS_TOKEN
+  into the client: `clouds.yaml` may select application
+  credential auth, whose plugin takes no token argument and
+  fails with a TypeError.  A token cache belongs to the native
+  API layer, where one POST authenticates the whole session.
 - `openstack-cli` appends `--format json` automatically; commands
   that produce no output (e.g. `delete`) parse to nil.  Non-zero
   exit or unparseable output signals `openstack-cli-error` (sync) or
@@ -410,8 +408,10 @@ includes evil.
 
 - Native read path (`openstack-api.el`).  The request layer and its
   offline tests exist; the CLI still serves every fetch.  Next:
-  v3 token auth with catalog lookup, a `openstack-read-backend`
-  defcustom (`cli` default), show and list fetchers over the API,
+  v3 token auth with catalog lookup (the session keeps the token
+  in Emacs, so it needs no CLI token cache), a
+  `openstack-read-backend` defcustom (`cli` default), show and
+  list fetchers over the API,
   a parity test that compares buffer text against the CLI fixtures,
   a per-host queue, and the request-object cancellation contract
   in `openstack--kill-pending` once parity passes.

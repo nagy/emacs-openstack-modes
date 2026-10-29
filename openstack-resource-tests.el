@@ -363,7 +363,6 @@ FORMAT holds one `%s' for the type string."
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-use-token nil)
              (openstack-cli-timeout 5))
          (unwind-protect
              (progn
@@ -390,7 +389,6 @@ FORMAT holds one `%s' for the type string."
      "printf '%s' 'not json'\n"
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-use-token nil)
              (openstack-cli-timeout 5))
          (unwind-protect
              (progn
@@ -494,7 +492,6 @@ FORMAT holds one `%s' for the type string."
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-use-token nil)
              (openstack-cli-timeout 5))
          (unwind-protect
              (progn
@@ -525,7 +522,6 @@ FORMAT holds one `%s' for the type string."
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-use-token nil)
              (openstack-cli-timeout 5)
              (expected (format "%s <%s>" (symbol-value show-buffer)
                                first-id)))

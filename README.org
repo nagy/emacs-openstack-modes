@@ -446,8 +446,10 @@ client.  Display buffers refresh themselves through
 =auto-revert-mode=, one fetch per =openstack-refresh-interval=
 seconds (see =openstack-auto-revert=); =revert-buffer= (=g=)
 forces a refresh.  Unchanged data is not re-rendered, so point
-and marks survive a refresh.  Authentication tokens are cached
-and reused across calls (see =openstack-cli-use-token=).
+and marks survive a refresh.  The client authenticates on every
+call; a token cache belongs to the native API layer, because an
+`openstack' run validates its token against the identity server
+anyway.
 
 * Demo
 

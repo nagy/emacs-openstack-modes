@@ -55,12 +55,6 @@
 ;;    :success-fn (lambda (result) ...)
 ;;    :error-fn (lambda (err) ...))
 ;;
-;; Authentication tokens are cached: asynchronous requests warm
-;; the cache in the background with `token issue' and pass the
-;; cached token to later calls via the OS_TOKEN environment
-;; variable, sparing each call a trip through the identity server
-;; (see `openstack-cli-use-token').
-;;
 ;; Errors: a non-zero exit or an unparseable response signals a
 ;; `openstack-cli-error' condition (sync) or calls ERROR-FN (async)
 ;; with the same condition.  Authentication failures and missing
@@ -118,46 +112,10 @@ requests cannot clobber each other's stderr."
   :type 'string
   :group 'openstack-cli)
 
-(defcustom openstack-cli-use-token t
-  "Whether OpenStack client calls pass a cached authentication token.
-When non-nil, `openstack-cli-async-request' warms a token cache in
-the background with `token issue' and passes the cached token to
-later calls via the OS_TOKEN environment variable, sparing each
-call a trip through the identity server.  A call that fails with
-an authentication error drops the token and retries once without
-it.  See `openstack-cli-token-invalidate'.
-
-The cache holds a single token: sessions that talk to several
-clouds or projects must set this to nil, or invalidate between
-them.
-
-The token is skipped when the client authenticates with an
-application credential, because that auth plugin takes no token
-argument and the client fails with a TypeError otherwise.  See
-`openstack-cli--application-credential-auth-p'."
-  :type 'boolean
-  :group 'openstack-cli)
-
-(defcustom openstack-cli-token-margin 60
-  "Seconds before expiry at which a cached token counts as stale.
-Fetching a replacement early avoids handing out a token that
-expires mid-request."
-  :type 'number
-  :group 'openstack-cli)
-
 ;;; Internal state
 
 (defvar openstack-cli--process-number 0
   "Counter for naming asynchronous OpenStack CLI processes.")
-
-(defvar openstack-cli--token nil
-  "Cached authentication token string, or nil when none is cached.")
-
-(defvar openstack-cli--token-expires nil
-  "Expiry time of `openstack-cli--token' as a `float-time' value.")
-
-(defvar openstack-cli--token-inflight nil
-  "Non-nil while a background token fetch runs.")
 
 ;;; Conditions
 
@@ -252,111 +210,6 @@ stderr buffers, so repeated calls never see earlier output."
       (kill-buffer stdout-buffer)
       (kill-buffer stderr-buffer))))
 
-;;; Token cache
-
-(defun openstack-cli-token-invalidate ()
-  "Drop the cached authentication token.
-The next asynchronous request fetches a fresh token in the
-background; until it arrives, calls run without a token."
-  (setq openstack-cli--token nil
-        openstack-cli--token-expires nil))
-
-(defun openstack-cli--cached-token ()
-  "Return the cached authentication token, or nil when unusable.
-The token counts as unusable when none is cached or when it
-expires within `openstack-cli-token-margin' seconds."
-  (when (and openstack-cli--token openstack-cli--token-expires
-             (> openstack-cli--token-expires
-                (+ (float-time) openstack-cli-token-margin)))
-    openstack-cli--token))
-
-(defun openstack-cli--application-credential-auth-p ()
-  "Return non-nil when the client authenticates by application credential.
-The client builds its auth plugin from the environment.  The
-application credential plugin takes no argument named \=`token',
-so a client that also receives OS_TOKEN raises a TypeError instead
-of authenticating.  `OS_AUTH_TYPE' names the auth type; when it
-is unset, an application credential variable shows the type."
-  (let ((auth-type (getenv "OS_AUTH_TYPE")))
-    (if (and auth-type (not (string-empty-p auth-type)))
-        (and (string-match-p "applicationcredential"
-                             (downcase auth-type))
-             t)
-      (seq-some (lambda (name)
-                  (let ((value (getenv name)))
-                    (and value (not (string-empty-p value)))))
-                '("OS_APPLICATION_CREDENTIAL_ID"
-                  "OS_APPLICATION_CREDENTIAL_NAME"
-                  "OS_APPLICATION_CREDENTIAL_SECRET")))))
-
-(defun openstack-cli--token-use-p ()
-  "Return non-nil when the client can take a cached token."
-  (and openstack-cli-use-token
-       (not (openstack-cli--application-credential-auth-p))))
-
-(defun openstack-cli--injectable-token ()
-  "Return the cached token to pass to the client, or nil.
-The token goes out only when `openstack-cli--token-use-p' allows
-it and the cache holds a usable token."
-  (and (openstack-cli--token-use-p)
-       (openstack-cli--cached-token)))
-
-(defun openstack-cli--token-env (token)
-  "Return `process-environment' for a client call using TOKEN.
-TOKEN, when a string, is prepended as OS_TOKEN so the client can
-skip authentication; nil returns the environment unchanged."
-  (if token
-      (cons (concat "OS_TOKEN=" token) process-environment)
-    process-environment))
-
-(defun openstack-cli--token-store (result)
-  "Cache the token from RESULT, the parsed output of `token issue'.
-RESULT is a hash table with the \=`id' and \=`expires' entries of
-the client output.  A token whose expiry cannot be parsed is
-dropped instead of cached: it would count as permanently stale
-and churn `token issue' calls without ever serving one."
-  (when (hash-table-p result)
-    (let* ((token (gethash "id" result))
-           (expires-at
-            (condition-case nil
-                (float-time (date-to-time (gethash "expires" result)))
-              (error nil))))
-      (when (and (stringp token) expires-at)
-        (setq openstack-cli--token token
-              openstack-cli--token-expires expires-at)))))
-
-(defun openstack-cli--token-prefetch ()
-  "Fetch a fresh token into the cache in the background.
-Skipped when token use is disabled, when the client cannot take
-the token, when a usable token is cached, or when another token
-fetch already runs."
-  (unless (or (not (openstack-cli--token-use-p))
-              openstack-cli--token-inflight
-              (openstack-cli--cached-token))
-    (setq openstack-cli--token-inflight t)
-    (openstack-cli--async-start
-     '("token" "issue")
-     (lambda (result)
-       (setq openstack-cli--token-inflight nil)
-       (openstack-cli--token-store result))
-     (lambda (_err)
-       (setq openstack-cli--token-inflight nil))
-     nil)))
-
-(defun openstack-cli--auth-error-p (err)
-  "Return non-nil when ERR reports an authentication failure.
-ERR is an `openstack-cli-error' condition.  Only the client's
-message (the `:stderr' text) can be inspected, so match the usual
-authentication failure wording.  403 is deliberately not
-matched: quota and ACL denials report it too, and a token retry
-would only mask their message."
-  (let ((stderr (plist-get (cdr err) :stderr)))
-    (and (stringp stderr)
-         (string-match-p
-          (concat "\\(?:401\\|[Uu]nauthorized\\|"
-                  "[Ii]nvalid token\\|[Ee]xpired\\|[Aa]uthenticat\\)")
-          stderr))))
-
 ;;; Synchronous API
 
 ;;;###autoload
@@ -368,34 +221,18 @@ ARGS is a list of command line arguments, e.g.
 The client is run with `--format json', so the output is parsed
 with `json-parse-buffer' and returned as a hash table or vector.
 
-A cached authentication token (see `openstack-cli-use-token') is
-passed to the client when one is available; the cache is warmed
-by asynchronous calls only.  A call that fails with an
-authentication error drops the token and retries once without it.
-
 If the client exits non-zero, or the output cannot be parsed,
 signal an `openstack-cli-error' condition.  The condition data
 is a plist with keys `:exit-code' (if any), `:stderr' (the
 client's error text, if any) and `:args'."
   (openstack-cli--check-args args)
-  (let ((token (openstack-cli--injectable-token)))
-    (condition-case err
-        (openstack-cli--sync-start args token)
-      (openstack-cli-error
-       (if (and token (openstack-cli--auth-error-p err))
-           (progn
-             (openstack-cli-token-invalidate)
-             (openstack-cli--sync-start args nil))
-         (signal (car err) (cdr err)))))))
+  (openstack-cli--sync-start args))
 
-(defun openstack-cli--sync-start (args token)
+(defun openstack-cli--sync-start (args)
   "Run the OpenStack client with ARGS synchronously, return parsed JSON.
-TOKEN, when a string, is passed to the client as OS_TOKEN so it
-can skip authentication.  Signal `openstack-cli-error' on a
-non-zero exit or unparseable output, as described in
-`openstack-cli-request'."
-  (let* ((process-environment (openstack-cli--token-env token))
-         (result (openstack-cli--run args)))
+Signal `openstack-cli-error' on a non-zero exit or unparseable
+output, as described in `openstack-cli-request'."
+  (let* ((result (openstack-cli--run args)))
     (if (zerop (car result))
         (let ((output (cdr result)))
           (if (or (null output) (string-empty-p (string-trim output)))
@@ -429,12 +266,6 @@ table or vector).  On failure, call ERROR-FN with an
 `openstack-cli-error' condition.  Both callbacks are required and
 must be functions.
 
-A cached authentication token (see `openstack-cli-use-token') is
-passed to the client when one is available, and the cache is
-warmed in the background when it is not.  A call that fails with
-an authentication error drops the token and retries once without
-it.
-
 If the process cannot be started at all, or a callback is missing,
 signal `user-error'.
 Otherwise this function returns the client process immediately;
@@ -442,26 +273,14 @@ the process runs in the background and the appropriate callback is
 invoked when it finishes."
   (openstack-cli--check-args args)
   (openstack-cli--check-callbacks success-fn error-fn)
-  (let ((token (openstack-cli--injectable-token)))
-    (openstack-cli--token-prefetch)
-    (openstack-cli--async-start
-     args success-fn
-     (lambda (err)
-       (if (and token (openstack-cli--auth-error-p err))
-           (progn
-             (openstack-cli-token-invalidate)
-             (openstack-cli--async-start args success-fn error-fn nil))
-         (funcall error-fn err)))
-     token)))
+  (openstack-cli--async-start args success-fn error-fn))
 
-(defun openstack-cli--async-start (args success-fn error-fn token)
+(defun openstack-cli--async-start (args success-fn error-fn)
   "Run the OpenStack client with ARGS in one background process.
 Call SUCCESS-FN with the parsed JSON output, or ERROR-FN with an
-`openstack-cli-error' condition, when the process exits.  TOKEN,
-when a string, is passed to the client as OS_TOKEN so it can skip
-authentication.  Return the client process."
-  (let* ((process-environment (openstack-cli--token-env token))
-         (cmd (openstack-cli--command args))
+`openstack-cli-error' condition, when the process exits.  Return
+the client process."
+  (let* ((cmd (openstack-cli--command args))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
          ;; Each request gets its own stderr buffer, killed by the

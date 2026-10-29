@@ -90,8 +90,7 @@
 ;;
 ;; Talking to OpenStack goes through the `openstack-cli' library
 ;; (see openstack-cli.el), which wraps `openstack-program' with
-;; synchronous and asynchronous request functions and caches
-;; authentication tokens across calls.
+;; synchronous and asynchronous request functions.
 ;;
 ;; The file also holds the two layers that every resource type uses:
 ;;
