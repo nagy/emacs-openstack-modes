@@ -57,7 +57,10 @@
             evil = emacsPackages.evil;
           in
           emacsPackages.melpaBuild {
-            pname = "openstack-mode";
+            # The package name matches its entry library, openstack.el, so
+            # `(use-package openstack :ensure t)' resolves the archive
+            # package.  The modes themselves keep their `openstack-' prefix.
+            pname = "openstack";
             # Nix convention for unreleased packages: <version>-unstable-<date>,
             # the date of the last commit touching the source.  This package
             # has no release yet, so the version stays at 0.  Slice the flake
@@ -219,6 +222,8 @@
           };
           # One package for the whole repo: `nix build' installs the base
           # mode together with every derived mode.
+          packages.openstack = package;
+          # Former name of the package; kept so existing consumers build.
           packages.openstack-mode = package;
           packages.default = package;
 

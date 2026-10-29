@@ -13,6 +13,7 @@ name as the ID.
 
 | File | Purpose |
 |---|---|
+| `openstack.el` | Entry library and package namesake: requires `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
 | `openstack-mode.el` | Core: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, the type registry (`openstack-resource-definitions`, `openstack-resource-types`) |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
@@ -150,8 +151,9 @@ includes evil.
   `openstack-mode-tests.el` asserts the autoloaded require instead,
   and its registry tests check that every definition, its generated
   symbols and its table entry agree.
-- The repo ships one Emacs package:
-  `packages.openstack-mode` (aliased as `packages.default`) builds
+- The repo ships one Emacs package: `packages.openstack`
+  (`packages.default` points at the same derivation, and
+  `packages.openstack-mode` stays as the former name) builds
   the whole tree with one `melpaBuild`, because `package-build`
   packages every `*.el` file in the source and no mode carries its
   own version.  Do not add a `melpaBuild` per mode.  The check phase
@@ -160,6 +162,29 @@ includes evil.
   then leaves them out of the package, and the lint gate skips
   them.  Flakes copy only git-tracked files, so `git add` new files
   before `nix build`.
+- The package name matches its entry library: `pname = "openstack"`
+  in the flake, `openstack.el` in the source.  `use-package SYMBOL`
+  expands to `(require SYMBOL)`, and `:ensure t` looks up the
+  package named by SYMBOL, so the two names must agree.  Users
+  therefore configure the whole package through
+  `(use-package openstack :config ...)` and reach every defcustom
+  in the `openstack` group.  Do not point users at an internal
+  library such as `openstack-resources` as the entry point, and do
+  not require `openstack.el` from another package file (that
+  creates a load cycle through `openstack-resources`).
+- The entry library loads the display path only: `openstack-mode`,
+  `openstack-read` and `openstack-resources`.  The optional layers
+  keep their own libraries (`openstack-xref`, `openstack-url`,
+  `ol-openstack`, `openstack-evil`), because they change global
+  state (xref hooks, `browse-url` handlers) or add a dependency
+  (evil).  `openstack-mode` stays a valid feature, so requiring it
+  loads the base mode without the resource types.
+  `openstack-mode.el` keeps its
+  `;;;###autoload (require 'openstack-resources)` form, so the
+  generated autoloads fill the registry at startup even for a user
+  who never requires the entry library.
+  `openstack-mode-tests.el` checks the entry library through
+  `openstack-entry-library`.
 - Byte-compilation runs with warnings as errors.  When file A calls
   a function defined in file B without requiring B, declare it:
   `(declare-function openstack-server-display "openstack-server" (id))`.

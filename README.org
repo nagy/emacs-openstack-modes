@@ -12,6 +12,7 @@ resource-specific modes can depend on it.
 
 | File                         | Purpose                                                |
 |------------------------------+--------------------------------------------------------|
+| =openstack.el=               | Entry library: loads the base mode, the cache and the resource types |
 | =openstack-mode.el=            | Core: base mode, collection base mode, resource macro  |
 | =openstack-resources.el=       | The five resource types, one macro call each           |
 | =openstack-evil.el=            | Optional evil bindings for show and list buffers       |
@@ -35,9 +36,26 @@ resource-specific modes can depend on it.
 
 * Usage
 
+The package installs as =openstack=, the same name as its entry
+library.  Requiring it loads the base mode, the ID cache and the
+resource types:
+
 #+begin_src elisp
-(require 'openstack-mode)
+(require 'openstack)
 #+end_src
+
+With =use-package=:
+
+#+begin_src elisp
+(use-package openstack
+  :config
+  (setq openstack-refresh-interval 30))
+#+end_src
+
+=openstack-mode= stays a valid feature.  Requiring it loads only the
+base mode and the CLI layer, without the resource types.  The
+optional layers keep their own libraries: =openstack-xref=,
+=openstack-url=, =ol-openstack= and =openstack-evil=.
 
 Commands:
 

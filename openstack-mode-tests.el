@@ -71,6 +71,27 @@ source; one autoloaded require loads the definitions instead."
              "^;;;###autoload (require 'openstack-resources)$"
              source))))
 
+(ert-deftest openstack-entry-library ()
+  "The entry library provides the feature `openstack'.
+`use-package openstack' and its `:ensure' form need that feature,
+and the package name matches it, so the archive lookup succeeds."
+  (let ((source (with-temp-buffer
+                  (insert-file-contents
+                   (expand-file-name "openstack.el"))
+                  (buffer-string))))
+    (should (string-match-p "^;;; openstack\\.el --- " source))
+    (should (string-match-p
+             "^;; Package-Requires: ((emacs \"30\\.1\"))$" source))
+    (dolist (library '("openstack-mode" "openstack-read"
+                       "openstack-resources"))
+      (should (string-match-p
+               (format "^(require '%s)$" (regexp-quote library))
+               source)))
+    (should (string-match-p "^(provide 'openstack)$" source)))
+  (require 'openstack)
+  (should (featurep 'openstack))
+  (should (assoc "server" openstack-resource-definitions)))
+
 (ert-deftest openstack-mode-basic ()
   "Buffer gets the mode with a read-only, dedicated buffer."
   (let ((buf (openstack-test--make-resource-buffer)))
