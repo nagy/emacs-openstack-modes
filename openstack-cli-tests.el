@@ -67,6 +67,18 @@ Answers `token issue' with a far-future token and every other
 command with the OS_TOKEN it received, so tests can see which
 token (if any) reached the client.")
 
+(defun openstack-cli-test--clean-auth-env (&rest extra)
+  "Return `process-environment' without OpenStack auth variables.
+EXTRA entries are prepended, so a test can set the auth type it
+wants without inheriting the auth type of the test runner."
+  (append extra
+          (cl-remove-if
+           (lambda (entry)
+             (string-match-p
+              "\\`OS_\\(?:AUTH_TYPE\\|APPLICATION_CREDENTIAL_[A-Z_]*\\|TOKEN\\)="
+              entry))
+           process-environment)))
+
 ;;; Tests
 
 (ert-deftest openstack-cli-request-json-object ()
@@ -433,6 +445,75 @@ the token cache existed."
            (openstack-cli-test--wait-until (lambda () result))
            (should (equal result "none"))
            (should-not (openstack-cli--cached-token)))))
+    (openstack-cli-token-invalidate)))
+
+(ert-deftest openstack-cli-application-credential-auth-p-detection ()
+  "Application credential auth comes from the environment.
+`OS_AUTH_TYPE' wins when set; otherwise an application credential
+variable implies the type."
+  (dolist (type '("v3applicationcredential" "v3ApplicationCredential"))
+    (let ((process-environment
+           (openstack-cli-test--clean-auth-env
+            (concat "OS_AUTH_TYPE=" type))))
+      (should (openstack-cli--application-credential-auth-p))))
+  (let ((process-environment
+         (openstack-cli-test--clean-auth-env "OS_AUTH_TYPE=v3password")))
+    (should-not (openstack-cli--application-credential-auth-p)))
+  (dolist (variable '("OS_APPLICATION_CREDENTIAL_ID"
+                      "OS_APPLICATION_CREDENTIAL_NAME"
+                      "OS_APPLICATION_CREDENTIAL_SECRET"))
+    (let ((process-environment
+           (openstack-cli-test--clean-auth-env
+            (concat variable "=cred"))))
+      (should (openstack-cli--application-credential-auth-p))))
+  (let ((process-environment
+         (openstack-cli-test--clean-auth-env
+          "OS_APPLICATION_CREDENTIAL_ID=")))
+    (should-not (openstack-cli--application-credential-auth-p))))
+
+(ert-deftest openstack-cli-token-skipped-for-application-credentials ()
+  "No OS_TOKEN goes out under application credential auth.
+The client rejects a token argument for that auth type, so the
+cache must neither inject one nor fetch a fresh one.  Password
+auth keeps the token."
+  (openstack-cli-token-invalidate)
+  (unwind-protect
+      (openstack-cli-test--with-fixture-program
+       openstack-cli-test--token-script
+       (lambda (program)
+         ;; Seed the cache with a usable token.
+         (let ((stored (make-hash-table :test #'equal)))
+           (puthash "id" "tok-1" stored)
+           (puthash "expires" "2099-01-01T00:00:00+0000" stored)
+           (openstack-cli--token-store stored))
+         (let ((openstack-program program)
+               (openstack-cli-use-token t)
+               (process-environment
+                (openstack-cli-test--clean-auth-env
+                 "OS_AUTH_TYPE=v3applicationcredential"))
+               (result nil))
+           (openstack-cli-async-request
+            '("server" "list")
+            :success-fn (lambda (r) (setq result (gethash "token" r)))
+            :error-fn (lambda (e) (setq result e)))
+           (openstack-cli-test--wait-until (lambda () result))
+           (should (equal result "none"))
+           (should (equal (gethash "token"
+                                   (openstack-cli-request '("server" "list")))
+                          "none")))
+         ;; Password auth still receives the cached token.
+         (let ((openstack-program program)
+               (openstack-cli-use-token t)
+               (process-environment
+                (openstack-cli-test--clean-auth-env
+                 "OS_AUTH_TYPE=v3password"))
+               (result nil))
+           (openstack-cli-async-request
+            '("server" "list")
+            :success-fn (lambda (r) (setq result (gethash "token" r)))
+            :error-fn (lambda (e) (setq result e)))
+           (openstack-cli-test--wait-until (lambda () result))
+           (should (equal result "tok-1")))))
     (openstack-cli-token-invalidate)))
 
 (ert-deftest openstack-cli-request-token-retry-on-auth-error ()

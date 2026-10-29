@@ -129,7 +129,12 @@ it.  See `openstack-cli-token-invalidate'.
 
 The cache holds a single token: sessions that talk to several
 clouds or projects must set this to nil, or invalidate between
-them."
+them.
+
+The token is skipped when the client authenticates with an
+application credential, because that auth plugin takes no token
+argument and the client fails with a TypeError otherwise.  See
+`openstack-cli--application-credential-auth-p'."
   :type 'boolean
   :group 'openstack-cli)
 
@@ -265,6 +270,37 @@ expires within `openstack-cli-token-margin' seconds."
                 (+ (float-time) openstack-cli-token-margin)))
     openstack-cli--token))
 
+(defun openstack-cli--application-credential-auth-p ()
+  "Return non-nil when the client authenticates by application credential.
+The client builds its auth plugin from the environment.  The
+application credential plugin takes no argument named \=`token',
+so a client that also receives OS_TOKEN raises a TypeError instead
+of authenticating.  `OS_AUTH_TYPE' names the auth type; when it
+is unset, an application credential variable shows the type."
+  (let ((auth-type (getenv "OS_AUTH_TYPE")))
+    (if (and auth-type (not (string-empty-p auth-type)))
+        (and (string-match-p "applicationcredential"
+                             (downcase auth-type))
+             t)
+      (seq-some (lambda (name)
+                  (let ((value (getenv name)))
+                    (and value (not (string-empty-p value)))))
+                '("OS_APPLICATION_CREDENTIAL_ID"
+                  "OS_APPLICATION_CREDENTIAL_NAME"
+                  "OS_APPLICATION_CREDENTIAL_SECRET")))))
+
+(defun openstack-cli--token-use-p ()
+  "Return non-nil when the client can take a cached token."
+  (and openstack-cli-use-token
+       (not (openstack-cli--application-credential-auth-p))))
+
+(defun openstack-cli--injectable-token ()
+  "Return the cached token to pass to the client, or nil.
+The token goes out only when `openstack-cli--token-use-p' allows
+it and the cache holds a usable token."
+  (and (openstack-cli--token-use-p)
+       (openstack-cli--cached-token)))
+
 (defun openstack-cli--token-env (token)
   "Return `process-environment' for a client call using TOKEN.
 TOKEN, when a string, is prepended as OS_TOKEN so the client can
@@ -291,9 +327,10 @@ and churn `token issue' calls without ever serving one."
 
 (defun openstack-cli--token-prefetch ()
   "Fetch a fresh token into the cache in the background.
-Skipped when token use is disabled, when a usable token is cached,
-or when another token fetch already runs."
-  (unless (or (not openstack-cli-use-token)
+Skipped when token use is disabled, when the client cannot take
+the token, when a usable token is cached, or when another token
+fetch already runs."
+  (unless (or (not (openstack-cli--token-use-p))
               openstack-cli--token-inflight
               (openstack-cli--cached-token))
     (setq openstack-cli--token-inflight t)
@@ -341,7 +378,7 @@ signal an `openstack-cli-error' condition.  The condition data
 is a plist with keys `:exit-code' (if any), `:stderr' (the
 client's error text, if any) and `:args'."
   (openstack-cli--check-args args)
-  (let ((token (and openstack-cli-use-token (openstack-cli--cached-token))))
+  (let ((token (openstack-cli--injectable-token)))
     (condition-case err
         (openstack-cli--sync-start args token)
       (openstack-cli-error
@@ -405,7 +442,7 @@ the process runs in the background and the appropriate callback is
 invoked when it finishes."
   (openstack-cli--check-args args)
   (openstack-cli--check-callbacks success-fn error-fn)
-  (let ((token (and openstack-cli-use-token (openstack-cli--cached-token))))
+  (let ((token (openstack-cli--injectable-token)))
     (openstack-cli--token-prefetch)
     (openstack-cli--async-start
      args success-fn

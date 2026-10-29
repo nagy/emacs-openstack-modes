@@ -52,6 +52,7 @@
 (require 'openstack-mode)
 (require 'openstack-read)
 
+;;;###autoload
 (defconst openstack-url-regexp "\\`openstack:"
   "Regexp that matches an `openstack:' URL.")
 

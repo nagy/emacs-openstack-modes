@@ -91,7 +91,11 @@ includes evil.
   split).  Derived modes never call `openstack-program` directly.
   Calls pass a token warmed by async calls into the cache
   (`openstack-cli-use-token`) via `OS_TOKEN`; an authentication
-  failure retries once without the token.
+  failure retries once without the token.  The token is skipped
+  and not prefetched when the environment names application
+  credential auth, because that client auth plugin rejects a
+  `token' argument with a TypeError (see
+  `openstack-cli--application-credential-auth-p').
 - `openstack-cli` appends `--format json` automatically; commands
   that produce no output (e.g. `delete`) parse to nil.  Non-zero
   exit or unparseable output signals `openstack-cli-error` (sync) or
@@ -318,7 +322,10 @@ includes evil.
 - Interactive entry points carry `;;;###autoload` cookies;
   `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
   exist.  Add new commands to those tests when adding them to the
-  files.
+  files.  A defconst or defvar that an autoloaded form reads needs
+  its own `;;;###autoload` cookie: the generated autoload file holds
+  the copied form only, so the variable otherwise stays void when
+  the autoloads load (`openstack-url-regexp`).
 - The evil layer is optional and lives in `openstack-evil.el`:
   the file requires evil 1.14 or later, but `Package-Requires`
   does not name it, so users without evil install nothing.

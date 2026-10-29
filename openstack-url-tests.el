@@ -25,6 +25,17 @@
   "Loading the library registers the scheme with `browse-url'."
   (should (assoc openstack-url-regexp browse-url-default-handlers)))
 
+(ert-deftest openstack-url-regexp-autoloaded ()
+  "The regexp reaches the autoload file together with the handler.
+Without a cookie on the defconst, the copied registration form
+would reference a void variable when the autoloads load."
+  (let ((source (with-temp-buffer
+                  (insert-file-contents
+                   (expand-file-name "openstack-url.el"))
+                  (buffer-string))))
+    (should (string-match-p
+             "^;;;###autoload\n(defconst openstack-url-regexp\\b" source))))
+
 (ert-deftest openstack-url-split-type-and-id ()
   "A URL of the TYPE/ID form yields both parts."
   (should (equal (openstack-url-split "server/srv-1")
