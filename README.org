@@ -74,6 +74,10 @@ Customization (=M-x customize-group openstack=):
 - =openstack-status-fields= -- fields rendered with a status
   face (=status=, =vm_state=, =host_status=, =health_status=)
 - =openstack-status-faces= -- status value to face map
+- =openstack-date-fields= -- fields rendered with the
+  =openstack-date= face (=created_at=, =updated_at=,
+  =launched_at=, =terminated_at=, =deleted_at=, =timestamp=);
+  =nil= renders dates with the default face
 - =openstack-transitional-states= -- statuses that still
   change, so their buffer polls faster
 - =openstack-refresh-fast-interval= -- seconds between refresh
@@ -371,9 +375,11 @@ the field names in =openstack-status-fields=.
 
 Every face of the package inherits a standard one, so a theme
 styles the buffers without extra setup: field names use
-=openstack-field-name=, fetch errors =openstack-error=, and a
-value that changed =openstack-field-changed=.  Set one of them
-to restyle OpenStack buffers without touching code buffers.
+=openstack-field-name=, fetch errors =openstack-error=, a value
+that changed =openstack-field-changed=, and a date field named
+in =openstack-date-fields= uses =openstack-date=, which inherits
+=org-date=.  Set one of them to restyle OpenStack buffers
+without touching code buffers.
 
 A field whose value differs from the previous refresh shows
 =openstack-field-changed=.  The data comparison already skips

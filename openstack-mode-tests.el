@@ -900,6 +900,55 @@ the full ID from the property."
   (dolist (entry openstack-status-faces)
     (should (facep (cdr entry)))))
 
+(ert-deftest openstack-render-fields-date-face ()
+  "A date field renders with `openstack-date'."
+  (let ((data (openstack-test--parse
+               "{\"id\": \"srv-1\", \"created_at\": \"2026-01-01T10:00:00Z\", \
+\"name\": \"web-1\"}"))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data
+                               '("name" "created_at"))
+      (should (eq (openstack-test--face-at "2026-01-01T10:00:00Z")
+                  'openstack-date))
+      (should (null (openstack-test--face-at "web-1"))))))
+
+(ert-deftest openstack-render-fields-date-face-in-list ()
+  "A date column of a collection takes `openstack-date'."
+  (let ((rows (openstack-test--parse
+               "[{\"ID\": \"srv-1\", \"Name\": \"web-1\", \
+\"Updated At\": \"2026-01-01T10:00:00Z\"}]")))
+    (with-temp-buffer
+      (openstack-list-render "(no servers)" rows
+                             '("ID" "Name" "Updated At"))
+      (goto-char (point-min))
+      (search-forward "2026-01-01T10:00:00Z")
+      (should (eq (get-text-property (match-beginning 0) 'face)
+                  'openstack-date)))))
+
+(ert-deftest openstack-date-face-combines-with-change-face ()
+  "A changed date takes both the change face and the date face."
+  (let* ((old (openstack-test--parse
+               "{\"id\": \"srv-1\", \"updated_at\": \"2026-01-01\"}"))
+         (new (openstack-test--parse
+               "{\"id\": \"srv-1\", \"updated_at\": \"2026-01-02\"}"))
+         (inhibit-read-only t))
+    (with-temp-buffer
+      (let ((openstack--previous-data old))
+        (openstack-render-fields "Server" "srv-1" new '("updated_at")))
+      (should (equal (openstack-test--face-at "2026-01-02")
+                     '(openstack-field-changed openstack-date))))))
+
+(ert-deftest openstack-date-fields-can-be-disabled ()
+  "A nil `openstack-date-fields' leaves dates without a face."
+  (let ((data (openstack-test--parse
+               "{\"id\": \"srv-1\", \"created_at\": \"2026-01-01\"}"))
+        (openstack-date-fields nil)
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("created_at"))
+      (should (null (openstack-test--face-at "2026-01-01"))))))
+
 (ert-deftest openstack-render-fields-status-face ()
   "A status value renders with its status face."
   (let ((data (openstack-test--parse

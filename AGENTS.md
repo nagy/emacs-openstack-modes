@@ -399,10 +399,17 @@ includes evil.
   `openstack-mode.el`: `openstack-status-ok`, `openstack-status-off`,
   `openstack-status-pending`, `openstack-status-error`,
   `openstack-field-changed`, `openstack-field-name` (inherits
-  `font-lock-variable-name-face`) and `openstack-error` (inherits
-  `error`).  Do not apply a font-lock or message face directly:
-  then a user who restyles the OpenStack buffers changes code
-  buffers or every message as well.
+  `font-lock-variable-name-face`), `openstack-date` (inherits
+  `org-date`) and `openstack-error` (inherits `error`).  Do not
+  apply a font-lock or message face directly: then a user who
+  restyles the OpenStack buffers changes code buffers or every
+  message as well.
+- Date fields take `openstack-date`: `openstack--cell-face` adds it
+  when the field name matches `openstack-date-fields` (a space in a
+  list column matches an underscore in a show field).  Both
+  renderers go through that function, so a new date field needs one
+  entry there, not a per-mode change.  `openstack-date-fields` set
+  to nil disables the face.
 - The refresh delay of `openstack--buffer-stale-p` comes from
   `openstack--refresh-delay`: `openstack-refresh-fast-interval`
   while a status in `openstack-transitional-states` shows,

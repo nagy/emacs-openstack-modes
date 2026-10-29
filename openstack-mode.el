@@ -270,6 +270,16 @@ case."
   :type '(repeat string)
   :group 'openstack)
 
+(defcustom openstack-date-fields '("created_at" "updated_at"
+                                   "launched_at" "terminated_at"
+                                   "deleted_at" "timestamp")
+  "Fields rendered as a date in display buffers.
+A value of such a field takes the `openstack-date' face, which
+inherits `org-date'; the field name comparison ignores case.
+Set this to nil to render dates with the default face."
+  :type '(repeat string)
+  :group 'openstack)
+
 (defcustom openstack-status-faces
   '(;; Healthy states.
     ("active" . openstack-status-ok)
@@ -351,6 +361,14 @@ It inherits the font-lock face of variable names, so a theme
 that styles code names styles these names too.  Set this face
 alone to style the OpenStack displays without touching code
 buffers."
+  :group 'openstack)
+
+(defface openstack-date
+  '((t :inherit org-date))
+  "Face for the value of a date field in display buffers.
+It inherits `org-date', so a theme that styles Org dates styles
+these dates too.  `openstack-date-fields' names the fields that
+take this face."
   :group 'openstack)
 
 (defface openstack-error
@@ -660,15 +678,26 @@ Only a field named in `openstack-status-fields' takes a face, and
        (not (openstack--data-equal-p
              value (gethash field openstack--previous-data)))))
 
+(defun openstack--date-field-p (field)
+  "Return non-nil when FIELD holds a date value.
+The client spells a list column with spaces where `RESOURCE show'
+uses underscores, so both spellings match."
+  (let ((name (string-replace " " "_" field)))
+    (cl-some (lambda (other) (string-equal-ignore-case other name))
+             openstack-date-fields)))
+
 (defun openstack--cell-face (field value changed)
   "Return the face list for FIELD with VALUE.
 CHANGED marks a value that differs from the previous refresh, so
-a status face and the change face combine."
-  (let ((status (openstack--status-face field value)))
-    (cond ((and changed status)
-           (list 'openstack-field-changed status))
+a status or date face and the change face combine."
+  (let ((special (or (openstack--status-face field value)
+                     (and (stringp value)
+                          (openstack--date-field-p field)
+                          'openstack-date))))
+    (cond ((and changed special)
+           (list 'openstack-field-changed special))
           (changed 'openstack-field-changed)
-          (status status))))
+          (special special))))
 
 (defun openstack--row-match (rows row)
   "Return the row of ROWS that carries the same ID as ROW, or nil."
@@ -1024,8 +1053,9 @@ and `mouse-face', so `openstack-display-at-point' can open the
 resource from the ID field line.  WIDTH, when a number, gives the
 column at which values start, so the field name gets padded with
 spaces after its colon.  A status value takes its face from
-`openstack-status-faces', and a value that differs from the
-previous refresh takes `openstack-field-changed'."
+`openstack-status-faces', a date field named in
+`openstack-date-fields' takes `openstack-date', and a value that
+differs from the previous refresh takes `openstack-field-changed'."
   (let* ((text (openstack--format-value value field))
          (name-width (string-width field))
          (face (openstack--cell-face
@@ -1354,9 +1384,10 @@ only, so they read the typed cell values through this index."
 
 (defun openstack-list--cell (row column)
   "Return the display text of ROW's COLUMN, with its face.
-A status value takes its face from `openstack-status-faces', and
-a value that differs from the previous refresh takes
-`openstack-field-changed'."
+A status value takes its face from `openstack-status-faces', a
+date column named in `openstack-date-fields' takes
+`openstack-date', and a value that differs from the previous
+refresh takes `openstack-field-changed'."
   (let* ((value (gethash column row))
          (previous (and (listp openstack--previous-data)
                         (openstack--row-match openstack--previous-data row)))
