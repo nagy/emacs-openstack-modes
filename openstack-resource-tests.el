@@ -93,14 +93,14 @@
                 "\"visibility\": \"public\", "
                 "\"disk_format\": \"qcow2\", "
                 "\"container_format\": \"bare\", "
-                "\"size\": 234881024, "
+                "\"size\": 234881024, \"virtual_size\": 241172480, "
                 "\"owner\": \"a1b2c3d4e5f60718293a4b5c6d7e8f90\", "
                 "\"tags\": [\"latest\"], \"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
        :show-nested (("tags" . "[\"latest\"]"))
        :show-unlisted ("zzz_extra")
-       :show-values (("size" . "224M"))
+       :show-values (("size" . "224M") ("virtual_size" . "230M"))
        :list-json
        ,(concat "[{\"ID\": \"img-1\", \"Name\": \"ubuntu-24.04\", "
                 "\"Status\": \"active\", "
