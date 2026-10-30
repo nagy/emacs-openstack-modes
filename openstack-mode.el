@@ -951,6 +951,7 @@ the display buffer redraws it.
 
 \\{openstack-json-mode-map}"
   :group 'openstack
+  (openstack--detach-directory)
   (setq-local revert-buffer-function #'openstack-json--revert)
   (setq buffer-read-only t))
 
@@ -1443,6 +1444,17 @@ names the field at point."
 
 ;;; Major mode
 
+(defun openstack--detach-directory ()
+  "Move the current buffer to the temporary directory.
+A display buffer shows data from a cloud, not a file: it belongs
+to no project, so `project.el', version control and language
+servers stay out of it.  The local `default-directory' points at
+the variable `temporary-file-directory'.  Every mode that creates
+a buffer outside `openstack--init-display-buffer' calls this
+function itself."
+  (setq-local default-directory
+              (file-name-as-directory temporary-file-directory)))
+
 (defun openstack--init-display-buffer ()
   "Prepare the current buffer for displaying OpenStack data.
 Shared by `openstack-mode' and `openstack-list-mode': it cancels a
@@ -1451,6 +1463,7 @@ refresh into `revert-buffer', bookmark and `auto-revert-mode'.
 A caller runs it after its parent mode, so these settings win
 over the parent's own `revert-buffer-function'."
   (openstack--kill-pending)
+  (openstack--detach-directory)
   (setq-local revert-buffer-function #'openstack--revert-buffer)
   (setq-local buffer-stale-function #'openstack--buffer-stale-p)
   ;; A narrow table truncates the ID text but keeps the full ID in

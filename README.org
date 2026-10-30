@@ -532,6 +532,11 @@ call; a token cache belongs to the native API layer, because an
 `openstack' run validates its token against the identity server
 anyway.
 
+A display buffer shows data from a cloud, not a file: it starts
+in =temporary-file-directory=, so =project.el=, version control
+and language servers stay out of it.  The JSON view does the
+same.
+
 * Demo
 
 The repository ships =mock-openstack=, a fake =openstack= client

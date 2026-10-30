@@ -376,6 +376,14 @@ includes evil.
   the mode line shows no `*` and `kill-buffer` asks no question.
   A renderer that writes a read-only buffer outside those paths
   must clear the flag itself.
+- Display buffers carry no file identity: `openstack--detach-directory`
+  sets the buffer-local `default-directory` to
+  `temporary-file-directory`, and `openstack--init-display-buffer`
+  plus `openstack-json-mode` call it.  A buffer whose data comes
+  from a cloud must not join the project, the version-controlled
+  tree or a language server of the buffer it was opened from.  A
+  mode that creates a buffer outside those two paths calls the
+  function itself.
 - The JSON view is a read-only second buffer over the last fetch:
   `openstack-json-view` (=J= in both mode maps) pretty prints
   `openstack--last-data` through `openstack-json-mode`, which

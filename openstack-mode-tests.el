@@ -103,6 +103,18 @@ and the package name matches it, so the archive lookup succeeds."
           (should (string-match-p "^OpenStack resource" (buffer-string))))
       (kill-buffer buf))))
 
+(ert-deftest openstack-buffers-drop-the-project-directory ()
+  "Every OpenStack buffer starts in `temporary-file-directory'.
+The data comes from a cloud, not a file, so the buffer joins no
+project and no version-controlled tree."
+  (let ((temporary-file-directory "/tmp/"))
+    (dolist (mode '(openstack-mode openstack-list-mode
+                    openstack-network-mode openstack-json-mode))
+      (with-temp-buffer
+        (setq default-directory "/some/project/")
+        (funcall mode)
+        (should (equal default-directory "/tmp/"))))))
+
 (ert-deftest openstack-mode-display-per-resource-buffer ()
   "Each resource ID gets its own buffer; the same ID reuses it."
   (let ((openstack-buffer-name "*OpenStack test*")
