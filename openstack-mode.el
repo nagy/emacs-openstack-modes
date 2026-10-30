@@ -1322,8 +1322,8 @@ line."
          (openstack--plain-list-p value))
     'references)))
 
-(defun openstack-render-fields (title id data fields)
-  "Insert a field table titled TITLE into the current buffer.
+(defun openstack-render-fields-to-string (title id data fields)
+  "Return a field table titled TITLE as a string.
 ID identifies the resource in the header (nil in collection
 buffers); DATA is the parsed `RESOURCE show' JSON and FIELDS
 the list of fields shown first, in that order.  Fields missing
@@ -1334,58 +1334,88 @@ the table lines up.  A hash-table `properties' value is the
 last entry and prints as an indented `key: value' block; a
 `locations' list of hash tables prints as an indented block of
 records; a field named in `openstack-reference-fields' prints
-one referenced ID per line.  Derived resource modes call this
-from their `openstack-render-function' with their own field
-order."
-  (insert (format "%s: %s\n" title
-                  (or (and (hash-table-p data) (gethash "name" data))
-                      id)))
-  (when id
-    (insert (propertize "ID" 'face 'openstack-field-name)
-            ": " (propertize id 'face 'openstack-id
-                            'openstack-id id
-                            'mouse-face 'highlight)
-            "\n\n"))
-  (when (hash-table-p data)
-    (let ((unshown (make-hash-table :test #'equal))
-          (properties nil)
-          (rows nil))
-      (cl-labels
-          ((add-row (field value)
-             "Record FIELD with VALUE as a display row, or as PROPERTIES."
-             (let ((kind (and value (openstack--row-kind field value))))
-               (if (eq kind 'properties)
-                   (setq properties value)
-                 (push (list field value
-                             (and id (string= field "id") id)
-                             kind)
-                       rows)))))
-        (maphash (lambda (key _value) (puthash key t unshown)) data)
-        (dolist (field fields)
-          (remhash field unshown)
-          (let ((value (gethash field data)))
-            (when value
-              (add-row field value))))
-        (let ((remaining nil))
-          (maphash (lambda (key _value) (push key remaining)) unshown)
-          (dolist (field (sort remaining #'string<))
-            (add-row field (gethash field data)))))
-      (setq rows (nreverse rows))
-      (let ((width (apply #'max 0
-                          (mapcar (lambda (row)
-                                    (string-width (nth 0 row)))
-                                  rows))))
-        (dolist (row rows)
-          (pcase (nth 3 row)
-            ('records
-             (openstack--insert-records (nth 0 row) (nth 1 row)))
-            ('references
-             (openstack--insert-references (nth 0 row) (nth 1 row) width))
-            (_
-             (openstack--insert-field
-              (nth 0 row) (nth 1 row) (nth 2 row) width)))))
-      (when properties
-        (openstack--insert-properties properties)))))
+one referenced ID per line.  The text carries the same faces and
+`openstack-id' properties as the buffer view, because
+`openstack-render-fields' inserts this string."
+  (with-temp-buffer
+    (insert (format "%s: %s\n" title
+                    (or (and (hash-table-p data) (gethash "name" data))
+                        id)))
+    (when id
+      (insert (propertize "ID" 'face 'openstack-field-name)
+              ": " (propertize id 'face 'openstack-id
+                              'openstack-id id
+                              'mouse-face 'highlight)
+              "\n\n"))
+    (when (hash-table-p data)
+      (let ((unshown (make-hash-table :test #'equal))
+            (properties nil)
+            (rows nil))
+        (cl-labels
+            ((add-row (field value)
+               "Record FIELD with VALUE as a display row, or as PROPERTIES."
+               (let ((kind (and value (openstack--row-kind field value))))
+                 (if (eq kind 'properties)
+                     (setq properties value)
+                   (push (list field value
+                               (and id (string= field "id") id)
+                               kind)
+                         rows)))))
+          (maphash (lambda (key _value) (puthash key t unshown)) data)
+          (dolist (field fields)
+            (remhash field unshown)
+            (let ((value (gethash field data)))
+              (when value
+                (add-row field value))))
+          (let ((remaining nil))
+            (maphash (lambda (key _value) (push key remaining)) unshown)
+            (dolist (field (sort remaining #'string<))
+              (add-row field (gethash field data)))))
+        (setq rows (nreverse rows))
+        (let ((width (apply #'max 0
+                            (mapcar (lambda (row)
+                                      (string-width (nth 0 row)))
+                                    rows))))
+          (dolist (row rows)
+            (pcase (nth 3 row)
+              ('records
+               (openstack--insert-records (nth 0 row) (nth 1 row)))
+              ('references
+               (openstack--insert-references (nth 0 row) (nth 1 row) width))
+              (_
+               (openstack--insert-field
+                (nth 0 row) (nth 1 row) (nth 2 row) width)))))
+        (when properties
+          (openstack--insert-properties properties))))
+    (buffer-string)))
+
+(defun openstack-render-fields (title id data fields)
+  "Insert a field table titled TITLE into the current buffer.
+ID identifies the resource in the header (nil in collection
+buffers); DATA is the parsed `RESOURCE show' JSON and FIELDS
+the list of fields shown first, in that order.  Derived resource
+modes call this from their `openstack-render-function' with their
+own field order.  The text, its faces and its `openstack-id'
+properties come from `openstack-render-fields-to-string', so a
+caller without a buffer asks for the same text as a string."
+  (insert (openstack-render-fields-to-string title id data fields)))
+
+(defun openstack-resource-render (type data &optional id)
+  "Return the display text of resource TYPE with DATA as a string.
+DATA is the parsed JSON of `openstack-resource-show', or nil.  ID
+names the resource in the header; it defaults to the id field of
+DATA, then to its name field.  The field order and the value
+formatters come from the definition, so this function and the show
+mode of TYPE write the same text.  Signal
+`openstack-resource-error' for an unknown TYPE."
+  (let* ((definition (openstack--definition-or-error type))
+         (formatters (plist-get definition :value-formatters))
+         (id (or id
+                 (openstack-resource-id data)
+                 (openstack-resource-name data))))
+    (let ((openstack-value-formatters formatters))
+      (openstack-render-fields-to-string
+       (capitalize type) id data (openstack-resource-fields type)))))
 
 ;;; Imenu
 
@@ -2172,6 +2202,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :id-prefix ,id-prefix
               :url-suffix ,url-suffix
               :fields ',fields
+              :fields-variable ',fields-var
               :list-fields ',list-fields
               :list-arguments ',list-arguments
               :list-arguments-variable ',list-arguments-var

@@ -56,36 +56,25 @@
 
 ;;; Tests
 
-(ert-deftest openstack-read-rows-cache ()
-  "The first lookup fetches, the second reads the cache."
-  (let ((openstack-read--cache nil))
+(ert-deftest openstack-read-rows-use-the-data-cache ()
+  "The prompt rows come from the data cache, one client call."
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (should (equal (length (openstack-read-rows "server")) 2))
       (should (equal (length (openstack-read-rows "server")) 2))
       (should (equal calls '(("server" "list")))))))
 
-(ert-deftest openstack-read-rows-expire ()
-  "An entry older than the TTL triggers a new client call."
-  (let ((openstack-read--cache nil)
-        (openstack-read-cache-ttl 0))
+(ert-deftest openstack-read-refresh-drops-and-refills ()
+  "A refresh drops the cached rows and asks the client again."
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (openstack-read-rows "server")
-      (openstack-read-rows "server")
+      (openstack-read-refresh "server")
       (should (equal calls '(("server" "list") ("server" "list")))))))
-
-(ert-deftest openstack-read-rows-keep-forever ()
-  "A nil TTL keeps entries even when the clock moves on."
-  (let ((openstack-read--cache nil)
-        (openstack-read-cache-ttl nil))
-    (openstack-read-test--with-client calls
-      (openstack-read-rows "server")
-      (cl-letf (((symbol-function 'float-time) (lambda () 1e9)))
-        (openstack-read-rows "server"))
-      (should (equal calls '(("server" "list")))))))
 
 (ert-deftest openstack-read-choices-labels ()
   "Named rows label as \"name (id)\", unnamed rows as the ID."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (should (equal (openstack-read-choices "server")
                      '(("web-1 (srv-1)" . "srv-1")
@@ -112,14 +101,14 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-choices-name-only-rows ()
   "A name-only row labels without a duplicate."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (should (equal (openstack-read-choices "container")
                      '(("logs" . "logs") ("backups" . "backups")))))))
 
 (ert-deftest openstack-read-id-completes ()
   "Picking a candidate returns its ID."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (_prompt collection &rest _)
@@ -131,7 +120,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-id-accepts-raw-id ()
   "A typed UUID wins over the candidate list."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (_prompt _collection &rest _) "srv-9")))
@@ -139,7 +128,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-id-empty-answer-errors ()
   "An empty answer signals a `user-error'."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (_prompt _collection &rest _) "")))
@@ -147,7 +136,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-id-survives-client-failure ()
   "A failing client falls back to a plain prompt."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
                (lambda (_args) (error "no cloud")))
               ((symbol-function 'completing-read)
@@ -159,7 +148,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-type-of-id ()
   "The type lookup reads the cache before it runs the client."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (should (equal (openstack-read-type-of-id "srv-1") "server"))
       ;; The table order stops at the first type that holds the ID.
@@ -176,14 +165,14 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-type-of-id-failure-is-nil ()
   "A failing client yields nil from the type lookup."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
                (lambda (_args) (error "no cloud"))))
       (should (null (openstack-read-type-of-id "srv-1"))))))
 
 (ert-deftest openstack-read-name-and-ids ()
   "The name and the ID list come from the cache."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (openstack-read-rows "server")
       (openstack-read-rows "network")
@@ -194,7 +183,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-refresh ()
   "A refresh drops the cached entry and fetches it again."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (openstack-read-rows "server")
       (openstack-read-rows "network")
@@ -207,7 +196,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-open-id ()
   "A known ID opens the display command of its type."
-  (let ((openstack-read--cache nil)
+  (let ((openstack-resource--list-cache nil)
         (seen nil))
     (openstack-read-test--with-client calls
       (cl-letf (((symbol-function 'openstack-network-display)
@@ -217,7 +206,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-open-id-with-type ()
   "An explicit type skips the lookup."
-  (let ((openstack-read--cache nil)
+  (let ((openstack-resource--list-cache nil)
         (seen nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
                (lambda (_args) (error "the client must not run")))
@@ -228,7 +217,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-open-id-unknown ()
   "An unknown ID signals a `user-error'."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
       (should-error (openstack-open-id "nope") :type 'user-error))))
 
@@ -272,7 +261,7 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-id-annotates-candidates ()
   "`openstack-read-id' passes a table that annotates each candidate."
-  (let ((openstack-read--cache nil)
+  (let ((openstack-resource--list-cache nil)
         (openstack-read-annotation-fields '("Status"))
         (metadata nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
@@ -291,12 +280,12 @@ A Swift container has a name and no UUID."
 
 (ert-deftest openstack-read-references-finds-mentions ()
   "A cached row that names the ID in a field references it."
-  (let ((openstack-read--cache nil))
-    (let ((server (openstack-read-test--row "srv-1" "web-1"))
-          (image (openstack-read-test--row "img-1" "ubuntu")))
-      (puthash "Image ID" "img-1" server)
-      (openstack-read--store "server" (list server))
-      (openstack-read--store "image" (list image))
+  (let ((server (openstack-read-test--row "srv-1" "web-1"))
+        (image (openstack-read-test--row "img-1" "ubuntu")))
+    (puthash "Image ID" "img-1" server)
+    (let ((openstack-resource--list-cache
+           (list (cons "server" (cons 0 (list server)))
+                 (cons "image" (cons 0 (list image))))))
       (should (equal (openstack-read-references "img-1")
                      (list (list :type "server"
                                  :id "srv-1"

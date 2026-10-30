@@ -28,9 +28,9 @@
 
 ;; Resource IDs are UUIDs, and the display commands of the modes
 ;; asked for one with a bare prompt.  This library completes the
-;; prompt from the rows of `RESOURCE list': every resource type in
-;; `openstack-resource-types' gets an entry in a cache, refreshed
-;; when it outlives `openstack-read-cache-ttl'.
+;; prompt from the rows of `RESOURCE list', which
+;; `openstack-data.el' caches for every caller.  This file owns the
+;; prompts and the lookups, not the cache.
 ;;
 ;; Two more lookups build on the same cache:
 ;;
@@ -51,15 +51,6 @@
 (require 'seq)
 (require 'openstack-mode)
 
-(defcustom openstack-read-cache-ttl 300
-  "Seconds a cached `RESOURCE list' result stays valid.
-Every completion, link and xref lookup reads the cache; an entry
-older than this many seconds triggers a new client call.  Set it
-to nil to keep entries forever, or run `openstack-read-refresh'
-to refill them by hand."
-  :type '(choice (number :tag "Seconds") (const :tag "Never expire" nil))
-  :group 'openstack)
-
 (defcustom openstack-read-annotation-fields '("Status" "Size" "Flavor")
   "List row fields that annotate an ID in the completion prompt.
 The prompt shows the values of these fields, in this order, next
@@ -67,19 +58,6 @@ to the candidate that names the row.  A field that the row does
 not hold stays out of the annotation."
   :type '(repeat string)
   :group 'openstack)
-
-(defvar openstack-read--cache nil
-  "Alist of resource type to a plist of :time and :rows.")
-
-(defun openstack-read--entry-rows (entry)
-  "Return the rows of cache ENTRY."
-  (plist-get (cdr entry) :rows))
-
-(defun openstack-read--entry-fresh-p (entry)
-  "Return non-nil when cache ENTRY is still valid."
-  (or (null openstack-read-cache-ttl)
-      (< (- (float-time) (plist-get (cdr entry) :time))
-         openstack-read-cache-ttl)))
 
 (defun openstack-read--row-value (row names)
   "Return the value of the first key of ROW that matches NAMES.
@@ -109,32 +87,11 @@ container, uses its Name field."
   (and (hash-table-p row)
        (openstack-read--row-value row '("Name"))))
 
-(defun openstack-read--store (type rows)
-  "Store the cache entry of resource TYPE with ROWS."
-  (let ((entry (list :time (float-time) :rows rows))
-        (cell (assoc type openstack-read--cache)))
-    (if cell
-        (setcdr cell entry)
-      (push (cons type entry) openstack-read--cache))))
-
-(defun openstack-read--fetch-rows (type)
-  "Fetch and cache the list rows of resource TYPE.
-Read the definition through `openstack-resource-list', so the
-client command, the list arguments and a user customization of
-them all apply."
-  (let ((rows (openstack-resource-list type)))
-    (setq rows (and (listp rows) rows))
-    (openstack-read--store type rows)
-    rows))
-
 (defun openstack-read-rows (type)
   "Return the rows of `RESOURCE list' for resource TYPE.
-Read the cache while it stays within `openstack-read-cache-ttl'
-and call the client otherwise."
-  (let ((entry (assoc type openstack-read--cache)))
-    (if (and entry (openstack-read--entry-fresh-p entry))
-        (openstack-read--entry-rows entry)
-      (openstack-read--fetch-rows type))))
+Read the cache of `openstack-data.el' while it stays within
+`openstack-resource-cache-ttl' and call the client otherwise."
+  (openstack-resource-list-cached type))
 
 (defun openstack-read-choices (type)
   "Return completion candidates of resource TYPE as (LABEL . ID)."
@@ -151,11 +108,11 @@ and call the client otherwise."
 
 (defun openstack-read--row-of (id)
   "Return the cached list row of ID, or nil."
-  (seq-some (lambda (entry)
+  (seq-some (lambda (type)
               (seq-some (lambda (row)
                           (and (equal id (openstack-read--row-id row)) row))
-                        (openstack-read--entry-rows entry)))
-            openstack-read--cache))
+                        (openstack-resource-cached-rows type)))
+            (mapcar #'car openstack-resource-types)))
 
 (defun openstack-read--annotation (row)
   "Return the annotation string of list ROW, or nil.
@@ -223,35 +180,34 @@ type stay together."
   (let (ids)
     (dolist (one (if type (list type) (mapcar #'car openstack-resource-types))
                  (nreverse ids))
-      (let ((entry (assoc one openstack-read--cache)))
-        (dolist (row (openstack-read--entry-rows entry))
-          (when-let* ((id (openstack-read--row-id row)))
-            (push id ids)))))))
+      (dolist (row (openstack-resource-cached-rows one))
+        (when-let* ((id (openstack-read--row-id row)))
+          (push id ids))))))
 
 (defun openstack-read-name (id)
   "Return the cached name of the resource with ID, or nil.
 Search the cache only, so the call never runs the client."
-  (seq-some (lambda (entry)
+  (seq-some (lambda (one)
               (seq-some (lambda (row)
                           (when (equal id (openstack-read--row-id row))
                             (let ((name (openstack-read--row-name row)))
                               (and (stringp name)
                                    (not (string-empty-p name))
                                    name))))
-                        (openstack-read--entry-rows entry)))
-            openstack-read--cache))
+                        (openstack-resource-cached-rows one)))
+            (mapcar #'car openstack-resource-types)))
 
 (defun openstack-read-type-of-id (id)
   "Return the resource type of the resource with ID, or nil.
 Search the cache first; when no cached row matches, fetch the
 list of each type in `openstack-resource-types'.  A client
 failure yields nil instead of an error."
-  (or (seq-some (lambda (entry)
+  (or (seq-some (lambda (type)
                   (when (seq-some (lambda (row)
                                     (equal id (openstack-read--row-id row)))
-                                  (openstack-read--entry-rows entry))
-                    (car entry)))
-                openstack-read--cache)
+                                  (openstack-resource-cached-rows type))
+                    type))
+                (mapcar #'car openstack-resource-types))
       (seq-some (lambda (type)
                   (when (condition-case nil
                             (seq-some
@@ -277,14 +233,14 @@ Read the cache only: no client call.  A `RESOURCE list' row
 holds an ID only for a related resource, such as the image of a
 server or the network of a port."
   (let (found)
-    (dolist (entry openstack-read--cache (nreverse found))
-      (dolist (row (openstack-read--entry-rows entry))
+    (dolist (one (mapcar #'car openstack-resource-types) (nreverse found))
+      (dolist (row (openstack-resource-cached-rows one))
         (let ((row-id (openstack-read--row-id row)))
           (when (and row-id
                      (not (equal row-id id))
                      (seq-some (lambda (value) (equal value id))
                                (openstack-read--row-values row)))
-            (push (list :type (car entry)
+            (push (list :type one
                         :id row-id
                         :name (openstack-read--row-name row))
                   found)))))))
@@ -298,13 +254,9 @@ every type in `openstack-resource-types'."
   (let ((types (if type
                    (list type)
                  (mapcar #'car openstack-resource-types))))
-    (if type
-        (setq openstack-read--cache
-              (seq-remove (lambda (entry) (equal type (car entry)))
-                          openstack-read--cache))
-      (setq openstack-read--cache nil))
+    (openstack-resource-invalidate type)
     (dolist (one types)
-      (openstack-read-rows one))
+      (openstack-resource-list-cached one))
     (message "Refreshed the OpenStack cache of %s"
              (mapconcat #'identity types ", "))))
 

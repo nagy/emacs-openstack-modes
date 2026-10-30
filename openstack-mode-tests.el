@@ -612,6 +612,38 @@ field names differ in length."
         (should (equal columns (make-list (length columns) (car columns))))
         (should (= (car columns) (+ 2 (length longest))))))))
 
+(ert-deftest openstack-resource-render-returns-the-same-text-as-the-buffer ()
+  "The pure renderer and the buffer renderer write the same text.
+A caller without a buffer gets the field order and the faces of
+the resource definition."
+  (let* ((data (openstack-test--parse
+                (concat "{\"id\": \"srv-1\", \"name\": \"web-1\", "
+                        "\"status\": \"ACTIVE\"}")))
+         (text (openstack-resource-render "server" data))
+         (buffer-text (with-temp-buffer
+                        (openstack-render-fields
+                         "Server" "srv-1" data
+                         (openstack-resource-fields "server"))
+                        (buffer-string))))
+    (should (equal text buffer-text))
+    (should (string-match-p "^Server: web-1\n" text))
+    (should (string-match-p "^ID: srv-1\n" text))
+    (let ((position (string-match "srv-1" text)))
+      (should (equal (get-text-property position 'openstack-id text)
+                     "srv-1")))))
+
+(ert-deftest openstack-resource-render-takes-an-id ()
+  "An explicit ID wins over the fields of the data."
+  (let ((data (openstack-test--parse "{\"id\": \"srv-1\"}")))
+    (should (string-match-p
+             "^ID: srv-9\n"
+             (openstack-resource-render "server" data "srv-9")))
+    (should (string-match-p
+             "^Server: srv-9\n"
+             (openstack-resource-render "server" nil "srv-9")))
+    (should-error (openstack-resource-render "nope" data)
+                  :type 'openstack-resource-error)))
+
 (ert-deftest openstack-render-fields-expands-properties ()
   "A hash-table `properties' value becomes the final, indented block.
 Keys sort by name and their values line up past the longest key,

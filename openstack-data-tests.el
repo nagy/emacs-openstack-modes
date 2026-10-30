@@ -137,12 +137,102 @@ definition carries list arguments, keeps both."
   (let ((openstack-resource-definitions
          '(("fake" :type "fake" :cli "fake-client"
                     :list-arguments ("--long"))))
-        (openstack-read--cache nil)
+        (openstack-resource--list-cache nil)
         (seen nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
                (lambda (args) (setq seen args) nil)))
       (openstack-read-rows "fake")
       (should (equal seen '("fake-client" "list" "--long"))))))
+
+;;; Cache
+
+(ert-deftest openstack-resource-list-cached-fetches-once ()
+  "A fresh entry comes back without a client call, FORCE refetches."
+  (let ((openstack-resource--list-cache nil)
+        (calls nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (args) (push args calls) '(:row))))
+      (should (equal (openstack-resource-list-cached "server") '(:row)))
+      (should (equal (openstack-resource-list-cached "server") '(:row)))
+      (should (equal calls '(("server" "list"))))
+      (should (equal (openstack-resource-list-cached "server" t) '(:row)))
+      (should (equal calls '(("server" "list") ("server" "list")))))))
+
+(ert-deftest openstack-resource-list-cached-expires ()
+  "An entry older than the TTL triggers a new client call."
+  (let ((openstack-resource--list-cache nil)
+        (openstack-resource-cache-ttl 0)
+        (calls 0))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) (cl-incf calls) '(:row))))
+      (openstack-resource-list-cached "server")
+      (openstack-resource-list-cached "server")
+      (should (= calls 2)))))
+
+(ert-deftest openstack-resource-list-cached-keeps-forever ()
+  "A nil TTL keeps an entry even when the clock moves on."
+  (let ((openstack-resource--list-cache nil)
+        (openstack-resource-cache-ttl nil)
+        (calls 0))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) (cl-incf calls) '(:row))))
+      (openstack-resource-list-cached "server")
+      (cl-letf (((symbol-function 'float-time) (lambda () 1e9)))
+        (openstack-resource-list-cached "server"))
+      (should (= calls 1)))))
+
+(ert-deftest openstack-resource-cached-rows-never-call ()
+  "The cache reader returns an entry without a client call."
+  (let ((openstack-resource--list-cache nil)
+        (called nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) (setq called t) nil)))
+      (should (null (openstack-resource-cached-rows "server")))
+      (should-not called))))
+
+(ert-deftest openstack-resource-show-cached-fetches-once ()
+  "The show cache answers from memory and invalidates one entry."
+  (let ((openstack-resource--show-cache nil)
+        (calls nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (args) (push args calls) :data)))
+      (should (eq (openstack-resource-show-cached "server" "srv-1") :data))
+      (should (eq (openstack-resource-show-cached "server" "srv-1") :data))
+      (should (equal calls '(("server" "show" "srv-1"))))
+      (openstack-resource-invalidate "server" "srv-1")
+      (openstack-resource-show-cached "server" "srv-1")
+      (should (equal calls '(("server" "show" "srv-1")
+                             ("server" "show" "srv-1")))))))
+
+(ert-deftest openstack-resource-invalidate-clears-by-scope ()
+  "List, show and whole-cache invalidation stay apart."
+  (let ((openstack-resource--list-cache nil)
+        (openstack-resource--show-cache nil)
+        (calls nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (args) (push args calls) :data)))
+      (openstack-resource-list-cached "server")
+      (openstack-resource-show-cached "server" "srv-1")
+      (should (= (length calls) 2))
+      ;; A list invalidation keeps the show entry.
+      (openstack-resource-invalidate "server")
+      (should (null (openstack-resource-cached-rows "server")))
+      (openstack-resource-show-cached "server" "srv-1")
+      (should (= (length calls) 2))
+      ;; A full invalidation drops both.
+      (openstack-resource-invalidate)
+      (openstack-resource-list-cached "server")
+      (openstack-resource-show-cached "server" "srv-1")
+      (should (= (length calls) 4)))))
+
+(ert-deftest openstack-resource-fields-reads-the-defcustom ()
+  "The field order comes from the generated defcustom when bound."
+  (should (equal (openstack-resource-fields "server")
+                 openstack-server-fields))
+  (let ((openstack-server-fields '("name")))
+    (should (equal (openstack-resource-fields "server") '("name"))))
+  (should-error (openstack-resource-fields "nope")
+                :type 'openstack-resource-error))
 
 ;;; Field access
 

@@ -12,18 +12,22 @@ resource-specific modes can depend on it.
 
 | File                         | Purpose                                                |
 |------------------------------+--------------------------------------------------------|
-| =openstack.el=               | Entry library: loads the base mode, the cache and the resource types |
-| =openstack-mode.el=            | Core: base mode, collection base mode, resource macro  |
-| =openstack-resources.el=       | The five resource types, one macro call each           |
-| =openstack-evil.el=            | Optional evil bindings for show and list buffers       |
-| =openstack-cli.el=             | CLI layer: sync/async access to =openstack-program=      |
-| =openstack-read.el=            | ID completion and the =RESOURCE list= cache              |
+| =openstack.el=               | Entry library: loads the data layer, the base mode, the cache and the resource types |
+| =openstack-data.el=          | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
+| =openstack-error.el=         | The package-wide parent condition =openstack-error=     |
+| =openstack-mode.el=          | Display layer: base mode, collection base mode, the resource macro, the text renderer |
+| =openstack-resources.el=     | The six resource types, one macro call each             |
+| =openstack-evil.el=          | Optional evil bindings for show and list buffers       |
+| =openstack-cli.el=           | CLI layer: sync/async access to =openstack-program=      |
+| =openstack-read.el=          | ID completion, type and name lookups                   |
 | =openstack-xref.el=            | xref backend: =M-.= on a resource ID                     |
 | =openstack-url.el=             | =openstack:= URL scheme for =browse-url=                   |
 | =ol-openstack.el=              | Org link type =openstack:= for resources                 |
 | =openstack-mode-tests.el=      | ERT tests: base mode, collections, resource registry   |
 | =openstack-cli-tests.el=       | ERT test suite for the CLI layer (mocked)              |
-| =openstack-resource-tests.el=  | ERT tests: the five resource show and list modes       |
+| =openstack-api-tests.el=       | ERT test suite for the native API layer                |
+| =openstack-data-tests.el=      | ERT test suite for the data layer and its cache        |
+| =openstack-resource-tests.el=  | ERT tests: the six resource show and list modes        |
 | =openstack-list-mode-tests.el= | ERT test suite for the collection base mode            |
 | =openstack-evil-tests.el=      | ERT test suite for the evil bindings                   |
 | =ol-openstack-tests.el=        | ERT test suite for the Org link type                   |
@@ -37,8 +41,8 @@ resource-specific modes can depend on it.
 * Usage
 
 The package installs as =openstack=, the same name as its entry
-library.  Requiring it loads the base mode, the ID cache and the
-resource types:
+library.  Requiring it loads the data layer, the base mode, the ID
+cache and the resource types:
 
 #+begin_src elisp
 (require 'openstack)
@@ -53,7 +57,7 @@ With =use-package=:
 #+end_src
 
 =openstack-mode= stays a valid feature.  Requiring it loads only the
-base mode and the CLI layer, without the resource types.  The
+base mode and the data layer, without the resource types.  The
 optional layers keep their own libraries: =openstack-xref=,
 =openstack-url=, =ol-openstack= and =openstack-evil=.
 
@@ -87,8 +91,8 @@ Customization (=M-x customize-group openstack=):
   client (python-openstackclient)
 - =openstack-resource-types= -- resource type, display mode and
   display command of every derived mode
-- =openstack-read-cache-ttl= -- seconds a cached
-  =RESOURCE list= result stays valid; =nil= keeps it forever
+- =openstack-resource-cache-ttl= -- seconds a cached
+  client answer stays valid; =nil= keeps it forever
 - =openstack-status-fields= -- fields rendered with a status
   face (=status=, =vm_state=, =host_status=, =health_status=)
 - =openstack-status-faces= -- status value to face map
@@ -116,7 +120,7 @@ and the ID, so the name picks the resource:
 
 A raw UUID typed at the prompt still works, and a failing client
 falls back to a plain prompt.  The rows stay cached for
-=openstack-read-cache-ttl= seconds; =M-x openstack-read-refresh=
+=openstack-resource-cache-ttl= seconds; =M-x openstack-read-refresh=
 refills them.
 
 =M-x openstack-open-id= displays any resource.  Without a type
@@ -544,7 +548,38 @@ The generated defcustom stays the runtime source of the list
 arguments: set =openstack-container-list-arguments= and every
 caller sees the new value.  =openstack-resource-list= takes one
 optional argument, the extra client arguments that follow the
-configured ones.
+configured ones.  The same rule holds for the show field order
+(=openstack-resource-fields=).
+
+The cache lives in the data layer, so a prompt, a list buffer and
+another package share one answer.  The cached entry points follow
+=openstack-resource-cache-ttl=, and an invalidation call drops one
+answer or every answer:
+
+#+begin_src elisp
+  ;; Cached, synchronous: no client call while the entry stays fresh
+  (openstack-resource-list-cached "server")
+  (openstack-resource-show-cached "server" id)
+
+  ;; The rows only, stale or not: never calls the client
+  (openstack-resource-cached-rows "server")
+
+  ;; One list, one show answer, or the whole cache
+  (openstack-resource-invalidate "server")
+  (openstack-resource-invalidate "server" id)
+  (openstack-resource-invalidate)
+#+end_src
+
+The interactive modes bypass the cache on purpose: a refresh must
+show the cloud as it is now.
+
+The display layer turns data into text without a buffer, with the
+field order, the value formatters and the faces of the definition:
+
+#+begin_src elisp
+  (openstack-resource-render "server" data)
+  (openstack-resource-render "server" data id)
+#+end_src
 
 Read a field without case, because =RESOURCE show= prints lower
 case fields and =RESOURCE list= prints title case columns:
@@ -570,9 +605,10 @@ signals =openstack-cli-error=, an unknown type signals
 #+end_src
 
 The registry holds the definition of each type
-(=openstack-resource-definition=, =openstack-resource-arguments=).
-The table =openstack-resource-types= adds the mode and the display
-command for the prompts, the Org links and the xref backend.
+(=openstack-resource-definition=, =openstack-resource-arguments=,
+=openstack-resource-fields=).  The table =openstack-resource-types=
+adds the mode and the display command for the prompts, the Org
+links and the xref backend.
 
 * Design
 

@@ -33,7 +33,7 @@
 (defmacro openstack-xref-test--with-cache (&rest body)
   "Run BODY with a fresh cache and a stubbed CLI client."
   (declare (indent 0))
-  `(let ((openstack-read--cache nil))
+  `(let ((openstack-resource--list-cache nil))
      (cl-letf (((symbol-function 'openstack-cli-request)
                 (lambda (args)
                   (pcase (car args)
@@ -138,7 +138,7 @@
 
 (ert-deftest openstack-xref-references ()
   "A cached list row that mentions the ID yields a reference."
-  (let ((openstack-read--cache nil))
+  (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
                (lambda (args)
                  (pcase (car args)

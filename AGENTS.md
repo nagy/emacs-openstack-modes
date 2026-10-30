@@ -14,12 +14,12 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro |
-| `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`), the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, and the pure text renderer `openstack-render-fields-to-string` behind `openstack-render-fields` and `openstack-resource-render` |
+| `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`), the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
-| `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups. Reads list rows through `openstack-resource-list`, so the definition and its defcustom apply. |
+| `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
 | `openstack-resources.el` | The six resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
@@ -33,7 +33,7 @@ name as the ID.
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
 | `ol-openstack-tests.el` | ERT tests for the Org link type |
-| `openstack-read-tests.el` | ERT tests for the ID completion and the cache |
+| `openstack-read-tests.el` | ERT tests for the ID completion and the lookups |
 | `openstack-xref-tests.el` | ERT tests for the xref backend |
 | `openstack-url-tests.el` | ERT tests for the `openstack:` URL scheme |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
@@ -93,7 +93,13 @@ includes evil.
 - The generated `openstack-TYPE-list-arguments` defcustom stays the runtime source of the list arguments: `openstack-resource-arguments` reads the variable that `:list-arguments-variable` of the definition names, and falls back to the `:list-arguments` value for a hand-written definition. A nil defcustom means no extra arguments, so never merge the definition value back in.
 - Read resource hash tables with `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`; they compare keys without case, because `RESOURCE show` prints lower case fields and `RESOURCE list` prints title case columns. `openstack--hash-field` is their private base. The raw hash table stays the wire shape: pass it on; do not normalize the keys.
 - Every condition derives from `openstack-error` (`openstack-error.el`): `openstack-resource-error` for an unknown type, `openstack-cli-error` and `openstack-api-error` for the transports, with a timeout child per transport. A public function documents the conditions it raises. The transport layers require `openstack-error.el` only; never make the parent depend on a transport or on the data layer.
-- `openstack-define-resource` registers `:list-arguments-variable` next to `:list-arguments`; a new definition keyword that the data layer must honor also goes into the registry plist, or consumers and modes diverge.
+- `openstack-define-resource` registers `:list-arguments-variable` and
+  `:fields-variable` next to `:list-arguments` and `:fields`; a new
+  definition keyword that the data layer must honor also goes into the
+  registry plist, or consumers and modes diverge.  A getter reads the
+  generated defcustom while it is bound (`openstack-resource-arguments`,
+  `openstack-resource-fields`) and falls back to the registry value for
+  a hand-written definition.
 - CLI access goes through `openstack-cli.el`: `openstack-cli-request`
   for synchronous calls (timing out after `openstack-cli-timeout`
   seconds with `openstack-cli-timeout`, a subclass of
@@ -364,8 +370,8 @@ includes evil.
   a field equal to the ID and skips the row of the resource itself.
   The scan never fetches show data, so it reports only the direct
   relations a list row names (image, network, flavor).  Keep the
-  cache read inside `openstack-read.el`; do not reach into
-  `openstack-read--cache` from the backend.
+  cache read behind `openstack-resource-cached-rows`; do not reach
+  into `openstack-resource--list-cache` from the backend.
 - Display buffers refresh themselves: `openstack-mode` and
   `openstack-list-mode` call `openstack--init-display-buffer`, which
   wires `revert-buffer-function`, `buffer-stale-function` and
@@ -457,11 +463,27 @@ includes evil.
   declare it in `Package-Requires`; the bare `package-lint`
   environment cannot see builtin packages and rejects the
   declaration.
-- `openstack-read.el` owns the `RESOURCE list` cache.  Prompts
-  (`openstack-read-id`), type resolution, name lookup and the
-  xref completion table all read it; nothing else caches list
-  rows.  The cache compares type strings with `equal`, and a
-  refresh drops the entry instead of patching it.
+- The cache lives in the data layer, not in the prompt layer:
+  `openstack-resource--list-cache` and `openstack-resource--show-cache`
+  are private to `openstack-data.el`, and every caller reads them
+  through `openstack-resource-cached-rows`, a
+  `openstack-resource-list-cached` or `openstack-resource-show-cached`.
+  Prompts, type resolution, name lookup and the xref completion table
+  all read the same rows, and an invalidation call drops one answer
+  (`openstack-resource-invalidate TYPE ID`), the list rows of a type
+  (`TYPE` alone) or everything (no argument).  The TTL lives in
+  `openstack-resource-cache-ttl`, a nil TTL keeps entries forever.
+  The interactive modes bypass the cache on purpose: `openstack--refresh`
+  calls the async entry points, so a buffer shows the cloud as it is
+  now.  Do not give a buffer-local variable a second cache.
+- Presentation goes through the string renderer first:
+  `openstack-render-fields-to-string` returns the field table as
+  text with its faces and `openstack-id` properties, and
+  `openstack-render-fields` only inserts that string.  A new view
+  that needs the text without a buffer calls the string function or
+  `openstack-resource-render (TYPE DATA &optional ID)`, which adds the
+  field order, the value formatters and the title of the definition.
+  Do not duplicate the field-table code in a consumer.
 - New display commands read their ID with
   `(interactive (list (openstack-read-id TYPE "...")))`; a test
   walks `openstack-resource-types` and calls every display command
@@ -536,16 +558,12 @@ includes evil.
   a composite row ID or a buffer-local container variable.  That
   choice touches xref, Org links, the bookmark handler and the
   dashboard URLs.
-- Library follow-ups.  `openstack-data.el` holds no cache: move the
-  `RESOURCE list` cache and its TTL out of `openstack-read.el` into
-  the data layer, add a show cache keyed by type and ID, expose
-  invalidation through the data file and run a change hook, so a
-  consumer sees updates without a buffer.  Add a string-returning
-  renderer (`openstack-resource-render`) that the buffer renderers
-  call, and split buffer construction from `pop-to-buffer` in
-  `openstack-display`.  Document the data surface in a README
-  "Library" section with the condition hierarchy, and keep the
-  public-surface tests offline.
+- Library follow-ups.  Run a change hook when the cache changes, so
+  a consumer sees an update without polling.  Split buffer
+  construction from `pop-to-buffer` in `openstack-display`, so a
+  caller gets the buffer back.  Add a table-string renderer for
+  collection data.  Keep the README "Library" section and the
+  public-surface tests in step with every new entry point.
 - Dashboard deep links per resource type.  `openstack-id-prefix`
   holds the leading path segments and `openstack-url-suffix` the
   trailing ones (networks use `project/networks` and `/detail`,

@@ -45,7 +45,12 @@
 ;;   openstack-resource-list        - parsed `RESOURCE list' data
 ;;   openstack-resource-list-async  - the same, with callbacks
 ;;   openstack-resource-cancel      - cancel an asynchronous call
+;;   openstack-resource-list-cached - list data, cached with a TTL
+;;   openstack-resource-show-cached - show data, cached with a TTL
+;;   openstack-resource-cached-rows - the cached rows only, no call
+;;   openstack-resource-invalidate  - drop one or every cached answer
 ;;   openstack-resource-arguments   - the list arguments of a type
+;;   openstack-resource-fields      - the show field order of a type
 ;;   openstack-resource-field       - one field, key case ignored
 ;;   openstack-resource-id          - the id field of a resource
 ;;   openstack-resource-name        - the name field of a resource
@@ -94,6 +99,17 @@ not use the macro."
   :type '(repeat (list (string :tag "Type")
                        (symbol :tag "Mode")
                        (symbol :tag "Display command")))
+  :group 'openstack-data)
+
+(defcustom openstack-resource-cache-ttl 300
+  "Seconds a cached client answer stays valid.
+The cached entry points, `openstack-resource-list-cached' and
+`openstack-resource-show-cached', return an answer older than this
+many seconds only by fetching it again.  Set this to nil to keep
+entries forever, or run `openstack-resource-invalidate' to drop
+them by hand.  The interactive modes ignore the cache: a refresh
+always asks the client."
+  :type '(choice (number :tag "Seconds") (const :tag "Never expire" nil))
   :group 'openstack-data)
 
 ;;; Registry
@@ -192,6 +208,18 @@ unknown TYPE."
         (symbol-value variable)
       (plist-get definition :list-arguments))))
 
+(defun openstack-resource-fields (type)
+  "Return the show field order of resource TYPE.
+Read the generated `openstack-TYPE-fields' defcustom while the
+variable exists, so a user customization wins over the default of
+the definition.  Signal `openstack-resource-error' for an unknown
+TYPE."
+  (let* ((definition (openstack--definition-or-error type))
+         (variable (plist-get definition :fields-variable)))
+    (if (and variable (boundp variable))
+        (symbol-value variable)
+      (plist-get definition :fields))))
+
 (defun openstack-resource-list (type &optional extra)
   "Return the parsed `RESOURCE list' data of resource TYPE.
 The command takes the list arguments of the definition, plus
@@ -228,6 +256,91 @@ Kill the process before it exits, so neither callback runs.
 Return nil when REQUEST is nil or already finished."
   (when (process-live-p request)
     (delete-process request)))
+
+;;; Cache
+
+;; The cache lives here, in the data layer, so every caller shares
+;; one answer: a prompt, a list buffer and another package read the
+;; same rows.  Two alists keep the list rows and the show data apart,
+;; keyed by type and by (TYPE . ID).  The interactive modes bypass
+;; the cache on purpose: a refresh must show the cloud as it is now.
+
+(defvar openstack-resource--list-cache nil
+  "Alist of resource type to a cons of type, fetch time and list rows.")
+
+(defvar openstack-resource--show-cache nil
+  "Alist of (TYPE . ID) to a cons of key, fetch time and show data.")
+
+(defun openstack-resource--cache-put (cache key value)
+  "Return CACHE, an alist, with KEY bound to VALUE and the current time."
+  (cons (cons key (cons (float-time) value))
+        (assoc-delete-all key cache)))
+
+(defun openstack-resource--cache-fresh-p (cell)
+  "Return non-nil when cache CELL is still within the TTL."
+  (or (null openstack-resource-cache-ttl)
+      (< (- (float-time) (cadr cell))
+         openstack-resource-cache-ttl)))
+
+(defun openstack-resource-cached-rows (type)
+  "Return the cached list rows of resource TYPE.
+Never run the client and never check the TTL: a stale entry comes
+back as it is, and a type without an entry returns nil.  The ID
+prompts, the xref backend and `openstack-read-name' read the cache
+this way."
+  (cddr (assoc type openstack-resource--list-cache)))
+
+(defun openstack-resource-list-cached (type &optional force)
+  "Return the list rows of resource TYPE, from the cache when fresh.
+Fetch with `openstack-resource-list' when the entry is missing or
+older than `openstack-resource-cache-ttl', or when FORCE is
+non-nil.  Signal `openstack-resource-error' for an unknown TYPE,
+and `openstack-cli-error' when the fetch fails."
+  (openstack--definition-or-error type)
+  (let ((entry (assoc type openstack-resource--list-cache)))
+    (if (and (not force) entry (openstack-resource--cache-fresh-p entry))
+        (cddr entry)
+      (let ((rows (openstack-resource-list type)))
+        (setq rows (and (listp rows) rows))
+        (setq openstack-resource--list-cache
+              (openstack-resource--cache-put openstack-resource--list-cache
+                                             type rows))
+        rows))))
+
+(defun openstack-resource-show-cached (type id &optional force)
+  "Return the show data of resource TYPE with ID, from the cache.
+Fetch with `openstack-resource-show' when the entry is missing or
+older than `openstack-resource-cache-ttl', or when FORCE is
+non-nil.  Signal `openstack-resource-error' for an unknown TYPE,
+and `openstack-cli-error' when the fetch fails."
+  (openstack--definition-or-error type)
+  (let ((key (cons type id))
+        (entry nil))
+    (setq entry (assoc key openstack-resource--show-cache))
+    (if (and (not force) entry (openstack-resource--cache-fresh-p entry))
+        (cddr entry)
+      (let ((data (openstack-resource-show type id)))
+        (setq openstack-resource--show-cache
+              (openstack-resource--cache-put openstack-resource--show-cache
+                                             key data))
+        data))))
+
+(defun openstack-resource-invalidate (&optional type id)
+  "Drop cached client answers.
+With TYPE and ID, drop the show data of that resource.  With TYPE
+alone, drop the list rows of that type.  Without arguments, drop
+every answer.  Return nil."
+  (cond
+   ((and type id)
+    (setq openstack-resource--show-cache
+          (assoc-delete-all (cons type id) openstack-resource--show-cache)))
+   (type
+    (setq openstack-resource--list-cache
+          (assoc-delete-all type openstack-resource--list-cache)))
+   (t
+    (setq openstack-resource--list-cache nil
+          openstack-resource--show-cache nil)))
+  nil)
 
 ;;; Field access
 
