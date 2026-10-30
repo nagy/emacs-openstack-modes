@@ -66,6 +66,7 @@
 (require 'json)
 (require 'cl-lib)
 (require 'subr-x)
+(require 'openstack-error)
 
 ;;; Customization
 
@@ -119,7 +120,8 @@ requests cannot clobber each other's stderr."
 
 ;;; Conditions
 
-(define-error 'openstack-cli-error "OpenStack CLI error")
+(define-error 'openstack-cli-error "OpenStack CLI error"
+              'openstack-error)
 
 (define-error 'openstack-cli-timeout "OpenStack CLI call timed out"
               'openstack-cli-error)

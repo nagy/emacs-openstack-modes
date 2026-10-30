@@ -57,7 +57,9 @@
 ;; =openstackclient-full=), configured with `openstack-program'
 ;; (defined in openstack-cli.el).  The Nix build substitutes the
 ;; default value with the store path of that package, so users do
-;; not need to customize it.
+;; not need to customize it.  The data entry points live in
+;; openstack-data.el: this file adds the buffers that display their
+;; answers.
 ;;
 ;; `openstack--id' and `openstack--origin-buffer'
 ;; are marked permanent-local so they survive the
@@ -88,9 +90,10 @@
 ;; the dashboard URL comes from `openstack-web-base-url',
 ;; `openstack-id-prefix', the ID and `openstack-url-suffix'.
 ;;
-;; Talking to OpenStack goes through the `openstack-cli' library
-;; (see openstack-cli.el), which wraps `openstack-program' with
-;; synchronous and asynchronous request functions.
+;; Talking to OpenStack goes through the data layer of
+;; openstack-data.el, which reads the registry and calls the client
+;; library (see openstack-cli.el).  The synchronous and asynchronous
+;; request functions of that library wrap `openstack-program'.
 ;;
 ;; The file also holds the two layers that every resource type uses:
 ;;
@@ -118,7 +121,7 @@
 (require 'json)
 (require 'tabulated-list)
 (require 'thingatpt)
-(require 'openstack-cli)
+(require 'openstack-data)
 
 ;; Forward reference: the desktop notification of a state change.
 (declare-function notifications-notify "notifications" (&rest params))
@@ -246,21 +249,6 @@ Collection modes bind this buffer-locally to their resource's
 display command (e.g. `openstack-server-display'), so a row in a
 list buffer opens the right kind of show buffer."
   :type 'function
-  :group 'openstack)
-
-(defcustom openstack-resource-types nil
-  "Resource types with a derived mode.
-Each entry is a list of the type name, the mode that displays the
-resource and the command that opens its display buffer.  Prompts,
-Org links and xref navigation read this table.
-
-The resource modes fill the table when they load: each one calls
-`openstack-define-resource', which appends its entry.  The default
-is therefore empty.  Add an entry here only for a mode that does
-not use the macro."
-  :type '(repeat (list (string :tag "Type")
-                       (symbol :tag "Mode")
-                       (symbol :tag "Display command")))
   :group 'openstack)
 
 (defcustom openstack-status-fields '("status" "vm_state" "host_status"
@@ -541,15 +529,6 @@ failed to load."
 
 ;;; Helper functions
 
-(defun openstack-resource-type (type)
-  "Return the `openstack-resource-types' entry of resource TYPE."
-  (assoc type openstack-resource-types))
-
-(defun openstack-resource-type-for-mode (mode)
-  "Return the resource type that MODE displays, or nil."
-  (car (cl-find mode openstack-resource-types
-                :key (lambda (entry) (nth 1 entry)))))
-
 (defun openstack-dashboard-url (id)
   "Return the dashboard URL for resource ID.
 ID is a string; the URL is built from
@@ -679,14 +658,6 @@ into their contents here; this is what lets
 ;; The client prints field names in lower case for `RESOURCE show'
 ;; and in title case for `RESOURCE list', so the status helpers
 ;; compare names and values without case.
-
-(defun openstack--hash-field (table name)
-  "Return the value of TABLE field NAME, ignoring key case.
-Return nil when TABLE holds no key that matches NAME."
-  (cl-loop for key being the hash-keys of table
-           using (hash-value value)
-           when (and (stringp key) (string-equal-ignore-case key name))
-           return value))
 
 (defun openstack--status-field-p (field)
   "Return non-nil when FIELD holds a status value."
@@ -1159,19 +1130,16 @@ the click, which need not be point."
 
 ;;; Generic resource fetch and render
 
-(defun openstack-show-fetch (resource id success-fn error-fn)
-  "Fetch the details of resource RESOURCE with ID for a display buffer.
-RESOURCE is the client's resource command name, e.g. `server' or
-`volume'.  Run `RESOURCE show ID' through
-`openstack-cli-async-request' and call SUCCESS-FN with the
-parsed JSON, or ERROR-FN with an `openstack-cli-error'
-condition.  Return the client process, so the display machinery
-can cancel the fetch.  Derived resource modes wrap this with
-their own resource name as their `openstack-fetch-function'."
-  (openstack-cli-async-request
-   (list resource "show" id)
-   :success-fn success-fn
-   :error-fn error-fn))
+(defun openstack-show-fetch (type id success-fn error-fn)
+  "Fetch the details of resource TYPE with ID for a display buffer.
+TYPE names a key of `openstack-resource-definitions', e.g.
+`server' or `volume'.  Run `RESOURCE show ID' through
+`openstack-resource-show-async' and call SUCCESS-FN with the
+parsed JSON, or ERROR-FN with an `openstack-cli-error' condition.
+Return the client process, so the display machinery can cancel the
+fetch.  Derived resource modes wrap this with their own type as
+their `openstack-fetch-function'."
+  (openstack-resource-show-async type id success-fn error-fn))
 
 (defvar-local openstack-value-formatters nil
   "Alist of field name to formatter function for the show renderer.
@@ -1541,9 +1509,9 @@ argument; `gr' and the automatic refresh keep them.")
 
 (defun openstack-list-fetch (resource _id success-fn error-fn &optional args)
   "Fetch all resources of RESOURCE type for a collection buffer.
-RESOURCE is the client's resource command name, e.g. `server' or
-`volume'.  Run `RESOURCE list' through
-`openstack-cli-async-request' and call SUCCESS-FN with the
+RESOURCE names a key of `openstack-resource-definitions', e.g.
+`server' or `volume'.  Run `RESOURCE list' through
+`openstack-resource-list-async' and call SUCCESS-FN with the
 parsed JSON (a list of resource hash tables), or ERROR-FN with
 an `openstack-cli-error' condition.  ARGS appends extra client
 arguments to the command, for a resource whose list needs an
@@ -1552,12 +1520,11 @@ follow ARGS, so a display command can add the arguments of its
 prefix argument.  Return the client process,
 so the display machinery can cancel the fetch.  The ID argument
 is ignored: a collection buffer has no single resource ID.
-Collection modes wrap this with their own resource name as their
+Collection modes wrap this with their own resource type as their
 `openstack-fetch-function'."
-  (openstack-cli-async-request
-   (append (list resource "list") args openstack-list--prefix-arguments)
-   :success-fn success-fn
-   :error-fn error-fn))
+  (openstack-resource-list-async resource success-fn error-fn
+                                 (append args
+                                         openstack-list--prefix-arguments)))
 
 (defun openstack-list-columns (rows fields)
   "Return the table columns of ROWS in display order.
@@ -1951,45 +1918,8 @@ line, because the header line holds the column labels.
 
 ;;; Resource definitions
 
-(defvar openstack-resource-definitions nil
-  "Alist of resource type to the definition plist of that type.
-`openstack-define-resource' fills it when a resource file loads.
-Each plist holds :type, :cli, :noun, :id-prefix, :url-suffix,
-:fields, :list-fields, :list-arguments, :list-prefix-arguments,
-:mode, :display, :list-mode and :list-display.  The registry is
-the single source of truth for the resource names:
-`openstack-resource-types' is its view for the ID prompts, the
-Org links and the xref backend.")
-
-(defun openstack-resource-definition (type)
-  "Return the definition plist of resource TYPE, or nil."
-  (alist-get type openstack-resource-definitions nil nil #'equal))
-
-(defun openstack-resource-cli-name (type)
-  "Return the client resource command name of resource TYPE.
-The type string is the command name, unless the definition sets a
-different :cli value."
-  (or (plist-get (openstack-resource-definition type) :cli) type))
-
-(defun openstack--register-resource (type definition)
-  "Record resource TYPE with the definition plist DEFINITION.
-Store the plist in `openstack-resource-definitions', and append
-TYPE to `openstack-resource-types' unless an entry exists there
-already.  An existing entry stays, so a user customization does not
-lose the display command it names."
-  (let ((cell (assoc type openstack-resource-definitions)))
-    (if cell
-        (setcdr cell definition)
-      (setq openstack-resource-definitions
-            (append openstack-resource-definitions
-                    (list (cons type definition))))))
-  (unless (assoc type openstack-resource-types)
-    (setq openstack-resource-types
-          (append openstack-resource-types
-                  (list (list type
-                              (plist-get definition :mode)
-                              (plist-get definition :display))))))
-  definition)
+;; The registry lives in openstack-data.el, which this file requires:
+;; the macro below fills it, and the data entry points read it.
 
 (defun openstack-define-resource--value (properties key &optional default)
   "Return the value of a property of PROPERTIES, the macro argument plist.
@@ -2101,7 +2031,7 @@ JSON, or ERROR-FN with an `openstack-cli-error' condition.  Return
 the client process, so the display machinery can cancel the fetch.
 This is the value of `openstack-fetch-function' in `%s'."
                   type cli mode)
-         (openstack-show-fetch ,cli id success-fn error-fn))
+         (openstack-show-fetch ,type id success-fn error-fn))
 
        (defun ,render (id data)
          ,(openstack-define-resource--doc "Insert the display of %s ID with DATA into the buffer.
@@ -2177,8 +2107,7 @@ ERROR-FN with an `openstack-cli-error' condition.  Return the
 client process, so the display machinery can cancel the fetch.
 This is the value of `openstack-fetch-function' in `%s'."
                   noun cli list-arguments-var type list-mode)
-         (openstack-list-fetch ,cli id success-fn error-fn
-                               ,list-arguments-var))
+         (openstack-list-fetch ,type id success-fn error-fn))
 
        (defun ,list-columns (rows)
          ,(openstack-define-resource--doc "Return the table columns of ROWS in display order.
@@ -2245,6 +2174,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :fields ',fields
               :list-fields ',list-fields
               :list-arguments ',list-arguments
+              :list-arguments-variable ',list-arguments-var
               :list-prefix-arguments ',list-prefix-arguments
               :mode ',mode
               :display ',display

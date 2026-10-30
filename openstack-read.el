@@ -118,8 +118,11 @@ container, uses its Name field."
       (push (cons type entry) openstack-read--cache))))
 
 (defun openstack-read--fetch-rows (type)
-  "Fetch and cache the list rows of resource TYPE."
-  (let ((rows (openstack-cli-request (list type "list"))))
+  "Fetch and cache the list rows of resource TYPE.
+Read the definition through `openstack-resource-list', so the
+client command, the list arguments and a user customization of
+them all apply."
+  (let ((rows (openstack-resource-list type)))
     (setq rows (and (listp rows) rows))
     (openstack-read--store type rows)
     rows))

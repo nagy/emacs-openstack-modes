@@ -61,6 +61,7 @@
 (require 'json)
 (require 'subr-x)
 (require 'url)
+(require 'openstack-error)
 
 ;;; Customization
 
@@ -79,7 +80,8 @@ condition.  Nil disables the timeout."
 
 ;;; Conditions
 
-(define-error 'openstack-api-error "OpenStack API error")
+(define-error 'openstack-api-error "OpenStack API error"
+              'openstack-error)
 
 (define-error 'openstack-api-timeout "OpenStack API request timed out"
               'openstack-api-error)

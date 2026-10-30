@@ -29,6 +29,8 @@
 ;; Entry library of the package, so `(require 'openstack)' and
 ;; `(use-package openstack ...)' load everything the modes need:
 ;;
+;; - `openstack-data' (openstack-data.el): the resource registry and
+;;   the data entry points, for the modes and for other packages.
 ;; - `openstack-mode' (openstack-mode.el): the base show mode, the
 ;;   collection base mode and the renderers.
 ;; - `openstack-read' (openstack-read.el): the ID prompts and the
@@ -47,6 +49,7 @@
 
 ;;; Code:
 
+(require 'openstack-data)
 (require 'openstack-mode)
 (require 'openstack-read)
 (require 'openstack-resources)

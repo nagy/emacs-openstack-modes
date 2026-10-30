@@ -13,11 +13,13 @@ name as the ID.
 
 | File | Purpose |
 |---|---|
-| `openstack.el` | Entry library and package namesake: requires `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Core: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, the type registry (`openstack-resource-definitions`, `openstack-resource-types`) |
+| `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro |
+| `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`), the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
+| `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
-| `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups |
+| `openstack-read.el` | `RESOURCE list` cache with TTL, `openstack-read-id` prompt completion, `openstack-open-id`, type and name lookups. Reads list rows through `openstack-resource-list`, so the definition and its defcustom apply. |
 | `openstack-resources.el` | The six resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
@@ -25,7 +27,8 @@ name as the ID.
 | `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-api-tests.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
-| `openstack-resource-tests.el` | ERT tests for the five resource show and list modes, one table of fixtures and one test body per check |
+| `openstack-data-tests.el` | ERT tests for the data layer: the sync and async entry points, definition and defcustom arguments, cancellation, accessors, condition hierarchy; no buffer, no mode |
+| `openstack-resource-tests.el` | ERT tests for the six resource show and list modes, one table of fixtures and one test body per check |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
@@ -70,6 +73,7 @@ Without Nix:
 emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-cli-tests.el \
   -l openstack-api-tests.el \
+  -l openstack-data-tests.el \
   -l openstack-resource-tests.el \
   -l openstack-list-mode-tests.el \
   -l openstack-evil-tests.el \
@@ -84,6 +88,12 @@ includes evil.
 
 ## Conventions
 
+- The package has four layers, and dependencies point down only: transport (`openstack-cli.el`, `openstack-api.el`), data (`openstack-data.el`), presentation (`openstack-render-fields`, `openstack-list-render`) and interaction (the modes). The data layer never writes or opens a buffer, reads no buffer-local variable and loads no mode library; `openstack-data-tests.el` asserts the load rule. A consumer requiring `openstack-data` alone gets the registry and the data entry points.
+- Resource data goes through the type-keyed entry points of `openstack-data.el`: `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list` and `openstack-resource-list-async`, with `openstack-resource-cancel` for the process that an async call returns. They resolve the client command and the list arguments through the definition, so a `:cli` override or a `:list-arguments` default cannot drift. Do not build a client command from a type string by hand, and do not call `RESOURCE show` directly from a mode. The modes wrap these functions through `openstack-show-fetch` / `openstack-list-fetch`.
+- The generated `openstack-TYPE-list-arguments` defcustom stays the runtime source of the list arguments: `openstack-resource-arguments` reads the variable that `:list-arguments-variable` of the definition names, and falls back to the `:list-arguments` value for a hand-written definition. A nil defcustom means no extra arguments, so never merge the definition value back in.
+- Read resource hash tables with `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`; they compare keys without case, because `RESOURCE show` prints lower case fields and `RESOURCE list` prints title case columns. `openstack--hash-field` is their private base. The raw hash table stays the wire shape: pass it on; do not normalize the keys.
+- Every condition derives from `openstack-error` (`openstack-error.el`): `openstack-resource-error` for an unknown type, `openstack-cli-error` and `openstack-api-error` for the transports, with a timeout child per transport. A public function documents the conditions it raises. The transport layers require `openstack-error.el` only; never make the parent depend on a transport or on the data layer.
+- `openstack-define-resource` registers `:list-arguments-variable` next to `:list-arguments`; a new definition keyword that the data layer must honor also goes into the registry plist, or consumers and modes diverge.
 - CLI access goes through `openstack-cli.el`: `openstack-cli-request`
   for synchronous calls (timing out after `openstack-cli-timeout`
   seconds with `openstack-cli-timeout`, a subclass of
@@ -526,6 +536,16 @@ includes evil.
   a composite row ID or a buffer-local container variable.  That
   choice touches xref, Org links, the bookmark handler and the
   dashboard URLs.
+- Library follow-ups.  `openstack-data.el` holds no cache: move the
+  `RESOURCE list` cache and its TTL out of `openstack-read.el` into
+  the data layer, add a show cache keyed by type and ID, expose
+  invalidation through the data file and run a change hook, so a
+  consumer sees updates without a buffer.  Add a string-returning
+  renderer (`openstack-resource-render`) that the buffer renderers
+  call, and split buffer construction from `pop-to-buffer` in
+  `openstack-display`.  Document the data surface in a README
+  "Library" section with the condition hierarchy, and keep the
+  public-surface tests offline.
 - Dashboard deep links per resource type.  `openstack-id-prefix`
   holds the leading path segments and `openstack-url-suffix` the
   trailing ones (networks use `project/networks` and `/detail`,

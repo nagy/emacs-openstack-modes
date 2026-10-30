@@ -517,6 +517,63 @@ that produce no output (e.g. =delete=) parse to nil; non-zero
 exit or unparseable output signals =openstack-cli-error= (sync)
 or calls =error-fn= (async).
 
+* Library
+
+Another package loads =openstack-data= alone and reads resources
+without a buffer, a mode or a cloud.  The type string selects the
+definition, so the client command, the list arguments and the
+dashboard path come from one place:
+
+#+begin_src elisp
+  (require 'openstack-data)
+
+  ;; Synchronous: the parsed JSON of `server show'
+  (openstack-resource-show "server" "some-id")
+
+  ;; Asynchronous: returns the client process
+  (openstack-resource-list-async
+   "project"
+   (lambda (rows) ...)
+   (lambda (err) ...))
+
+  ;; Cancel an asynchronous call: neither callback runs
+  (openstack-resource-cancel process)
+#+end_src
+
+The generated defcustom stays the runtime source of the list
+arguments: set =openstack-container-list-arguments= and every
+caller sees the new value.  =openstack-resource-list= takes one
+optional argument, the extra client arguments that follow the
+configured ones.
+
+Read a field without case, because =RESOURCE show= prints lower
+case fields and =RESOURCE list= prints title case columns:
+
+#+begin_src elisp
+  (openstack-resource-id data)      ; the id of a show, the ID of a row
+  (openstack-resource-name data)
+  (openstack-resource-field data "status")
+#+end_src
+
+The data keeps the wire shape.  Pass the hash table on when the
+exact keys matter.
+
+Every error derives from =openstack-error=.  A failing client
+signals =openstack-cli-error=, an unknown type signals
+=openstack-resource-error=, and both stay catchable as
+=openstack-error=:
+
+#+begin_src elisp
+  (condition-case err
+      (openstack-resource-show "server" id)
+    (openstack-error (message "%s" (error-message-string err))))
+#+end_src
+
+The registry holds the definition of each type
+(=openstack-resource-definition=, =openstack-resource-arguments=).
+The table =openstack-resource-types= adds the mode and the display
+command for the prompts, the Org links and the xref backend.
+
 * Design
 
 =openstack-mode= is the base mode.  It keeps a buffer-local
@@ -524,17 +581,18 @@ or calls =error-fn= (async).
 provides ID handling.  Resource-specific modes (servers,
 volumes, images, networks, ...) derive from it and set
 =openstack-fetch-function= and =openstack-render-function= to
-their own fetcher and renderer.  The =openstack-server= package
+their own fetcher and renderer.  The fetcher of a generated mode
+calls the data layer (=openstack-show-fetch= wraps
+=openstack-resource-show-async=), so a mode and a library consumer
+read the same data through the same definition.  The
+=openstack-server= package
 is the reference implementation of that contract:
 
 #+begin_src elisp
   ;; openstack-server.el (excerpt)
   (defun openstack-server--fetch (id success-fn error-fn)
     "Fetch the data of server ID."
-    (openstack-cli-async-request
-     (list "server" "show" id)
-     :success-fn success-fn
-     :error-fn error-fn))
+    (openstack-resource-show-async "server" id success-fn error-fn))
 
   (define-derived-mode openstack-server-mode openstack-mode
     "OpenStack Server"
