@@ -122,13 +122,14 @@
                 "\"status\": \"ACTIVE\", "
                 "\"admin_state_up\": true, \"shared\": true, "
                 "\"router:external\": false, "
-                "\"subnets\": [\"subnet-1\"], "
+                "\"subnets\": [\"subnet-1\", \"subnet-2\"], "
                 "\"provider:network_type\": \"vxlan\", "
                 "\"provider:segmentation_id\": 42, "
                 "\"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
        :show-nested (("subnets" . "subnet-1"))
+       :show-references (("subnets" . ("subnet-1" "subnet-2")))
        :show-unlisted ("zzz_extra")
        :list-json
        ,(concat "[{\"ID\": \"net-1\", \"Name\": \"provider\", "
@@ -383,6 +384,46 @@ FORMAT holds one `%s' for the type string."
                (concat "^" (openstack-resource-test--title type) ": "
                        (regexp-quote id) "$")
                (buffer-string))))))
+
+(openstack-resource-test--def-type-tests render-references-per-line
+  (let ((render (openstack-resource-test--name type "openstack-%s--render"))
+        (id (plist-get fixture :show-id)))
+    (when-let* ((references (plist-get fixture :show-references)))
+      (with-temp-buffer
+        (let ((inhibit-read-only t))
+          (funcall render id
+                   (openstack-resource-test--parse
+                    (plist-get fixture :show-json))))
+        (dolist (entry references)
+          (let ((field (car entry))
+                (values (cdr entry))
+                (text (buffer-string)))
+            (should (string-match-p
+                     (concat "^" (regexp-quote field) ": +"
+                             (regexp-quote (car values)) "$")
+                     text))
+            (should-not (string-match-p (concat "^" (regexp-quote field)
+                                                ": .*,")
+                                        text))
+            ;; Every ID of the list starts its own line, and the later
+            ;; ones line up under the first.
+            (goto-char (point-min))
+            (search-forward (car values))
+            (let ((column (current-column)))
+              (dolist (value (cdr values))
+                (should (string-match-p (concat "^ +"
+                                                (regexp-quote value)
+                                                "$")
+                                        text))
+                (goto-char (point-min))
+                (search-forward value)
+                (should (= (current-column) column))))
+            (dolist (value values)
+              (goto-char (point-min))
+              (search-forward value)
+              (should (equal (get-text-property (match-beginning 0)
+                                                'openstack-id)
+                             value)))))))))
 
 (openstack-resource-test--def-type-tests display-renders-from-real-client
   (let ((display (openstack-resource-test--name type "openstack-%s-display"))

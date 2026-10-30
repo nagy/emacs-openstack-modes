@@ -674,6 +674,68 @@ the renderer must not leave it as one JSON line."
         (should (string-match-p "^  os_hash_algo: sha512$" text))
         (should-not (string-match-p "\\[{\"url\"" text))))))
 
+(ert-deftest openstack-render-fields-prints-references-per-line ()
+  "A field of `openstack-reference-fields' prints one ID per line.
+Every ID takes the `openstack-id' face, the `openstack-id'
+property and its resource type, and the lines line up under the
+first one instead of one JSON array or comma list."
+  (let ((data (json-parse-string
+               (concat "{\"name\": \"provider\", "
+                       "\"subnets\": [\"subnet-1\", \"subnet-2\"]}")
+               :object-type 'hash-table :array-type 'list))
+        (openstack-reference-fields '(("subnets" . "subnet"))))
+    (with-temp-buffer
+      (openstack-render-fields "Network" "net-1" data
+                               '("name" "subnets"))
+      (let ((text (buffer-string))
+            (columns nil))
+        (should (string-match-p "^subnets: +subnet-1$" text))
+        (should (string-match-p "^ +subnet-2$" text))
+        (should-not (string-match-p "," text))
+        (dolist (id '("subnet-1" "subnet-2"))
+          (goto-char (point-min))
+          (search-forward id)
+          (push (current-column) columns)
+          (should (eq (get-text-property (match-beginning 0) 'face)
+                      'openstack-id))
+          (should (equal (get-text-property (match-beginning 0)
+                                            'openstack-id)
+                         id))
+          (should (equal (get-text-property (match-beginning 0)
+                                            'openstack-ref-type)
+                         "subnet"))
+          (should (eq (get-text-property (match-beginning 0) 'mouse-face)
+                      'highlight)))
+        (should (= (length columns) 2))
+        (should (= (nth 0 columns) (nth 1 columns)))))))
+
+(ert-deftest openstack-render-fields-references-mark-changed ()
+  "A reference list that differs from the last render takes the change face."
+  (let ((data (json-parse-string
+               "{\"subnets\": [\"subnet-1\", \"subnet-2\"]}"
+               :object-type 'hash-table :array-type 'list))
+        (previous (json-parse-string "{\"subnets\": [\"subnet-1\"]}"
+                                     :object-type 'hash-table
+                                     :array-type 'list))
+        (openstack-reference-fields '(("subnets" . "subnet")))
+        (inhibit-read-only t))
+    (with-temp-buffer
+      (let ((openstack--previous-data previous))
+        (openstack-render-fields "Network" nil data '("subnets")))
+      (should (equal (openstack-test--face-at "subnet-1")
+                     '(openstack-field-changed openstack-id))))))
+
+(ert-deftest openstack-render-fields-references-need-a-known-field ()
+  "A list of IDs stays comma-separated unless a field claims the type."
+  (let ((data (json-parse-string
+               "{\"subnets\": [\"subnet-1\", \"subnet-2\"]}"
+               :object-type 'hash-table :array-type 'list))
+        (openstack-reference-fields nil))
+    (with-temp-buffer
+      (openstack-render-fields "Network" nil data '("subnets"))
+      (should (string-match-p "^subnets: +subnet-1, subnet-2$"
+                              (buffer-string))))))
+
 (ert-deftest openstack-show-fetch-runs-resource-show ()
   "`openstack-show-fetch' runs `RESOURCE show ID' via the CLI layer."
   (let ((args-seen nil)
@@ -806,6 +868,42 @@ The fetcher receives nil as the ID; without the
              (lambda (id) (setq shown id))))
         (openstack-display-at-point)))
     (should (equal shown "res-9"))))
+
+(ert-deftest openstack-display-at-point-opens-reference-type ()
+  "A reference ID opens with the display command of its type.
+The `openstack-ref-type' property wins over the buffer-local
+`openstack-show-command', so a subnet opens in its own buffer
+once a subnet mode exists."
+  (let ((shown nil)
+        (openstack-resource-types
+         '(("subnet" openstack-subnet-mode openstack-subnet-display))))
+    (with-temp-buffer
+      (openstack-mode)
+      (let ((inhibit-read-only t))
+        (insert "subnets: "
+                (propertize "subnet-9" 'openstack-id "subnet-9"
+                            'openstack-ref-type "subnet")
+                "\n"))
+      (goto-char (point-min))
+      (search-forward "subnet-9")
+      (goto-char (match-beginning 0))
+      (cl-letf (((symbol-function 'openstack-subnet-display)
+                 (lambda (id) (setq shown id)))
+                (openstack-show-command
+                 (lambda (_id) (ert-fail "wrong display command"))))
+        (openstack-display-at-point)))
+    (should (equal shown "subnet-9"))))
+
+(ert-deftest openstack-display-at-point-reference-without-mode ()
+  "A reference type without a display command signals a user-error."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t)
+          (openstack-resource-types nil))
+      (insert (propertize "subnet-9" 'openstack-id "subnet-9"
+                                        'openstack-ref-type "subnet"))
+      (goto-char (point-min))
+      (should-error (openstack-display-at-point) :type 'user-error))))
 
 (ert-deftest openstack-mode-keymap-navigation ()
   "RET and `mouse-2' open the resource at point."

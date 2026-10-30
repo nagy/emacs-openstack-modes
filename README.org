@@ -96,6 +96,8 @@ Customization (=M-x customize-group openstack=):
   =openstack-date= face (=created_at=, =updated_at=,
   =launched_at=, =terminated_at=, =deleted_at=, =timestamp=);
   =nil= renders dates with the default face
+- =openstack-reference-fields= -- fields whose values name
+  other resources, one per line (=subnets= holds subnet IDs)
 - =openstack-transitional-states= -- statuses that still
   change, so their buffer polls faster
 - =openstack-refresh-fast-interval= -- seconds between refresh
@@ -189,9 +191,11 @@ key, instead of one JSON dump.  The same holds for the Glance
 =locations= list: the client flattens that attribute into
 =properties=, so the block nests there and prints each location
 as an indented record with its keys on their own lines.  A list
-of plain values prints as comma-separated text: the =subnets= of
-a network or the =tags= of an image read =subnet-1, subnet-2=
-instead of a JSON array.  The
+of plain values prints as comma-separated text: the =tags= of an
+image read =subnet-1, subnet-2=
+instead of a JSON array.  A field that =openstack-reference-fields=
+names prints its IDs one per line instead, as the =subnets= of a
+network do.  The
 image =size= and =virtual_size= print human readable through
 =file-size-human-readable=, for example =224M=, while the list
 column keeps the raw byte count for sorting.
@@ -206,6 +210,16 @@ service:
 
 - =M-x openstack-network-display= -- display a network by ID
   (=openstack network show=)
+
+A network lists the subnets it owns.  The =subnets= field prints
+one subnet ID per line, each with the =openstack-id= face and the
+=openstack-id= text property: =RET= or =mouse-2= on such a line
+opens the subnet.  No subnet mode exists yet, so the command
+signals a =user-error= until one arrives.  A subnet mode that
+=openstack-define-resource= defines makes these lines open the
+subnet in its own buffer, without a change to the network mode.
+The =openstack-reference-fields= defcustom maps a field name to
+the resource type of its values; it holds the =subnets= entry.
 
 Horizon shows a network below the project's network panel, so
 this mode uses the URL suffix: the dashboard URL is
@@ -264,7 +278,9 @@ resource's display command (e.g. =openstack-server-display=).  =c=
 copies the ID of the row and =w= opens its dashboard page.  =n= and
 =p= move by row, and =q= buries the buffer: =openstack-pop= (=p=)
 stays a show-mode command.  The ID field line in show buffers works
-the same way.
+the same way, and so does a subnet ID in a network buffer, which
+opens through the display command of the type that
+=openstack-reference-fields= names.
 
 The list buffer has no resource ID: the buffer-level ID commands
 do not apply there.  Columns come from the mode's =-fields=

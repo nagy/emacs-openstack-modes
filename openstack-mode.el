@@ -282,6 +282,22 @@ Set this to nil to render dates with the default face."
   :type '(repeat string)
   :group 'openstack)
 
+(defcustom openstack-reference-fields '(("subnets" . "subnet"))
+  "Fields whose values name other resources.
+Each entry maps a show field name to the resource type of its
+values.  The client reports such values as a list of IDs: a
+network lists the `subnets' it owns.  The show renderer prints
+one ID per line, each with the `openstack-id' face and the
+`openstack-id' text property, so RET or `mouse-2' opens the
+referenced resource through the display command that
+`openstack-resource-types' holds for its type.  A type without
+a display command there signals a `user-error'.  The field name
+comparison ignores case.  A list column still shows the IDs on
+one line of text."
+  :type '(alist :key-type (string :tag "Field")
+                :value-type (string :tag "Type"))
+  :group 'openstack)
+
 (defcustom openstack-status-faces
   '(;; Healthy states.
     ("active" . openstack-status-ok)
@@ -375,11 +391,12 @@ take this face."
 
 (defface openstack-id
   '((t :inherit marginalia-number))
-  "Face for the ID of a resource in display buffers.
+  "Face for a resource ID in display buffers.
 It inherits `marginalia-number', so a theme that styles
 Marginalia numbers styles these IDs too.  The renderers apply it
-to the `ID' line of a show buffer, to the `id' field and to the
-`ID' column of a resource list."
+to the `ID' line of a show buffer, to the `id' field, to the
+`ID' column of a resource list and to every ID of a field that
+`openstack-reference-fields' names."
   :group 'openstack)
 
 (defface openstack-error
@@ -703,6 +720,12 @@ uses underscores, so both spellings match."
 `RESOURCE show' spells the field `id' and `RESOURCE list' spells
 the column `ID', so the comparison ignores case."
   (string-equal-ignore-case field "id"))
+
+(defun openstack--reference-type (field)
+  "Return the resource type that the values of FIELD name, or nil.
+Read `openstack-reference-fields'; the field name comparison
+ignores case."
+  (cdr (assoc-string field openstack-reference-fields t)))
 
 (defun openstack--cell-face (field value changed)
   "Return the face list for FIELD with VALUE.
@@ -1098,15 +1121,25 @@ in which case the buffer fills in asynchronously."
 (defun openstack-display-at-point ()
   "Display the OpenStack resource whose ID is at point.
 The ID is read from the `openstack-id' text property, which the
-generic renderers attach to the ID field line and to the rows of
-collection buffers.  The resource is opened with the buffer-local
-`openstack-show-command' (a collection mode binds it to its
-resource's display command), defaulting to `openstack-display'."
+generic renderers attach to the ID field line, to the IDs of a
+`openstack-reference-fields' field and to the rows of collection
+buffers.  A reference carries its resource type in the
+`openstack-ref-type' property: when `openstack-resource-types'
+holds a display command for that type, this command runs it, so
+a subnet opens in a subnet buffer once its mode exists.  Every
+other ID opens with the buffer-local `openstack-show-command',
+which a collection mode binds to its resource's display command,
+defaulting to `openstack-display'."
   (interactive)
-  (let ((id (openstack--id-property-at-point)))
+  (let* ((id (openstack--id-property-at-point))
+         (type (and id (get-char-property (point) 'openstack-ref-type)))
+         (entry (and type (openstack-resource-type type))))
     (unless id
       (user-error "No OpenStack resource ID at point"))
-    (funcall openstack-show-command id)))
+    (cond ((null type) (funcall openstack-show-command id))
+          (entry (funcall (nth 2 entry) id))
+          (t (user-error "No display command for resource type %s"
+                         type)))))
 
 ;;;###autoload
 (defun openstack-mouse-display-at-point (event)
@@ -1168,9 +1201,10 @@ that holds a hash table or another list stays JSON."
 FIELD, when non-nil, looks up a formatter in
 `openstack-value-formatters' first.  Strings and numbers are
 shown as they are (an empty string as a dash); booleans and a
-list of plain values such as the `subnets' of a network or the
-`tags' of an image print as text; nested lists, hash tables and
-anything else fall back to their JSON encoding."
+list of plain values such as the `tags' of an image print as
+text; a field that `openstack-reference-fields' names prints
+through `openstack--insert-references' instead; nested lists,
+hash tables and anything else fall back to their JSON encoding."
   (let ((formatter (and field
                         (cdr (assoc (downcase field)
                                     openstack-value-formatters)))))
@@ -1212,6 +1246,42 @@ refresh takes `openstack-field-changed'."
                            1)
                          ?\s)
             text "\n")))
+
+(defun openstack--insert-references (field values &optional width)
+  "Insert FIELD, a list of resource IDs in VALUES, one ID per line.
+Every ID takes the `openstack-id' face, the `openstack-id' text
+property and `mouse-face', plus `openstack-ref-type' with the
+resource type that `openstack-reference-fields' names for FIELD,
+so RET and `mouse-2' open the referenced resource.  WIDTH, when a
+number, gives the column at which values start, so the field name
+gets padded with spaces after its colon and the later IDs line up
+under the first one.  A list that differs from the previous
+refresh takes `openstack-field-changed' on every ID as well."
+  (let* ((type (openstack--reference-type field))
+         (face (if (openstack--field-changed-p field values)
+                   '(openstack-field-changed openstack-id)
+                 'openstack-id))
+         (pad (make-string (if width
+                               (1+ (- width (string-width field)))
+                             1)
+                           ?\s))
+         (continuation (make-string (+ (string-width field) 1
+                                       (string-width pad))
+                                    ?\s))
+         (first t))
+    (dolist (value values)
+      (insert (if first
+                  (concat (propertize field 'face 'openstack-field-name
+                                      'openstack-field field)
+                          ":" pad)
+                continuation))
+      (insert (propertize (openstack--format-value value)
+                          'face face
+                          'openstack-id value
+                          'openstack-ref-type type
+                          'mouse-face 'highlight)
+              "\n")
+      (setq first nil))))
 
 (defun openstack--insert-properties (properties)
   "Insert PROPERTIES, a hash table of resource metadata, as a block.
@@ -1266,6 +1336,23 @@ past the longest key."
                 (openstack--insert-field key value nil width)
                 (setq first nil)))))))))
 
+(defun openstack--row-kind (field value)
+  "Return the kind of the display row of FIELD with VALUE.
+`properties' marks the metadata hash table that closes the
+field table, `records' a `locations' list of hash tables,
+`references' a list of IDs of another resource type as
+`openstack-reference-fields' names it, and nil a plain field
+line."
+  (cond
+   ((and (hash-table-p value) (string-equal field "properties"))
+    'properties)
+   ((and (string-equal field "locations")
+         (openstack--record-list-p value))
+    'records)
+   ((and (openstack--reference-type field)
+         (openstack--plain-list-p value))
+    'references)))
+
 (defun openstack-render-fields (title id data fields)
   "Insert a field table titled TITLE into the current buffer.
 ID identifies the resource in the header (nil in collection
@@ -1277,8 +1364,10 @@ starts at one column, one space past the longest field name, so
 the table lines up.  A hash-table `properties' value is the
 last entry and prints as an indented `key: value' block; a
 `locations' list of hash tables prints as an indented block of
-records.  Derived resource modes call this from their
-`openstack-render-function' with their own field order."
+records; a field named in `openstack-reference-fields' prints
+one referenced ID per line.  Derived resource modes call this
+from their `openstack-render-function' with their own field
+order."
   (insert (format "%s: %s\n" title
                   (or (and (hash-table-p data) (gethash "name" data))
                       id)))
@@ -1292,47 +1381,40 @@ records.  Derived resource modes call this from their
     (let ((unshown (make-hash-table :test #'equal))
           (properties nil)
           (rows nil))
-      (maphash (lambda (key _value) (puthash key t unshown)) data)
-      (dolist (field fields)
-        (remhash field unshown)
-        (let ((value (gethash field data)))
-          (when value
-            (cond
-             ((and (hash-table-p value)
-                   (string-equal field "properties"))
-              (setq properties value))
-             ((and (string-equal field "locations")
-                   (openstack--record-list-p value))
-              (push (list field value 'records) rows))
-             (t
-              (push (list field value
-                          (and id (string= field "id") id))
-                    rows))))))
-      (let ((remaining nil))
-        (maphash (lambda (key _value) (push key remaining)) unshown)
-        (dolist (field (sort remaining #'string<))
+      (cl-labels
+          ((add-row (field value)
+             "Record FIELD with VALUE as a display row, or as PROPERTIES."
+             (let ((kind (and value (openstack--row-kind field value))))
+               (if (eq kind 'properties)
+                   (setq properties value)
+                 (push (list field value
+                             (and id (string= field "id") id)
+                             kind)
+                       rows)))))
+        (maphash (lambda (key _value) (puthash key t unshown)) data)
+        (dolist (field fields)
+          (remhash field unshown)
           (let ((value (gethash field data)))
-            (cond
-             ((and (hash-table-p value)
-                   (string-equal field "properties"))
-              (setq properties value))
-             ((and (string-equal field "locations")
-                   (openstack--record-list-p value))
-              (push (list field value 'records) rows))
-             (t
-              (push (list field value
-                          (and id (string= field "id") id))
-                    rows))))))
+            (when value
+              (add-row field value))))
+        (let ((remaining nil))
+          (maphash (lambda (key _value) (push key remaining)) unshown)
+          (dolist (field (sort remaining #'string<))
+            (add-row field (gethash field data)))))
       (setq rows (nreverse rows))
       (let ((width (apply #'max 0
                           (mapcar (lambda (row)
                                     (string-width (nth 0 row)))
                                   rows))))
         (dolist (row rows)
-          (if (eq (nth 2 row) 'records)
-              (openstack--insert-records (nth 0 row) (nth 1 row))
-            (openstack--insert-field
-             (nth 0 row) (nth 1 row) (nth 2 row) width))))
+          (pcase (nth 3 row)
+            ('records
+             (openstack--insert-records (nth 0 row) (nth 1 row)))
+            ('references
+             (openstack--insert-references (nth 0 row) (nth 1 row) width))
+            (_
+             (openstack--insert-field
+              (nth 0 row) (nth 1 row) (nth 2 row) width)))))
       (when properties
         (openstack--insert-properties properties)))))
 
@@ -1398,9 +1480,10 @@ and rendering by setting `openstack-fetch-function' and
 `openstack-render-function' to their own functions.
 
 The renderers attach an `openstack-id' text property to the ID
-field lines and to the rows of collection buffers: RET or
-`mouse-2' there opens the resource with the buffer-local
-`openstack-show-command' (`openstack-display-at-point')."
+field lines, to the IDs of an `openstack-reference-fields' field
+and to the rows of collection buffers: RET or `mouse-2' there
+opens the resource with the buffer-local `openstack-show-command';
+`openstack-display-at-point' carries it out."
   :group 'openstack
   ;; Entering the mode again (a derived mode superseding this one,
   ;; or `openstack-display' on an existing buffer) replaces the

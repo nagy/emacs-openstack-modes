@@ -219,10 +219,14 @@ includes evil.
   show ID` via the async CLI layer) and `openstack-render-fields`
   (header + ordered field table, JSON for nested values).  Value
   formatting lives in `openstack--format-value`; do not duplicate
-  it per mode.  A list of plain values, such as the `subnets` of a
-  network or the `tags` of an image, prints as comma-separated
-  text (`subnet-1, subnet-2`); a list that holds records stays
-  JSON.  The field renderer collects every row first and
+  it per mode.  A list of plain values, such as the `tags` of an
+  image, prints as comma-separated text (`subnet-1, subnet-2`); a
+  list that holds records stays JSON.  A field named in
+  `openstack-reference-fields` (`subnets` of a network, type
+  `subnet`) prints one ID per line instead, each with the
+  `openstack-id` face, the `openstack-id` property and the
+  `openstack-ref-type` property.  The field renderer collects
+  every row first and
   pads each name after its colon to the longest name, so all
   values start at one column (`openstack--insert-field' takes the
   width); a mode that renders fields by hand must align them the
@@ -297,12 +301,20 @@ includes evil.
   `window-size-change-functions` redraws visible list buffers from
   the cached rows (`openstack-list--redraw`, no new CLI call).
 - Navigation: the renderers attach an `openstack-id` text
-  property to ID field lines and to whole list rows; RET and
-  `mouse-2` (`openstack-display-at-point`) open the resource at
+  property to ID field lines, to every ID of a
+  `openstack-reference-fields` field and to whole list rows; RET
+  and `mouse-2` (`openstack-display-at-point`) open the resource at
   point with the buffer-local `openstack-show-command`, which list
   modes bind to their resource's display command (default
-  `openstack-display`).  `openstack-display-at-point` reads the
-  property only: a bare UUID in a log line stays `M-.` territory.
+  `openstack-display`).  A reference also carries its type in the
+  `openstack-ref-type` property: `openstack-display-at-point` runs
+  the display command that `openstack-resource-types` holds for
+  that type, and signals a `user-error` while no mode registers
+  it.  So the subnets of a network open in subnet buffers as soon
+  as `openstack-define-resource` defines the `subnet` type; do not
+  bind `openstack-show-command` for it.
+  `openstack-display-at-point` reads the
+  `openstack-id` property only: a bare UUID in a log line stays `M-.` territory.
 - `openstack-mode` also registers the `openstack-id` thing:
   `openstack-id-thing` (property first, then a UUID under point)
   and `openstack-id-bounds` (the property run, or the UUID bounds)
@@ -460,8 +472,10 @@ includes evil.
   `openstack--cell-face` adds it when the field name is `id'
   (show) or `ID' (list), so the `id' field row and the `ID'
   column share the face.  A reference to another resource, such
-  as `image_id', keeps the default face; the face marks the
-  identity of the displayed resource only.  The name-as-ID
+  as `image_id', keeps the default face unless
+  `openstack-reference-fields` names its field, which prints its
+  IDs one per line with `openstack-id`; otherwise the face marks
+  the identity of the displayed resource only.  The name-as-ID
   resource (Swift containers) keeps its `Name' column unfaced.
 - Date fields take `openstack-date`: `openstack--cell-face` adds it
   when the field name matches `openstack-date-fields` (a space in a
