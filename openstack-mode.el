@@ -897,7 +897,10 @@ empty nil result prints as an empty JSON array."
       (when data
         (insert (json-encode data))
         (json-pretty-print-buffer)))
-    (goto-char (point-min))))
+    (goto-char (point-min))
+    ;; A read-only view has nothing to save: keep the buffer out of
+    ;; the modification state, so exiting asks no question.
+    (set-buffer-modified-p nil)))
 
 (defun openstack-json--redraw (source)
   "Redraw the JSON view linked to SOURCE from its last fetch."
@@ -1004,6 +1007,9 @@ was superseded while it ran."
                 (when (window-live-p window)
                   (set-window-start window (min start (point-max))))))
             (openstack--notify-state-changes data openstack--previous-data)
+            ;; Rendering changed the text, not the user's file: a
+            ;; read-only display buffer stays unmodified.
+            (set-buffer-modified-p nil)
             (openstack-json--redraw buf)))
         (when openstack--refresh-requested
           (setq openstack--refresh-requested nil)
@@ -1703,7 +1709,8 @@ own column order."
     (when (null rows)
       (let ((inhibit-read-only t))
         (goto-char (point-min))
-        (insert placeholder "\n")))))
+        (insert placeholder "\n")))
+    (set-buffer-modified-p nil)))
 
 (defun openstack-list--redraw ()
   "Redraw the table from the cached rows, without a new fetch.

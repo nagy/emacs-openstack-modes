@@ -357,6 +357,13 @@ includes evil.
   Errors keep the last good content and go to
   `openstack-error-display-function` (header line for show modes,
   mode line for list modes).
+- Display buffers are views, not edited files: the three render
+  paths (`openstack--refresh-done`, `openstack-list-render`,
+  `openstack-json--render`) end with
+  `(set-buffer-modified-p nil)`, so `buffer-modified-p` stays nil,
+  the mode line shows no `*` and `kill-buffer` asks no question.
+  A renderer that writes a read-only buffer outside those paths
+  must clear the flag itself.
 - The JSON view is a read-only second buffer over the last fetch:
   `openstack-json-view` (=J= in both mode maps) pretty prints
   `openstack--last-data` through `openstack-json-mode`, which

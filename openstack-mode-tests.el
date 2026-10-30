@@ -256,6 +256,25 @@ returned; until then the old content stays."
             (should-not openstack--pending)))
       (kill-buffer buf))))
 
+(ert-deftest openstack-mode-render-clears-modified-flag ()
+  "A read-only display buffer stays unmodified after a render."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (should buffer-read-only)
+          (should-not (buffer-modified-p))
+          (let (success-fn)
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (_id data) (insert data)))
+            (openstack--refresh)
+            (funcall success-fn "new-data")
+            (should (string-match-p "new-data" (buffer-string)))
+            (should-not (buffer-modified-p))))
+      (kill-buffer buf))))
+
 (ert-deftest openstack-mode-refresh-skips-in-flight-fetch ()
   "A second refresh while one runs starts no new fetch."
   (let ((buf (openstack-test--make-resource-buffer)))
@@ -730,6 +749,15 @@ The fetcher receives nil as the ID; without the
       (should (equal (get-text-property (match-beginning 0) 'openstack-id)
                      "id-2")))))
 
+(ert-deftest openstack-list-render-clears-modified-flag ()
+  "A rendered table stays unmodified, with rows and without them."
+  (dolist (data (list nil
+                       (openstack-test--parse
+                        "[{\"ID\": \"id-1\", \"Name\": \"web-1\"}]")))
+    (with-temp-buffer
+      (openstack-list-render "(none)" data '("ID" "Name"))
+      (should-not (buffer-modified-p)))))
+
 (ert-deftest openstack-render-fields-propertizes-id ()
   "The header ID and the `id' field line carry `openstack-id'."
   (let ((data (with-temp-buffer
@@ -818,6 +846,7 @@ that `openstack-json-view' opened.  Kill both buffers afterwards."
     (should (derived-mode-p 'openstack-json-mode))
     (should (equal (buffer-name json) " *openstack-json-source* JSON"))
     (should buffer-read-only)
+    (should-not (buffer-modified-p))
     (should (string-match-p "\"name\": \"web-1\"" (buffer-string)))
     (should (string-match-p "^{\n" (buffer-string)))))
 
