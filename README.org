@@ -227,6 +227,22 @@ this mode uses the URL suffix: the dashboard URL is
 defcustom carries the trailing segment; =openstack-id-prefix=
 carries the leading ones.  Other modes leave the suffix empty.
 
+* Projects
+
+=openstack-project-mode= displays a project of the Identity
+service:
+
+- =M-x openstack-project-display= -- display a project by ID
+  (=openstack project show=)
+
+Horizon serves the project detail view below its own panel, so
+this mode sets the full URL: =identity/projects/ID/detail=.  The
+=parent_id= field stays plain text, because a top-level project
+holds its domain ID there and a domain is not a resource type of
+this package.  The =options= hash table prints as its JSON text;
+a disabled project shows no =enabled= line, because the renderer
+skips a false value, as it does for every boolean field.
+
 * Object storage
 
 =openstack-container-mode= displays a container of the Object
@@ -260,6 +276,8 @@ single resource; the server list mode is the reference:
   (=openstack image list=)
 - =M-x openstack-network-list-display= -- list all networks
   (=openstack network list=)
+- =M-x openstack-project-list-display= -- list all projects
+  (=openstack project list=)
 - =M-x openstack-container-list-display= -- list all containers
   (=openstack container list=)
 
@@ -286,7 +304,8 @@ The list buffer has no resource ID: the buffer-level ID commands
 do not apply there.  Columns come from the mode's =-fields=
 defcustom (=openstack-server-list-fields=,
 =openstack-volume-list-fields=, =openstack-image-list-fields=,
-=openstack-network-list-fields=, =openstack-container-list-fields=)
+=openstack-network-list-fields=, =openstack-project-list-fields=,
+=openstack-container-list-fields=)
 first; all remaining fields
 follow, sorted by name.  Sorting compares typed values, so a
 numeric column such as =Size= sorts as numbers and shows
@@ -294,7 +313,10 @@ right-aligned.  A row identity is the resource ID; a container
 row takes its name instead, because a Swift container has no
 UUID.  =openstack-container-list-arguments= holds extra client
 arguments for =container list= (=--long= by default, for the byte
-and object counts).  The table logic lives in the base mode
+and object counts).  =openstack-project-list-arguments= asks for
+=--long= too, so the table shows the domain, the description and
+the enabled flag, which the client omits by default.  The table
+logic lives in the base mode
 (=openstack-list-fetch=, =openstack-list-columns=,
 =openstack-list-render=); list modes are thin wrappers over it,
 like the show modes over =openstack-show-fetch=.

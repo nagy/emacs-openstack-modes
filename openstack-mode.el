@@ -95,10 +95,10 @@
 ;; The file also holds the two layers that every resource type uses:
 ;;
 ;;   `openstack-list-mode' is the parent of the collection buffers
-;;   (servers, volumes, images, networks, containers).  It derives
-;;   from `tabulated-list-mode', so a table comes with a clickable
-;;   column header, per-column sorting, column resizing and point
-;;   keeping across refreshes.
+;;   (servers, volumes, images, networks, projects, containers).  It
+;;   derives from `tabulated-list-mode', so a table comes with a
+;;   clickable column header, per-column sorting, column resizing and
+;;   point keeping across refreshes.
 ;;
 ;;   `openstack-define-resource' writes a whole resource type from
 ;;   one form: the show mode, the list mode, their display commands,

@@ -104,6 +104,24 @@
   :list-fields '("ID" "Name" "Status" "Subnets" "Shared"
                  "Router External"))
 
+;;; Projects
+
+;; The Identity service serves a project under its own dashboard
+;; panel, so the URL differs from the other resource types: the
+;; project detail view lives at `identity/projects/ID/detail/'.  The
+;; `parent_id' of a nested project holds a project ID, but the field
+;; of a top-level project holds the domain ID, so it stays plain text
+;; instead of an `openstack-reference-fields' entry.
+
+(openstack-define-resource "project"
+  :noun "projects"
+  :id-prefix "identity/projects"
+  :url-suffix "/detail"
+  :fields '("name" "enabled" "description" "domain_id" "parent_id"
+            "is_domain" "tags" "options")
+  :list-arguments '("--long")
+  :list-fields '("ID" "Name" "Enabled" "Domain ID" "Description"))
+
 ;;; Containers
 
 ;; A Swift container has no UUID: its name acts as the resource ID, and

@@ -146,6 +146,36 @@
                    "^net-2 +- +DOWN +- +- +early +late")
        :list-first-id "net-1")
 
+      ("project"
+       :show-id "proj-1"
+       :show-json
+       ,(concat "{\"id\": \"proj-1\", \"name\": \"demo\", "
+                "\"enabled\": true, "
+                "\"description\": \"Demo project\", "
+                "\"domain_id\": \"default\", "
+                "\"parent_id\": \"default\", "
+                "\"tags\": [\"team-a\", \"team-b\"], "
+                "\"options\": {}, "
+                "\"zzz_extra\": \"late\"}")
+       :show-missing ("is_domain")
+       :show-nested (("tags" . "team-a, team-b")
+                     ("options" . "{}"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"proj-1\", \"Name\": \"demo\", "
+                "\"Enabled\": true, \"Domain ID\": \"default\", "
+                "\"Description\": \"demo project\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"proj-2\", \"Name\": \"\", "
+                "\"Enabled\": false, \"Domain ID\": \"default\", "
+                "\"Description\": \"\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "Enabled" "Domain ID"
+                      "Description" "Alpha" "Zebra")
+       :list-rows ("^proj-1 +demo +true +default +demo project +early +late"
+                   "^proj-2 +- +- +default +- +early +late")
+       :list-first-id "proj-1")
+
       ("container"
        :show-id "logs"
        :show-json

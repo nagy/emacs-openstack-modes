@@ -55,6 +55,7 @@
                   ("volume" . openstack-volume-display)
                   ("image" . openstack-image-display)
                   ("network" . openstack-network-display)
+                  ("project" . openstack-project-display)
                   ("container" . openstack-container-display)))
     (let ((seen nil))
       (cl-letf (((symbol-function (cdr case))

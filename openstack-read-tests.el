@@ -171,7 +171,8 @@ A Swift container has a name and no UUID."
         (should (equal (openstack-read-type-of-id "net-1") "network"))
         (should (equal (length calls) before)))
       (should (null (openstack-read-type-of-id "nope")))
-      (should (equal (length calls) 5)))))
+      (should (equal (length calls)
+                     (length openstack-resource-types))))))
 
 (ert-deftest openstack-read-type-of-id-failure-is-nil ()
   "A failing client yields nil from the type lookup."
@@ -201,7 +202,8 @@ A Swift container has a name and no UUID."
       (should (equal (car calls) '("server" "list")))
       (should (equal (length calls) 3))
       (openstack-read-refresh)
-      (should (equal (length calls) 8)))))
+      (should (equal (length calls)
+                     (+ 3 (length openstack-resource-types)))))))
 
 (ert-deftest openstack-open-id ()
   "A known ID opens the display command of its type."
