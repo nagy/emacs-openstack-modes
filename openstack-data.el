@@ -51,6 +51,7 @@
 ;;   openstack-resource-invalidate  - drop one or every cached answer
 ;;   openstack-resource-arguments   - the list arguments of a type
 ;;   openstack-resource-fields      - the show field order of a type
+;;   openstack-resource-list-fields - the list column order of a type
 ;;   openstack-resource-field       - one field, key case ignored
 ;;   openstack-resource-id          - the id field of a resource
 ;;   openstack-resource-name        - the name field of a resource
@@ -220,6 +221,18 @@ TYPE."
         (symbol-value variable)
       (plist-get definition :fields))))
 
+(defun openstack-resource-list-fields (type)
+  "Return the list column order of resource TYPE.
+Read the generated `openstack-TYPE-list-fields' defcustom while the
+variable exists, so a user customization wins over the default of
+the definition.  Signal `openstack-resource-error' for an unknown
+TYPE."
+  (let* ((definition (openstack--definition-or-error type))
+         (variable (plist-get definition :list-fields-variable)))
+    (if (and variable (boundp variable))
+        (symbol-value variable)
+      (plist-get definition :list-fields))))
+
 (defun openstack-resource-list (type &optional extra)
   "Return the parsed `RESOURCE list' data of resource TYPE.
 The command takes the list arguments of the definition, plus
@@ -265,6 +278,21 @@ Return nil when REQUEST is nil or already finished."
 ;; keyed by type and by (TYPE . ID).  The interactive modes bypass
 ;; the cache on purpose: a refresh must show the cloud as it is now.
 
+(defvar openstack-resource-change-functions nil
+  "Abnormal hook run when a cached client answer changes.
+Each function receives one plist with these keys:
+
+  :type   the resource type string
+  :id     the resource ID, nil for a list answer
+  :kind   `list' or `show'
+  :event  `fetched' or `invalidated'
+  :old    the previous value, or nil
+  :new    the new value, or nil after an invalidation
+
+A fetch that returns the same content as the cached value signals
+nothing, so a consumer sees real changes only.  The interactive
+modes bypass the cache, so this hook reports the cache only.")
+
 (defvar openstack-resource--list-cache nil
   "Alist of resource type to a cons of type, fetch time and list rows.")
 
@@ -282,6 +310,37 @@ Return nil when REQUEST is nil or already finished."
       (< (- (float-time) (cadr cell))
          openstack-resource-cache-ttl)))
 
+(defun openstack--data-equal-p (a b)
+  "Return non-nil when client answers A and B have the same content.
+Answers are parsed JSON: hash tables, lists, strings and numbers.
+`equal' compares hash tables by identity, so recurse into their
+contents here; this is what lets the change hook and the refresh
+pipeline treat unchanged data as no change."
+  (cond
+   ((and (hash-table-p a) (hash-table-p b))
+    (and (= (hash-table-count a) (hash-table-count b))
+         (catch 'unequal
+           (maphash
+            (lambda (key value)
+              (unless (openstack--data-equal-p
+                       value (gethash key b 'openstack--missing))
+                (throw 'unequal nil)))
+            a)
+           t)))
+   ((and (consp a) (consp b))
+    (and (openstack--data-equal-p (car a) (car b))
+         (openstack--data-equal-p (cdr a) (cdr b))))
+   (t (equal a b))))
+
+(defun openstack-resource--notify (type id kind old new event)
+  "Run `openstack-resource-change-functions' for one cache change.
+TYPE, ID, KIND, OLD, NEW and EVENT describe the change.  A fetch
+that returns content equal to OLD signals nothing."
+  (unless (and (eq event 'fetched) (openstack--data-equal-p old new))
+    (run-hook-with-args 'openstack-resource-change-functions
+                        (list :type type :id id :kind kind
+                              :event event :old old :new new))))
+
 (defun openstack-resource-cached-rows (type)
   "Return the cached list rows of resource TYPE.
 Never run the client and never check the TTL: a stale entry comes
@@ -297,14 +356,16 @@ older than `openstack-resource-cache-ttl', or when FORCE is
 non-nil.  Signal `openstack-resource-error' for an unknown TYPE,
 and `openstack-cli-error' when the fetch fails."
   (openstack--definition-or-error type)
-  (let ((entry (assoc type openstack-resource--list-cache)))
+  (let* ((entry (assoc type openstack-resource--list-cache))
+         (old (and entry (cddr entry))))
     (if (and (not force) entry (openstack-resource--cache-fresh-p entry))
-        (cddr entry)
+        old
       (let ((rows (openstack-resource-list type)))
         (setq rows (and (listp rows) rows))
         (setq openstack-resource--list-cache
               (openstack-resource--cache-put openstack-resource--list-cache
                                              type rows))
+        (openstack-resource--notify type nil 'list old rows 'fetched)
         rows))))
 
 (defun openstack-resource-show-cached (type id &optional force)
@@ -314,30 +375,47 @@ older than `openstack-resource-cache-ttl', or when FORCE is
 non-nil.  Signal `openstack-resource-error' for an unknown TYPE,
 and `openstack-cli-error' when the fetch fails."
   (openstack--definition-or-error type)
-  (let ((key (cons type id))
-        (entry nil))
-    (setq entry (assoc key openstack-resource--show-cache))
+  (let* ((key (cons type id))
+         (entry (assoc key openstack-resource--show-cache))
+         (old (and entry (cddr entry))))
     (if (and (not force) entry (openstack-resource--cache-fresh-p entry))
-        (cddr entry)
+        old
       (let ((data (openstack-resource-show type id)))
         (setq openstack-resource--show-cache
               (openstack-resource--cache-put openstack-resource--show-cache
                                              key data))
+        (openstack-resource--notify type id 'show old data 'fetched)
         data))))
 
 (defun openstack-resource-invalidate (&optional type id)
   "Drop cached client answers.
 With TYPE and ID, drop the show data of that resource.  With TYPE
 alone, drop the list rows of that type.  Without arguments, drop
-every answer.  Return nil."
+every answer.  Run `openstack-resource-change-functions' for every
+entry that goes.  Return nil."
   (cond
    ((and type id)
-    (setq openstack-resource--show-cache
-          (assoc-delete-all (cons type id) openstack-resource--show-cache)))
+    (let* ((key (cons type id))
+           (entry (assoc key openstack-resource--show-cache)))
+      (setq openstack-resource--show-cache
+            (assoc-delete-all key openstack-resource--show-cache))
+      (when entry
+        (openstack-resource--notify type id 'show (cddr entry) nil
+                                    'invalidated))))
    (type
-    (setq openstack-resource--list-cache
-          (assoc-delete-all type openstack-resource--list-cache)))
+    (let ((entry (assoc type openstack-resource--list-cache)))
+      (setq openstack-resource--list-cache
+            (assoc-delete-all type openstack-resource--list-cache))
+      (when entry
+        (openstack-resource--notify type nil 'list (cddr entry) nil
+                                    'invalidated))))
    (t
+    (dolist (cell openstack-resource--list-cache)
+      (openstack-resource--notify (car cell) nil 'list (cddr cell) nil
+                                  'invalidated))
+    (dolist (cell openstack-resource--show-cache)
+      (openstack-resource--notify (car (car cell)) (cdr (car cell)) 'show
+                                  (cddr cell) nil 'invalidated))
     (setq openstack-resource--list-cache nil
           openstack-resource--show-cache nil)))
   nil)

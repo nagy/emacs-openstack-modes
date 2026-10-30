@@ -234,6 +234,61 @@ definition carries list arguments, keeps both."
   (should-error (openstack-resource-fields "nope")
                 :type 'openstack-resource-error))
 
+(ert-deftest openstack-resource-change-hook-runs ()
+  "A changed answer runs the hook, an equal one stays silent."
+  (let* ((openstack-resource--list-cache nil)
+         (answer '(:row))
+         (events nil)
+         (openstack-resource-change-functions
+          (list (lambda (event) (push event events)))))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) answer)))
+      (openstack-resource-list-cached "server")
+      (should (= (length events) 1))
+      (should (equal (plist-get (car events) :type) "server"))
+      (should (eq (plist-get (car events) :kind) 'list))
+      (should (eq (plist-get (car events) :event) 'fetched))
+      (should (equal (plist-get (car events) :new) '(:row)))
+      ;; An equal answer signals nothing.
+      (setq events nil)
+      (openstack-resource-list-cached "server" t)
+      (should (null events))
+      ;; A different answer signals once.
+      (setq answer '(:other))
+      (openstack-resource-list-cached "server" t)
+      (should (= (length events) 1))
+      (should (equal (plist-get (car events) :old) '(:row)))
+      ;; Invalidation reports the value that goes away.
+      (setq events nil)
+      (openstack-resource-invalidate "server")
+      (should (= (length events) 1))
+      (should (eq (plist-get (car events) :event) 'invalidated))
+      (should (equal (plist-get (car events) :old) '(:other)))
+      (should (null (plist-get (car events) :new))))))
+
+(ert-deftest openstack-resource-change-hook-reports-show ()
+  "A show fetch reports its type and ID."
+  (let* ((openstack-resource--show-cache nil)
+         (events nil)
+         (openstack-resource-change-functions
+          (list (lambda (event) (push event events)))))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) :data)))
+      (openstack-resource-show-cached "server" "srv-1")
+      (should (= (length events) 1))
+      (should (equal (plist-get (car events) :id) "srv-1"))
+      (should (eq (plist-get (car events) :kind) 'show))
+      (should (eq (plist-get (car events) :new) :data)))))
+
+(ert-deftest openstack-resource-list-fields-reads-the-defcustom ()
+  "The list column order comes from the generated defcustom."
+  (should (equal (openstack-resource-list-fields "server")
+                 openstack-server-list-fields))
+  (let ((openstack-server-list-fields '("ID")))
+    (should (equal (openstack-resource-list-fields "server") '("ID"))))
+  (should-error (openstack-resource-list-fields "nope")
+                :type 'openstack-resource-error))
+
 ;;; Field access
 
 (ert-deftest openstack-data-field-ignores-case ()

@@ -571,7 +571,10 @@ answer or every answer:
 #+end_src
 
 The interactive modes bypass the cache on purpose: a refresh must
-show the cloud as it is now.
+show the cloud as it is now.  A cache change runs
+=openstack-resource-change-functions= with one plist (=:type=,
+=:id=, =:kind=, =:event=, =:old=, =:new=); an answer equal to the
+cached one signals nothing.
 
 The display layer turns data into text without a buffer, with the
 field order, the value formatters and the faces of the definition:
@@ -579,6 +582,19 @@ field order, the value formatters and the faces of the definition:
 #+begin_src elisp
   (openstack-resource-render "server" data)
   (openstack-resource-render "server" data id)
+  (openstack-resource-render-list "server" rows)
+#+end_src
+
+The table string carries the columns of the list mode, the numeric
+right alignment and the empty placeholder.  It has no faces.
+
+The same split covers buffers: =openstack-buffer= builds the display
+buffer and starts the refresh without selecting a window, and
+=openstack-display= pops that buffer:
+
+#+begin_src elisp
+  (openstack-buffer id 'openstack-server-mode)   ; returns the buffer
+  (openstack-display id 'openstack-server-mode)  ; pops it
 #+end_src
 
 Read a field without case, because =RESOURCE show= prints lower

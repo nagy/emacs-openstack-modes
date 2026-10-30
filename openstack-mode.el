@@ -633,28 +633,6 @@ with `openstack-cli-async-request'.  SUCCESS-FN is called with
 nil; ERROR-FN is unused."
   (funcall success-fn nil))
 
-(defun openstack--data-equal-p (a b)
-  "Return non-nil when fetch results A and B have the same content.
-Fetch results are parsed JSON: hash tables, lists, strings and
-numbers.  `equal' compares hash tables by identity, so recurse
-into their contents here; this is what lets
-`openstack--refresh-done' skip re-rendering unchanged data."
-  (cond
-   ((and (hash-table-p a) (hash-table-p b))
-    (and (= (hash-table-count a) (hash-table-count b))
-         (catch 'unequal
-           (maphash
-            (lambda (key value)
-              (unless (openstack--data-equal-p
-                       value (gethash key b 'openstack--missing))
-                (throw 'unequal nil)))
-            a)
-           t)))
-   ((and (consp a) (consp b))
-    (and (openstack--data-equal-p (car a) (car b))
-         (openstack--data-equal-p (cdr a) (cdr b))))
-   (t (equal a b))))
-
 ;; The client prints field names in lower case for `RESOURCE show'
 ;; and in title case for `RESOURCE list', so the status helpers
 ;; compare names and values without case.
@@ -1038,24 +1016,33 @@ the fetcher's process running."
 (put 'openstack--kill-pending 'permanent-local-hook t)
 
 ;;;###autoload
-(defun openstack-display (id &optional mode)
-  "Display the OpenStack resource with ID in a dedicated buffer.
+(defun openstack-buffer (id &optional mode)
+  "Return the display buffer of the OpenStack resource with ID.
 The buffer is named by `openstack--buffer-name-for-id' and put into
-MODE, defaulting to `openstack-mode'.  Derived modes are entered
-by passing their symbol, which activates their specialized
-fetcher and renderer (see `openstack-server-display').  The
-content is fetched with `openstack-fetch-function' and rendered
-with `openstack-render-function'; the fetch may complete later,
-in which case the buffer fills in asynchronously."
-  (interactive "sOpenStack resource ID: ")
-  (let* ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
-         (origin (current-buffer)))
+MODE, defaulting to `openstack-mode'.  Derived modes are entered by
+passing their symbol, which activates their specialized fetcher and
+renderer (see `openstack-server-display').  The content is fetched
+with `openstack-fetch-function' and rendered with
+`openstack-render-function'; the fetch may complete later, in which
+case the buffer fills in asynchronously.  This function selects no
+window, so a caller can read the buffer or show it itself; the
+command `openstack-display' pops it."
+  (let ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
+        (origin (current-buffer)))
     (with-current-buffer buf
       (funcall (or mode #'openstack-mode))
       (setq-local openstack--id id)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))
-    (pop-to-buffer buf)))
+    buf))
+
+;;;###autoload
+(defun openstack-display (id &optional mode)
+  "Display the OpenStack resource with ID in a dedicated buffer.
+The buffer comes from `openstack-buffer', which fetches the content
+and keeps it up to date in MODE; this command pops it into a window."
+  (interactive "sOpenStack resource ID: ")
+  (pop-to-buffer (openstack-buffer id mode)))
 
 ;;;###autoload
 (defun openstack-copy-id ()
@@ -1779,6 +1766,67 @@ adds `openstack-id' and `mouse-face' to the whole line, so RET and
                          (list 'openstack-id id
                                'mouse-face 'highlight))))
 
+(defun openstack-list--table-line (cells widths aligns)
+  "Return CELLS as one table line, padded to WIDTHS with ALIGNS.
+ALIGNS holds `right' for a right-aligned cell and any other symbol
+for a left-aligned one.  Trailing blanks go away, so a line ends at
+its last visible character."
+  (string-trim-right
+   (mapconcat #'identity
+              (cl-mapcar (lambda (cell width align)
+                           (if (eq align 'right)
+                               (format (format "%%%ds" width) cell)
+                             (format (format "%%-%ds" width) cell)))
+                         cells widths aligns)
+              "  ")
+   " "))
+
+(defun openstack-list-render-to-string (rows fields &optional placeholder)
+  "Return ROWS as an aligned text table.
+ROWS is the parsed `RESOURCE list' JSON, a list of hash tables.
+FIELDS names the columns shown first, in that order, exactly as for
+`openstack-list-render'; the remaining columns follow, sorted by
+name.  A numeric column turns right-aligned.  The text carries no
+faces and needs no buffer, so a caller without a window reads the
+same columns as the list mode.  PLACEHOLDER replaces the table when
+ROWS is empty."
+  (let* ((rows (openstack-list--rows rows))
+         (columns (or (openstack-list-columns rows fields) fields)))
+    (if (null rows)
+        (concat (or placeholder "") "\n")
+      (let* ((widths (openstack-list--natural-widths rows columns))
+             (aligns (mapcar
+                      (lambda (column)
+                        (if (openstack-list--numeric-column-p rows column)
+                            'right
+                          'left))
+                      columns))
+             (header (openstack-list--table-line
+                      columns widths
+                      (make-list (length columns) 'left)))
+             (lines (mapcar
+                     (lambda (row)
+                       (openstack-list--table-line
+                        (mapcar (lambda (column)
+                                  (openstack--format-value
+                                   (gethash column row)))
+                                columns)
+                        widths aligns))
+                     rows)))
+        (concat header "\n" (mapconcat #'identity lines "\n") "\n")))))
+
+(defun openstack-resource-render-list (type rows)
+  "Return the display text of resource TYPE for ROWS as a string.
+ROWS is the parsed JSON of `openstack-resource-list'.  The column
+order and the empty placeholder come from the definition, so this
+function and the list mode of TYPE show the same columns.  Signal
+`openstack-resource-error' for an unknown TYPE."
+  (let ((definition (openstack--definition-or-error type)))
+    (openstack-list-render-to-string
+     rows
+     (openstack-resource-list-fields type)
+     (format "(no %s)" (plist-get definition :noun)))))
+
 (defun openstack-list-render (placeholder rows fields)
   "Render PLACEHOLDER or ROWS as a `tabulated-list-mode' table.
 PLACEHOLDER is a string such as \"(no servers)\", inserted when
@@ -2204,6 +2252,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :fields ',fields
               :fields-variable ',fields-var
               :list-fields ',list-fields
+              :list-fields-variable ',list-fields-var
               :list-arguments ',list-arguments
               :list-arguments-variable ',list-arguments-var
               :list-prefix-arguments ',list-prefix-arguments

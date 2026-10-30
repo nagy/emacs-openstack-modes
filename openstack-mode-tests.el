@@ -48,7 +48,7 @@ an explicit `require'."
                   (insert-file-contents
                    (expand-file-name "openstack-mode.el"))
                   (buffer-string))))
-    (dolist (entry '("openstack-display" "openstack-copy-id"
+    (dolist (entry '("openstack-buffer" "openstack-display" "openstack-copy-id"
                      "openstack-open-web" "openstack-pop"
                      "openstack-set-id" "openstack-mode"
                      "openstack-json-view"
@@ -888,6 +888,48 @@ The fetcher receives nil as the ID; without the
       ;; Other fields do not carry it.
       (search-backward "data-1")
       (should (null (get-text-property (point) 'openstack-id))))))
+
+(ert-deftest openstack-buffer-returns-without-selecting ()
+  "`openstack-buffer' builds and refreshes the buffer, and stops.
+The caller keeps the current buffer, so a library consumer reads or
+shows the buffer itself."
+  (let ((origin (current-buffer))
+        (name (format "%s <res-1>" openstack-buffer-name)))
+    (unwind-protect
+        (let ((buf (openstack-buffer "res-1")))
+          (should (buffer-live-p buf))
+          (should (equal (buffer-name buf) name))
+          (should (eq (current-buffer) origin))
+          (with-current-buffer buf
+            (should (derived-mode-p 'openstack-mode))
+            (should (equal openstack--id "res-1"))))
+      (when-let* ((buf (get-buffer name)))
+        (kill-buffer buf)))))
+
+(ert-deftest openstack-list-render-to-string-builds-the-table ()
+  "The table string carries the columns of the list mode.
+A numeric column turns right-aligned and a missing name shows a
+dash, exactly as in the buffer."
+  (let* ((rows (openstack-test--parse
+                (concat "[{\"ID\": \"srv-1\", \"Name\": \"web-1\", "
+                        "\"Size\": 20}, "
+                        "{\"ID\": \"srv-2\", \"Name\": \"\", "
+                        "\"Size\": 5}]")))
+         (text (openstack-resource-render-list "server" rows)))
+    (should (string-match-p "^ID +Name +Size$" text))
+    (should (string-match-p "^srv-1 +web-1 +20$" text))
+    (should (string-match-p "^srv-2 +- +5$" text))
+    ;; The numbers line up on their right edge.
+    (let* ((lines (cdr (split-string text "\n" t)))
+           (ends (mapcar #'length lines)))
+      (should (equal ends (make-list (length ends) (car ends)))))))
+
+(ert-deftest openstack-list-render-to-string-empty ()
+  "An empty list renders the placeholder of the definition."
+  (should (equal (openstack-resource-render-list "server" nil)
+                 "(no servers)\n"))
+  (should-error (openstack-resource-render-list "nope" nil)
+                :type 'openstack-resource-error))
 
 (ert-deftest openstack-display-at-point-needs-id ()
   "Point without an `openstack-id' property signals a user-error."
