@@ -479,6 +479,8 @@ mode switch back to a single-resource view must clear it.")
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "J") #'openstack-json-view)
     (define-key map (kbd "p") #'openstack-pop)
+    (define-key map [remap dired-jump] #'openstack-go-to-parent)
+    (define-key map [remap dired-up-directory] #'openstack-go-to-parent)
     (define-key map (kbd "RET") #'openstack-display-at-point)
     (define-key map [mouse-2] #'openstack-mouse-display-at-point)
     map)
@@ -488,7 +490,10 @@ This keymap is used as the parent of the keymap installed by
 `openstack-mode', which itself is a parent for derived
 resource modes.  `q' and `g' are inherited from `special-mode'.
 RET and `mouse-2' open the resource at point (a row in a
-collection buffer).")
+collection buffer.  `dired-jump' and `dired-up-directory' climb
+one level with `openstack-go-to-parent', so the keys that walk up
+a directory tree walk up the resource hierarchy in these
+buffers.")
 
 (defvar openstack-bookmark-handler 'openstack-bookmark-jump
   "Symbol of the bookmark handler for resource buffers.")
@@ -1524,6 +1529,20 @@ column keeps a readable part of its value."
 `:list-arguments'.  A display command sets them from its prefix
 argument; `gr' and the automatic refresh keep them.")
 
+(defvar-local openstack-list--scope nil
+  "Parent that the rows of the current table belong to, or nil.
+nil means that the table lists every resource of its type.  A
+plist with these keys:
+
+  :type       the resource type of the parent
+  :id         the ID of the parent resource
+  :arguments  extra client arguments that filter the rows by the
+              parent
+
+`openstack-go-to-parent' opens the parent resource from this
+plist, and `openstack-list-fetch' appends the arguments, so `gr'
+and the automatic refresh keep the scope.")
+
 (defun openstack-list-fetch (resource _id success-fn error-fn &optional args)
   "Fetch all resources of RESOURCE type for a collection buffer.
 RESOURCE names a key of `openstack-resource-definitions', e.g.
@@ -1534,13 +1553,17 @@ an `openstack-cli-error' condition.  ARGS appends extra client
 arguments to the command, for a resource whose list needs an
 option.  The buffer-local `openstack-list--prefix-arguments'
 follow ARGS, so a display command can add the arguments of its
-prefix argument.  Return the client process,
+prefix argument.  The buffer-local `openstack-list--scope' also
+follows, so a table filtered by a parent keeps that filter.
+Return the client process,
 so the display machinery can cancel the fetch.  The ID argument
 is ignored: a collection buffer has no single resource ID.
 Collection modes wrap this with their own resource type as their
 `openstack-fetch-function'."
   (openstack-resource-list-async resource success-fn error-fn
                                  (append args
+                                         (plist-get openstack-list--scope
+                                                    :arguments)
                                          openstack-list--prefix-arguments)))
 
 (defun openstack-list-columns (rows fields)
@@ -1560,6 +1583,72 @@ for example `ID' or `Volume Type'."
     (let ((remaining nil))
       (maphash (lambda (key _value) (push key remaining)) unseen)
       (nconc (nreverse columns) (sort remaining #'string<)))))
+
+;;; Going up one level
+
+(defun openstack--display-command (type)
+  "Return the display command that `openstack-resource-types' holds for TYPE."
+  (nth 2 (openstack-resource-type type)))
+
+(defun openstack-list--scope-buffer-name (base scope)
+  "Return the buffer name of the collection named BASE with SCOPE.
+A scoped table needs its own buffer, so two parents do not
+overwrite each other's table."
+  (format "%s <%s>" base (plist-get scope :id)))
+
+(defun openstack--parent-scope (type data)
+  "Return the scope plist of resource TYPE with show DATA, or nil.
+DATA is the parsed `RESOURCE show' JSON of the resource, which
+holds the ID of the parent.  Return nil when the definition names
+no parent.  Signal `user-error' when the definition names one but
+DATA lacks its ID, so a climb never lands in an unscoped table by
+accident."
+  (when (openstack-resource-parent type)
+    (let ((id (openstack-resource-parent-id type data)))
+      (unless id
+        (user-error "The parent of this OpenStack %s is not known yet" type))
+      (list :type (openstack-resource-parent-type type)
+            :id id
+            :arguments (openstack-resource-parent-arguments type id)))))
+
+(defun openstack--go-to-own-list ()
+  "Display the collection buffer of the current resource buffer.
+When the definition names a parent, the collection keeps that
+parent as its scope, so the next climb opens the parent."
+  (let* ((type (openstack-resource-type-for-mode major-mode))
+         (list-display (and type
+                            (plist-get (openstack-resource-definition type)
+                                       :list-display))))
+    (unless list-display
+      (user-error "This OpenStack buffer lists no resources"))
+    (funcall list-display nil
+             (openstack--parent-scope type openstack--last-data))))
+
+(defun openstack--go-to-scope ()
+  "Display the parent resource of the current collection buffer."
+  (let ((scope openstack-list--scope))
+    (unless scope
+      (user-error "This OpenStack list sits at the top level"))
+    (let ((display (openstack--display-command (plist-get scope :type))))
+      (unless display
+        (user-error "No display command for resource type %s"
+                    (plist-get scope :type)))
+      (funcall display (plist-get scope :id)))))
+
+;;;###autoload
+(defun openstack-go-to-parent ()
+  "Open the view one level above the current OpenStack buffer.
+In a resource buffer, display the collection of the resource's own
+type, filtered by the parent of the resource when the definition
+names one; a second call then opens that parent.  The ladder of a
+server runs server, server list of its project, project.  A
+collection buffer without a scope sits at the top level and
+signals `user-error'."
+  (interactive)
+  (cond
+   ((derived-mode-p 'openstack-list-mode) (openstack--go-to-scope))
+   ((derived-mode-p 'openstack-mode) (openstack--go-to-own-list))
+   (t (user-error "This buffer displays no OpenStack resource"))))
 
 ;;; Buffer state
 
@@ -1929,6 +2018,10 @@ error.  The header line cannot carry them, because
 `tabulated-list-mode' uses it for the column labels."
   (concat " [" (number-to-string openstack-list--count)
           " " openstack-list--noun "]"
+          (when openstack-list--scope
+            (format " [%s %s]"
+                    (plist-get openstack-list--scope :type)
+                    (plist-get openstack-list--scope :id)))
           (when tabulated-list-sort-key
             (format " [sort: %s %s]"
                     (car tabulated-list-sort-key)
@@ -1954,6 +2047,11 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   "c" #'openstack-list-copy-id
   "J" #'openstack-json-view
   "w" #'openstack-list-open-web)
+
+(keymap-set openstack-list-mode-map "<remap> <dired-jump>"
+            #'openstack-go-to-parent)
+(keymap-set openstack-list-mode-map "<remap> <dired-up-directory>"
+            #'openstack-go-to-parent)
 
 ;;;###autoload
 (define-derived-mode openstack-list-mode tabulated-list-mode "OpenStack List"
@@ -2044,6 +2142,12 @@ PROPERTIES is a plist with these keys:
   :list-prefix-arguments  extra client arguments of `RESOURCE list'
                   when the display command gets a prefix argument
   :value-formatters  alist of show field name to formatter function
+  :parent        parent spec plist: :type names the resource type
+                 that owns TYPE, :field the show field or fields
+                 that hold the parent ID, :arguments extra
+                 `RESOURCE list' arguments that filter the rows of
+                 TYPE by the parent, with `:id' standing for the
+                 parent ID
 
 The macro records the definition in `openstack-resource-definitions'
 and adds its entry to `openstack-resource-types', so the ID prompts,
@@ -2066,6 +2170,7 @@ the Org links and the xref backend learn about the new type."
                                  properties :list-prefix-arguments))
          (value-formatters (openstack-define-resource--value
                             properties :value-formatters))
+         (parent (openstack-define-resource--value properties :parent))
          (title (capitalize type))
          (plural (capitalize noun))
          (base (format "openstack-%s" type))
@@ -2203,24 +2308,34 @@ column.  This is the value of `openstack-render-function' in `%s'."
          (openstack-list-render ,(openstack-define-resource--doc "(no %s)" noun) data
                                 ,list-fields-var))
 
-       (defun ,list-display (&optional arg)
+       (defun ,list-display (&optional arg scope)
          ,(openstack-define-resource--doc "Display all OpenStack %s in a dedicated table buffer.
 The buffer is named by `%s' and put into `%s', which fetches the
 %s with `openstack %s list' and renders them as a table.  The fetch
 is asynchronous: the buffer fills in when the client delivers
 data, and keeps itself up to date afterwards.
 
+SCOPE, when non-nil, is the parent scope plist that
+`openstack-go-to-parent' builds: it names the parent in the
+buffer name, filters the rows by the parent and lets the next
+climb open the parent resource.
+
 With a prefix argument, append the `:list-prefix-arguments' of
 the definition to the client arguments.  A resource without them
 ignores the prefix argument."
                   noun list-buffer-name list-mode noun cli)
          (interactive "P")
-         (let ((buf (get-buffer-create ,list-buffer-name))
-               (origin (current-buffer)))
+         (let* ((buffer-name (if scope
+                                 (openstack-list--scope-buffer-name
+                                  ,list-buffer-name scope)
+                               ,list-buffer-name))
+                (buf (get-buffer-create buffer-name))
+                (origin (current-buffer)))
            (with-current-buffer buf
              (,list-mode)
              (setq-local openstack-list--prefix-arguments
                          (and arg ',list-prefix-arguments))
+             (setq-local openstack-list--scope scope)
              (setq-local openstack--origin-buffer origin)
              (openstack--refresh))
            (pop-to-buffer buf)))
@@ -2256,6 +2371,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :list-arguments ',list-arguments
               :list-arguments-variable ',list-arguments-var
               :list-prefix-arguments ',list-prefix-arguments
+              :parent ',parent
               :mode ',mode
               :display ',display
               :list-mode ',list-mode

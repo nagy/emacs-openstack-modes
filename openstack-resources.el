@@ -45,6 +45,13 @@
 ;;   :fields         fields the show mode renders first
 ;;   :list-fields    columns the list mode shows first
 ;;   :list-arguments extra client arguments of `RESOURCE list'
+;;   :parent         parent spec of the resource: the type that owns
+;;                   it, the show fields that hold its ID and the
+;;                   list arguments that filter by it
+;;
+;; The `:parent' spec drives `openstack-go-to-parent': the resource
+;; buffer climbs to its own list, filtered by the parent, and the
+;; next climb opens the parent itself.
 ;;
 ;; openstack-mode.el ends with an autoloaded `require' of this file, so
 ;; an installed package loads the resource types, and fills the
@@ -63,6 +70,8 @@
             "OS-EXT-AZ:availability_zone" "project_id"
             "flavor" "addresses" "image"
             "created_at" "updated_at")
+  :parent '(:type "project" :field "project_id"
+            :arguments ("--project" :id))
   :list-fields '("ID" "Name" "Status" "Host" "Task State"
                  "Networks" "Image Name" "Flavor"))
 
@@ -74,6 +83,9 @@
   :fields '("name" "status" "size" "volume_type" "bootable"
             "attachments" "availability_zone"
             "created_at" "updated_at")
+  :parent '(:type "project"
+            :field ("os-vol-tenant-attr:tenant_id" "project_id" "tenant_id")
+            :arguments ("--project" :id))
   :list-fields '("ID" "Name" "Status" "Size" "Volume Type"
                  "Attached to"))
 
@@ -86,6 +98,8 @@
             "size" "owner" "tags" "created_at" "updated_at")
   :value-formatters '(("size" . openstack--format-size)
                       ("virtual_size" . openstack--format-size))
+  :parent '(:type "project" :field "owner"
+            :arguments ("--project" :id))
   :list-prefix-arguments '("--all")
   :list-fields '("ID" "Name" "Status" "Disk Format" "Container Format"
                  "Size"))
@@ -101,6 +115,8 @@
             "provider:network_type" "provider:physical_network"
             "provider:segmentation_id" "mtu"
             "created_at" "updated_at")
+  :parent '(:type "project" :field ("project_id" "tenant_id")
+            :arguments ("--project" :id))
   :list-fields '("ID" "Name" "Status" "Subnets" "Shared"
                  "Router External"))
 

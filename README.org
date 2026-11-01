@@ -76,6 +76,9 @@ Commands:
   for the resource
 - =M-x openstack-pop= (=p=) -- pop back to the buffer the
   resource was displayed from
+- =M-x openstack-go-to-parent= (=dired-jump=,
+  =dired-up-directory=) -- open the view one level above the
+  current buffer
 
 Customization (=M-x customize-group openstack=):
 
@@ -332,6 +335,32 @@ the next call without a prefix.  No other resource maps the prefix
 argument: =server list= and =volume list= offer =--all-projects=
 (admin only), =network list= has no all switch.
 
+* Going up one level
+
+=M-x openstack-go-to-parent= opens the view one level above the
+current buffer.  The command climbs twice, so it serves both sides
+of one ladder:
+
+1. A resource buffer opens the collection of its own type.  When
+the resource belongs to a parent, the collection holds only the
+rows of that parent, for example the servers of one project.
+2. A collection buffer with a parent opens that parent resource.
+
+The ladder of a server runs server, servers of its project,
+project.  In show and list buffers, the keys =dired-jump= and
+=dired-up-directory= run the command, so the keys that walk up a
+directory tree walk up the resource hierarchy here.  The evil layer
+remaps both keys too.
+
+The parent comes from the =:parent= property of the resource
+definition, so a mode needs no code of its own.  A server, volume,
+image and network name their project.  A collection buffer without
+a parent (a container, or a list opened on its own) sits at the top
+level and signals =user-error=.  A scoped table has its own buffer
+name, shows the parent in the mode line, and =gr= keeps the filter.
+The parent ID comes from the show data of the buffer, so a climb
+makes no extra CLI call.
+
 * JSON view
 
 =M-x openstack-json-view= (=J= in show and list buffers) opens a
@@ -375,6 +404,12 @@ The optional keys of the form:
 - =:list-prefix-arguments= -- extra client arguments of
   =RESOURCE list= when the display command gets a prefix argument
   (the image list uses =("--all")=)
+- =:parent= -- parent spec plist; =:type= names the resource type
+  that owns the resource, =:field= the show field or fields that
+  hold its ID, =:arguments= the client arguments that filter the
+  list by the parent, with =:id= standing for the parent ID, for
+  example =(:type "project" :field "project_id" :arguments
+  ("--project" :id))=; =openstack-go-to-parent= reads it
 
 The macro records the definition in =openstack-resource-definitions=
 and adds the type to =openstack-resource-types=, so the ID prompts,
@@ -443,7 +478,9 @@ Show buffers keep the command keys of the mode: RET or
 =gr= refreshes, =p= pops back to the origin buffer, =c= copies
 the resource ID and =w= opens the dashboard page.  The evil
 operators on those keys do nothing in a read-only buffer, so the
-commands win.
+commands win.  The layer also remaps =dired-jump= and
+=dired-up-directory= to =openstack-go-to-parent=, as the major
+mode maps do.
 
 List buffers treat a row as the unit: RET or =<mouse-2>= opens the
 row, =c= or =Y= copies its ID, =w= opens its dashboard page, =q=
@@ -625,6 +662,18 @@ The registry holds the definition of each type
 =openstack-resource-fields=).  The table =openstack-resource-types=
 adds the mode and the display command for the prompts, the Org
 links and the xref backend.
+
+The parent of a type comes from the same registry, so a consumer
+climbs the hierarchy without a mode:
+
+#+begin_src elisp
+  (openstack-resource-parent-type "server")        ; "project"
+  (openstack-resource-parent-id "server" data)     ; the project ID
+  (openstack-resource-parent-arguments "server" id) ; ("--project" id)
+#+end_src
+
+A type without a single parent returns nil.  The command
+=openstack-go-to-parent= reads the same functions.
 
 * Design
 

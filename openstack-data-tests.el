@@ -356,5 +356,51 @@ buffers, faces or keymaps."
                    (format "^(require '%s)$" (regexp-quote library))
                    source)))))
 
+;;; Parent relations
+
+(ert-deftest openstack-data-parent-spec ()
+  "The registry keeps the parent spec of every definition."
+  (should (equal (openstack-resource-parent-type "server") "project"))
+  (should (equal (openstack-resource-parent-field "server")
+                 '("project_id")))
+  (should (equal (openstack-resource-parent-arguments "server" "proj-1")
+                 '("--project" "proj-1")))
+  ;; A field list tries every name, so a client that renames the owner
+  ;; field keeps working.
+  (should (equal (openstack-resource-parent-field "volume")
+                 '("os-vol-tenant-attr:tenant_id" "project_id" "tenant_id")))
+  (should (equal (openstack-resource-parent-type "network") "project"))
+  (should (equal (openstack-resource-parent-type "image") "project"))
+  ;; A resource without a single parent leaves the spec out.
+  (should (null (openstack-resource-parent "project")))
+  (should (null (openstack-resource-parent "container")))
+  (should (null (openstack-resource-parent-field "container")))
+  (should-error (openstack-resource-parent "unknown")
+                :type 'openstack-resource-error))
+
+(ert-deftest openstack-data-parent-positional-argument ()
+  "A bare `:id' becomes a positional argument of the list command."
+  (let ((openstack-resource-definitions
+         (cons '("object" :type "object"
+                          :parent (:type "container"
+                                   :field "container"
+                                   :arguments (:id)))
+               openstack-resource-definitions)))
+    (should (equal (openstack-resource-parent-arguments "object" "logs")
+                   '("logs")))))
+
+(ert-deftest openstack-data-parent-id ()
+  "Read the parent ID from the show data, without regard to key case."
+  (should (equal (openstack-resource-parent-id
+                  "server" (openstack-data-test--row "PROJECT_ID" "p-2"))
+                 "p-2"))
+  ;; A missing first field falls through to the next one.
+  (should (equal (openstack-resource-parent-id
+                  "volume" (openstack-data-test--row "project_id" "p-3"))
+                 "p-3"))
+  (should (null (openstack-resource-parent-id "server" nil)))
+  (should (null (openstack-resource-parent-id
+                 "server" (openstack-data-test--row "id" "srv-1")))))
+
 (provide 'openstack-data-tests)
 ;;; openstack-data-tests.el ends here

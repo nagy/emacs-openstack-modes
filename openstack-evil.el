@@ -43,7 +43,8 @@
 ;; resource at point, q quits the window, gr refreshes, p pops back
 ;; to the origin buffer, c copies the resource ID and w opens the
 ;; dashboard page.  Evil operators on those keys do nothing in a
-;; read-only buffer, so the commands win.
+;; read-only buffer, so the commands win.  The `dired-jump' and
+;; `dired-up-directory' remaps climb one resource level up.
 ;;
 ;; List buffers treat a row as the unit: RET opens the row, c or Y
 ;; copies its ID, w opens its dashboard page, q quits the window, gr
@@ -69,11 +70,14 @@
     ("gr" . revert-buffer)
     ("p" . openstack-pop)
     ("c" . openstack-copy-id)
-    ("w" . openstack-open-web))
+    ("w" . openstack-open-web)
+    ("<remap> <dired-jump>" . openstack-go-to-parent)
+    ("<remap> <dired-up-directory>" . openstack-go-to-parent))
   "Keys that `openstack-evil-mode' binds in show buffers.
 Each entry is a key description and the command it runs.  The
 bindings replace evil operators that do nothing in a read-only
-buffer, such as paste on p and change on c.")
+buffer, such as paste on p and change on c.  The `dired-jump' and
+`dired-up-directory' remaps climb one resource level up.")
 
 (defvar openstack-evil-list-keys
   '(("RET" . openstack-display-at-point)
@@ -83,7 +87,9 @@ buffer, such as paste on p and change on c.")
     ("S" . tabulated-list-sort)
     ("c" . openstack-list-copy-id)
     ("Y" . openstack-list-copy-id)
-    ("w" . openstack-list-open-web))
+    ("w" . openstack-list-open-web)
+    ("<remap> <dired-jump>" . openstack-go-to-parent)
+    ("<remap> <dired-up-directory>" . openstack-go-to-parent))
   "Keys that `openstack-evil-mode' binds in list buffers.
 Each entry is a key description and the command it runs.  A row is
 the unit: S sorts the column at point, and c or Y copies the ID of

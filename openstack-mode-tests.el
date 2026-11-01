@@ -53,7 +53,8 @@ an explicit `require'."
                      "openstack-set-id" "openstack-mode"
                      "openstack-json-view"
                      "openstack-display-at-point"
-                     "openstack-mouse-display-at-point"))
+                     "openstack-mouse-display-at-point"
+                     "openstack-go-to-parent"))
       (should (string-match-p
                (format "^;;;###autoload\n(\\(?:defun\\|define-derived-mode\\) %s\\b"
                        (regexp-quote entry))
@@ -1603,6 +1604,114 @@ so a definition missing there stays invisible to them."
                             :list-prefix-arguments)
                  '("--all")))
   (should (null (openstack-resource-definition "unknown"))))
+
+;;; Parent relations
+
+(defmacro openstack-test--with-parent-stub (variables &rest body)
+  "Run BODY with the list fetcher stubbed, binding VARIABLES.
+VARIABLES is a list of let bindings; the stub records the extra
+client arguments in `openstack-test--parent-arguments'."
+  (declare (indent 1) (debug (sexp body)))
+  `(let ((openstack-test--parent-arguments nil)
+         ,@variables)
+     (cl-letf (((symbol-function 'openstack-resource-list-async)
+                (lambda (_type _success _error &optional extra)
+                  (setq openstack-test--parent-arguments extra)
+                  nil)))
+       ,@body)))
+
+(ert-deftest openstack-go-to-parent-opens-scoped-list ()
+  "A server buffer climbs to the server list of its own project."
+  (let ((buffer (generate-new-buffer " *openstack-parent*"))
+        (list-buffer nil)
+        (base openstack-server-list-buffer-name))
+    (unwind-protect
+        (openstack-test--with-parent-stub ()
+          (save-window-excursion
+            (with-current-buffer buffer
+              (openstack-server-mode)
+              (setq-local openstack--id "srv-1")
+              (setq-local openstack--last-data
+                          (openstack-test--parse
+                           "{\"id\": \"srv-1\", \"project_id\": \"proj-1\"}"))
+              (openstack-go-to-parent)))
+          (setq list-buffer (get-buffer (format "%s <%s>" base "proj-1")))
+          (should list-buffer)
+          (with-current-buffer list-buffer
+            (should (derived-mode-p 'openstack-server-list-mode))
+            (should (equal (plist-get openstack-list--scope :type) "project"))
+            (should (equal (plist-get openstack-list--scope :id) "proj-1"))
+            ;; The scope filters the fetch, so `gr' keeps it.
+            (should (equal openstack-test--parent-arguments
+                           '("--project" "proj-1")))
+            (should (equal openstack--origin-buffer buffer))))
+      (when (buffer-live-p list-buffer) (kill-buffer list-buffer))
+      (kill-buffer buffer))))
+
+(ert-deftest openstack-go-to-parent-opens-the-parent ()
+  "A scoped list climbs to the parent resource."
+  (let ((buffer (generate-new-buffer " *openstack-parent*"))
+        (shown nil))
+    (unwind-protect
+        (with-current-buffer buffer
+          (openstack-server-list-mode)
+          (setq-local openstack-list--scope '(:type "project" :id "proj-1"))
+          (cl-letf (((symbol-function 'openstack-project-display)
+                     (lambda (id) (setq shown id))))
+            (openstack-go-to-parent))
+          (should (equal shown "proj-1")))
+      (kill-buffer buffer))))
+
+(ert-deftest openstack-go-to-parent-without-parent ()
+  "A resource without a parent climbs to its own unfiltered list."
+  (let ((buffer (generate-new-buffer " *openstack-parent*"))
+        (list-buffer nil)
+        (base openstack-container-list-buffer-name))
+    (unwind-protect
+        (openstack-test--with-parent-stub ()
+          (save-window-excursion
+            (with-current-buffer buffer
+              (openstack-container-mode)
+              (setq-local openstack--id "logs")
+              (openstack-go-to-parent)))
+          (setq list-buffer (get-buffer base))
+          (should list-buffer)
+          (with-current-buffer list-buffer
+            (should (derived-mode-p 'openstack-container-list-mode))
+            (should (null openstack-list--scope))
+            (should (null openstack-test--parent-arguments))
+            ;; The top level is the end of the ladder.
+            (should-error (openstack-go-to-parent) :type 'user-error)))
+      (when (buffer-live-p list-buffer) (kill-buffer list-buffer))
+      (kill-buffer buffer))))
+
+(ert-deftest openstack-go-to-parent-needs-the-parent-id ()
+  "A resource with a parent climbs only once the data holds its ID."
+  (with-temp-buffer
+    (openstack-server-mode)
+    (setq-local openstack--id "srv-1")
+    (should-error (openstack-go-to-parent) :type 'user-error)))
+
+(ert-deftest openstack-go-to-parent-remaps-dired-jump ()
+  "Show and list buffers remap the two dired climb commands."
+  (with-temp-buffer
+    (openstack-server-mode)
+    (dolist (command '(dired-jump dired-up-directory))
+      (should (eq (command-remapping command) #'openstack-go-to-parent))))
+  (with-temp-buffer
+    (openstack-server-list-mode)
+    (dolist (command '(dired-jump dired-up-directory))
+      (should (eq (command-remapping command) #'openstack-go-to-parent)))))
+
+(ert-deftest openstack-list-mode-line-names-the-scope ()
+  "The mode line of a scoped table names the parent."
+  (with-temp-buffer
+    (openstack-server-list-mode)
+    (setq-local openstack-list--count 2)
+    (should (equal (openstack-list--mode-line) " [2 servers]"))
+    (setq-local openstack-list--scope '(:type "project" :id "proj-1"))
+    (should (equal (openstack-list--mode-line)
+                   " [2 servers] [project proj-1]"))))
 
 (provide 'openstack-mode-tests)
 ;;; openstack-mode-tests.el ends here

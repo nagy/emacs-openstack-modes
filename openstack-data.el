@@ -120,10 +120,10 @@ always asks the client."
 `openstack-define-resource' fills it when a resource file loads.
 Each plist holds :type, :cli, :noun, :id-prefix, :url-suffix,
 :fields, :list-fields, :list-arguments,
-:list-arguments-variable, :list-prefix-arguments, :mode, :display,
-:list-mode and :list-display.  The registry is the single source of
-truth for the resource names: `openstack-resource-types' is its view
-for the ID prompts, the Org links and the xref backend.")
+:list-arguments-variable, :list-prefix-arguments, :parent, :mode,
+:display, :list-mode and :list-display.  The registry is the single
+source of truth for the resource names: `openstack-resource-types'
+is its view for the ID prompts, the Org links and the xref backend.")
 
 (defun openstack-resource-definition (type)
   "Return the definition plist of resource TYPE, or nil."
@@ -232,6 +232,61 @@ TYPE."
     (if (and variable (boundp variable))
         (symbol-value variable)
       (plist-get definition :list-fields))))
+
+;;; Parent relations
+
+(defun openstack-resource-parent (type)
+  "Return the parent spec of resource TYPE, or nil.
+The spec comes from the `:parent' property of the definition, a
+plist with these keys:
+
+  :type       the resource type that owns TYPE
+  :field      the show field, or the list of show fields, that
+              hold the ID of the parent
+  :arguments  extra `RESOURCE list' arguments that filter the rows
+              of TYPE by the parent, with `:id' standing for the
+              parent ID
+
+A resource without a single parent, such as a Swift container,
+leaves the property out.  Signal `openstack-resource-error' for an
+unknown TYPE."
+  (plist-get (openstack--definition-or-error type) :parent))
+
+(defun openstack-resource-parent-type (type)
+  "Return the resource type that owns resource TYPE, or nil.
+Signal `openstack-resource-error' for an unknown TYPE."
+  (plist-get (openstack-resource-parent type) :type))
+
+(defun openstack-resource-parent-field (type)
+  "Return the show fields that hold the parent ID of resource TYPE.
+Always return a list, so a definition names one field or several.
+Signal `openstack-resource-error' for an unknown TYPE."
+  (let ((field (plist-get (openstack-resource-parent type) :field)))
+    (cond ((null field) nil)
+          ((listp field) field)
+          (t (list field)))))
+
+(defun openstack-resource-parent-id (type data)
+  "Return the ID of the parent of resource TYPE from its show DATA.
+DATA is the hash table that `openstack-resource-show' returns.
+Read the fields of `openstack-resource-parent-field' in order, so a
+client that reports the owner of a resource under more than one
+name still resolves.  Return nil when DATA holds none of them.
+Signal `openstack-resource-error' for an unknown TYPE."
+  (cl-loop for field in (openstack-resource-parent-field type)
+           for value = (openstack-resource-field data field)
+           when value
+           return value))
+
+(defun openstack-resource-parent-arguments (type id)
+  "Return the client arguments that filter the list of TYPE by ID.
+Read the `:arguments' of the parent spec and replace its `:id'
+placeholders with ID.  A bare `:id' entry becomes a positional
+argument, as `object list CONTAINER' needs.  Return nil when the
+spec names no arguments.  Signal `openstack-resource-error' for an
+unknown TYPE."
+  (mapcar (lambda (argument) (if (eq argument :id) id argument))
+          (plist-get (openstack-resource-parent type) :arguments)))
 
 (defun openstack-resource-list (type &optional extra)
   "Return the parsed `RESOURCE list' data of resource TYPE.

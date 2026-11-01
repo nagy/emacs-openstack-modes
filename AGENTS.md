@@ -14,13 +14,13 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
-| `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
+| `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the parent getters `openstack-resource-parent`, `openstack-resource-parent-type`, `openstack-resource-parent-field`, `openstack-resource-parent-id` and `openstack-resource-parent-arguments`, the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
-| `openstack-resources.el` | The six resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container |
+| `openstack-resources.el` | The six resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container.  The server, volume, image and network forms name their project as the `:parent`; project and container name none |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
@@ -154,6 +154,23 @@ includes evil.
   function) changes the display text of one show field, as the
   image `size` does through `openstack--format-size`; the list
   mode ignores it, so a numeric column keeps its typed sort.
+- A resource has at most one parent, and `:parent` names it: a
+  plist with `:type` (the parent resource type), `:field` (the show
+  field, or the list of show fields, that holds the parent ID) and
+  `:arguments` (the `RESOURCE list` arguments that filter the rows by
+  the parent, with `:id` standing for the parent ID; a bare `:id`
+  entry stays a positional argument).  The macro writes the spec
+  into the registry, and the `openstack-resource-parent*` getters of
+  the data layer read it, so a mode and a library consumer climb the
+  same ladder.  `openstack-go-to-parent` climbs two rungs: a show
+  buffer opens its own list, scoped to the parent when the
+  definition names one, and a scoped list opens the parent through
+  its display command.  The parent ID comes from `openstack--last-data`,
+  so a climb makes no extra CLI call.  A list without a scope sits
+  at the top level and signals `user-error`; a definition with a
+  parent but no parent ID in the data does the same instead of
+  landing in an unscoped table.  Do not add a second climb command,
+  and do not resolve a parent from the row at point.
 - `openstack-define-resource` registers the type in
   `openstack-resource-definitions`, the registry, and appends its
   entry to `openstack-resource-types`, which the ID prompts, the
@@ -290,6 +307,15 @@ includes evil.
   argument through `:list-prefix-arguments` of the definition
   (only the image definition sets `--all`).  Do not add a second
   prefix level: the display commands take one universal argument.
+- A scoped table carries `openstack-list--scope`, a plist with
+  `:type`, `:id` and `:arguments`, and `openstack-list-fetch`
+  appends the arguments, so `gr` and the automatic refresh keep the
+  filter.  The list display command takes the scope as its second
+  optional argument, which `openstack-go-to-parent` passes, and
+  names the buffer with `openstack-list--scope-buffer-name`, so two
+  parents do not overwrite each other's table.  An unscoped display
+  command unsets the scope, so a shared buffer never climbs to a
+  stale parent.
 - A resource with no UUID takes its name as the ID.
   `openstack-read--row-id` and `openstack-list--row-id` fall back to
   the `Name` field of a list row, and a row without either field
@@ -305,8 +331,8 @@ includes evil.
   is the resource ID, so an update or a re-sort keeps point on the
   same resource.
 - The header line holds the tabulated column labels.  A list mode
-  must not write it: the row count, the sort state and the last
-  fetch error go to the mode line through
+  must not write it: the row count, the sort state, the scope and
+  the last fetch error go to the mode line through
   `openstack-list--mode-line`, and list modes bind
   `openstack-error-display-function` to
   `openstack-list--display-error`.  Show modes keep the default
@@ -316,7 +342,9 @@ includes evil.
   show-mode command.  `RET` and `mouse-2` open the row's resource,
   `c` copies the row ID and `w` opens the row's dashboard page.
   The printer adds `openstack-id` and `mouse-face` to the whole
-  row, not just the ID cell.
+  row, not just the ID cell.  Both keymaps remap `dired-jump` and
+  `dired-up-directory` to `openstack-go-to-parent`, and
+  `openstack-evil.el` remaps the same two keys in its state maps.
 - Column widths depend on the window width, so
   `window-size-change-functions` redraws visible list buffers from
   the cached rows (`openstack-list--redraw`, no new CLI call).
@@ -568,7 +596,10 @@ includes evil.
   in `openstack--kill-pending` once parity passes.
 - Derived modes for more resource types (routers, subnets,
   ports, flavors, hosts, domains, …); servers, volumes, images,
-  networks, projects and containers exist.
+  networks, projects and containers exist.  The git-bug tracker
+  holds one ticket per missing single-parent type (subnet, port,
+  volume snapshot, volume backup, security group, router, Swift
+  object, domain); `git bug bug` lists them.
 - Collection modes for more resource types (routers, subnets,
   ports, flavors, hosts, domains, …); server, volume, image,
   network, project and container lists exist.
