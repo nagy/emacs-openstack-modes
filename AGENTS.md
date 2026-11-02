@@ -14,7 +14,7 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
 | `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the parent getters `openstack-resource-parent`, `openstack-resource-parent-type`, `openstack-resource-parent-field`, `openstack-resource-parent-id` and `openstack-resource-parent-arguments`, the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
@@ -171,6 +171,32 @@ includes evil.
   parent but no parent ID in the data does the same instead of
   landing in an unscoped table.  Do not add a second climb command,
   and do not resolve a parent from the row at point.
+- `openstack-next-sibling` and `openstack-previous-sibling` walk
+  sideways inside one collection, and a numeric argument walks
+  several rows at once.  The collection of a resource is the table
+  of its own type, scoped exactly as the climb scopes it (see
+  `openstack--parent-scope`), so the walk and the climb share one
+  ladder.  `openstack--collection-buffer` finds that table by major
+  mode and scope identity, never by buffer name, so a customized
+  buffer name or a moved buffer still answers.  `openstack-list--children`
+  reads the rows that the table displays through the `openstack-id`
+  property, so the sort column decides the order of the walk.
+  `openstack--sibling-collection` returns the plist `:type`, `:label`
+  and `:ids`; `openstack--move-sibling` resolves the position, checks
+  the edges and opens the target through the `:display` command of
+  the definition.  Do not fetch a collection for a walk: a walk whose
+  table is not open signals `user-error` and names the missing view,
+  so `C-x C-j` opens it.
+- A walk keeps the origin of the buffer it started from:
+  `openstack--display-sibling` restores `openstack--origin-buffer`
+  after the display command ran, so `openstack-pop` returns to the
+  table instead of the neighbour.  The keys are `C-c C-n`, `C-c C-p`,
+  `[mouse-9]` and `[mouse-8]` on `openstack-mode-map`.  Evil binds
+  neither `C-c` nor a side button, so the major mode map wins and no
+  evil key list needs the commands; `openstack-evil-tests.el` keeps
+  that assumption checked.  A collection buffer has no siblings, so
+  neither `openstack-list-mode-map` nor the generated list modes
+  bind the two commands.
 - `openstack-define-resource` registers the type in
   `openstack-resource-definitions`, the registry, and appends its
   entry to `openstack-resource-types`, which the ID prompts, the

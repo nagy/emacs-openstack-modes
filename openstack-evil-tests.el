@@ -203,5 +203,21 @@ A fresh install must reach `openstack-evil-mode' without a
              "^;;;###autoload\n(define-minor-mode openstack-evil-mode\\b"
              source))))
 
+(ert-deftest openstack-evil-sibling-keys ()
+  "The sibling walk keeps the major mode keys in normal state.
+Evil binds neither `C-c' nor a side button, so the show keymap
+reaches the two commands without a state binding."
+  (with-temp-buffer
+    (openstack-mode)
+    (openstack-evil-show-mode 1)
+    (openstack-evil-test--normal)
+    (should-not (lookup-key evil-normal-state-map (kbd "C-c")))
+    (should-not (lookup-key evil-normal-state-map [mouse-9]))
+    (should (eq (key-binding (kbd "C-c C-n")) #'openstack-next-sibling))
+    (should (eq (key-binding (kbd "C-c C-p"))
+                #'openstack-previous-sibling))
+    (should (eq (key-binding [mouse-9]) #'openstack-next-sibling))
+    (should (eq (key-binding [mouse-8]) #'openstack-previous-sibling))))
+
 (provide 'openstack-evil-tests)
 ;;; openstack-evil-tests.el ends here

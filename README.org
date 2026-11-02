@@ -79,6 +79,10 @@ Commands:
 - =M-x openstack-go-to-parent= (=dired-jump=,
   =dired-up-directory=) -- open the view one level above the
   current buffer
+- =M-x openstack-next-sibling= (=C-c C-n=) -- open the next
+  resource of the same collection
+- =M-x openstack-previous-sibling= (=C-c C-p=) -- open the
+  previous resource of the same collection
 
 Customization (=M-x customize-group openstack=):
 
@@ -361,6 +365,34 @@ name, shows the parent in the mode line, and =gr= keeps the filter.
 The parent ID comes from the show data of the buffer, so a climb
 makes no extra CLI call.
 
+* Walking sideways
+
+=M-x openstack-next-sibling= (=C-c C-n=) and
+=M-x openstack-previous-sibling= (=C-c C-p=) open the next or the
+previous resource of the same collection, so the rows of a server
+table open one after another without a trip back through the table.
+The forward and back mouse buttons =[mouse-9]= and =[mouse-8]= run
+the same two commands.
+
+The collection of a resource is the table that
+=openstack-go-to-parent= opens: the table of its own type, filtered
+by the parent when the definition names one.  A server buffer
+therefore walks the servers of its own project, and a container
+buffer walks every container.  The sort column of that table decides
+the order, so a table sorted by name walks in name order.
+
+The open table holds the order, so a walk fetches nothing.  The
+table must be open: a walk without it signals a user error and names
+the missing view, and =C-x C-j= opens it.  A numeric argument walks
+several rows at once, so =C-u 3 C-c C-n= opens the third next
+resource.  A walk that leaves the collection, and a resource that
+the table does not hold, signal a user error too.  A table has no
+siblings, so the two commands apply to resource buffers only.
+
+The walk leaves the table open and keeps the origin of the buffer
+that started it, so =p= (=openstack-pop=) returns to the table
+instead of the neighbour.
+
 * JSON view
 
 =M-x openstack-json-view= (=J= in show and list buffers) opens a
@@ -480,7 +512,10 @@ the resource ID and =w= opens the dashboard page.  The evil
 operators on those keys do nothing in a read-only buffer, so the
 commands win.  The layer also remaps =dired-jump= and
 =dired-up-directory= to =openstack-go-to-parent=, as the major
-mode maps do.
+mode maps do.  Evil binds neither =C-c= nor a side button in its
+states, so =C-c C-n=, =C-c C-p=, =[mouse-9]= and =[mouse-8]= reach
+=openstack-next-sibling= and =openstack-previous-sibling= without a
+state binding.
 
 List buffers treat a row as the unit: RET or =<mouse-2>= opens the
 row, =c= or =Y= copies its ID, =w= opens its dashboard page, =q=

@@ -54,6 +54,7 @@ an explicit `require'."
                      "openstack-json-view"
                      "openstack-display-at-point"
                      "openstack-mouse-display-at-point"
+                     "openstack-next-sibling" "openstack-previous-sibling"
                      "openstack-go-to-parent"))
       (should (string-match-p
                (format "^;;;###autoload\n(\\(?:defun\\|define-derived-mode\\) %s\\b"
@@ -1691,6 +1692,222 @@ client arguments in `openstack-test--parent-arguments'."
     (openstack-server-mode)
     (setq-local openstack--id "srv-1")
     (should-error (openstack-go-to-parent) :type 'user-error)))
+
+;;; Siblings
+
+(defun openstack-test--rows (&rest ids)
+  "Return list rows that hold IDS in their ID field."
+  (mapcar (lambda (id)
+            (let ((row (make-hash-table :test #'equal)))
+              (puthash "ID" id row)
+              row))
+          ids))
+
+(defun openstack-test--sibling-table (mode ids scope)
+  "Return a new table buffer of MODE holding IDS with SCOPE."
+  (let ((buffer (generate-new-buffer " *openstack-sibling-table*")))
+    (with-current-buffer buffer
+      (funcall mode)
+      (setq-local openstack-list--scope scope)
+      (openstack-list-render "(no rows)"
+                             (apply #'openstack-test--rows ids) '("ID")))
+    buffer))
+
+(defun openstack-test--sibling-resource (mode id data origin)
+  "Return a resource buffer of MODE with ID, show DATA and ORIGIN."
+  (let ((buffer (generate-new-buffer " *openstack-sibling-resource*")))
+    (with-current-buffer buffer
+      (funcall mode)
+      (setq-local openstack--id id)
+      (setq-local openstack--origin-buffer origin)
+      (setq-local openstack--last-data data))
+    buffer))
+
+(defun openstack-test--server-data (id project)
+  "Return server show data for ID with parent PROJECT."
+  (openstack-test--parse
+   (format "{\"id\": %S, \"project_id\": %S}" id project)))
+
+(defun openstack-test--sibling-display (id)
+  "Display server ID the way `openstack-server-display' does.
+The fetch stays stubbed out, so the suite calls no client.  Return
+the display buffer."
+  (let ((openstack-buffer-name openstack-server-buffer-name))
+    (pop-to-buffer (openstack-buffer id #'openstack-server-mode))))
+
+(defvar openstack-test--shown nil
+  "ID that the stubbed display command of the sibling tests opened.")
+
+(defvar openstack-test--shown-buffer nil
+  "Buffer that the stubbed display command of the sibling tests opened.")
+
+(defmacro openstack-test--with-sibling-stub (&rest body)
+  "Run BODY with the server display command and the show fetch stubbed.
+The stubs record the opened ID in `openstack-test--shown' and the
+opened buffer in `openstack-test--shown-buffer'."
+  (declare (indent 0) (debug (body)))
+  `(progn
+     (setq openstack-test--shown nil
+           openstack-test--shown-buffer nil)
+     (cl-letf (((symbol-function 'openstack-resource-show-async)
+                (lambda (&rest _) nil))
+               ((symbol-function 'openstack-server-display)
+                (lambda (id)
+                  (setq openstack-test--shown id
+                        openstack-test--shown-buffer
+                        (openstack-test--sibling-display id)))))
+       ,@body)))
+
+(defmacro openstack-test--with-sibling-buffers (bindings &rest body)
+  "Run BODY with BINDINGS, then kill the buffers that BODY made."
+  (declare (indent 1) (debug (sexp body)))
+  `(let* (,@bindings)
+     (unwind-protect
+         (progn ,@body)
+       (dolist (buffer (list openstack-test--shown-buffer
+                             ,@(mapcar #'car bindings)))
+         (when (buffer-live-p buffer) (kill-buffer buffer))))))
+
+(ert-deftest openstack-next-sibling-opens-the-next-row ()
+  "A server buffer walks to the next row of its project table."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-server-list-mode '("srv-1" "srv-2" "srv-3")
+               '(:type "project" :id "proj-1")))
+       (buffer (openstack-test--sibling-resource
+                #'openstack-server-mode "srv-1"
+                (openstack-test--server-data "srv-1" "proj-1") table)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (openstack-next-sibling)))
+    (should (equal openstack-test--shown "srv-2"))
+    ;; The walk keeps the origin of the buffer it started from, so `p'
+    ;; returns to the table instead of the previous sibling.
+    (with-current-buffer openstack-test--shown-buffer
+      (should (equal openstack--id "srv-2"))
+      (should (eq openstack--origin-buffer table)))))
+
+(ert-deftest openstack-previous-sibling-walks-back-with-a-count ()
+  "A numeric argument walks several rows in one step."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-server-list-mode '("srv-1" "srv-2" "srv-3")
+               '(:type "project" :id "proj-1")))
+       (buffer (openstack-test--sibling-resource
+                #'openstack-server-mode "srv-3"
+                (openstack-test--server-data "srv-3" "proj-1") table)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (openstack-previous-sibling 2)))
+    (should (equal openstack-test--shown "srv-1"))))
+
+(ert-deftest openstack-sibling-commands-stop-at-the-edges ()
+  "Nothing wraps around at the first or the last row."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-server-list-mode '("srv-1" "srv-2")
+               '(:type "project" :id "proj-1")))
+       (first (openstack-test--sibling-resource
+               #'openstack-server-mode "srv-1"
+               (openstack-test--server-data "srv-1" "proj-1") table))
+       (last (openstack-test--sibling-resource
+              #'openstack-server-mode "srv-2"
+              (openstack-test--server-data "srv-2" "proj-1") table)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer first
+        (should-error (openstack-previous-sibling) :type 'user-error))
+      (with-current-buffer last
+        (should-error (openstack-next-sibling) :type 'user-error)))))
+
+(ert-deftest openstack-next-sibling-needs-the-open-table ()
+  "A walk without its collection buffer names the missing view."
+  (openstack-test--with-sibling-buffers
+      ((buffer (openstack-test--sibling-resource
+                #'openstack-server-mode "srv-1"
+                (openstack-test--server-data "srv-1" "proj-1") nil)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (let ((error (should-error (openstack-next-sibling)
+                                   :type 'user-error)))
+          (should (string-match-p
+                   "server list of project proj-1"
+                   (error-message-string error))))))))
+
+(ert-deftest openstack-next-sibling-needs-the-parent-id ()
+  "A walk waits for the data that names the parent."
+  (openstack-test--with-sibling-buffers
+      ((buffer (openstack-test--sibling-resource
+                #'openstack-server-mode "srv-1" nil nil)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (should-error (openstack-next-sibling) :type 'user-error)))))
+
+(ert-deftest openstack-next-sibling-rejects-a-stranger ()
+  "A resource that the table does not hold has no position."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-server-list-mode '("srv-2" "srv-3")
+               '(:type "project" :id "proj-1")))
+       (buffer (openstack-test--sibling-resource
+                #'openstack-server-mode "srv-9"
+                (openstack-test--server-data "srv-9" "proj-1") table)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (let ((error (should-error (openstack-next-sibling)
+                                   :type 'user-error)))
+          (should (string-match-p "srv-9 is not in the"
+                                  (error-message-string error))))))))
+
+(ert-deftest openstack-next-sibling-reads-the-top-level-table ()
+  "A resource without a parent walks the unfiltered table."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-container-list-mode '("logs" "backups") nil))
+       (buffer (openstack-test--sibling-resource
+                #'openstack-container-mode "logs"
+                (openstack-test--parse "{\"name\": \"logs\"}") table)))
+    (openstack-test--with-sibling-stub
+      (with-current-buffer buffer
+        (cl-letf (((symbol-function 'openstack-container-display)
+                   (lambda (id) (setq openstack-test--shown id))))
+          (openstack-next-sibling)))
+      (should (equal openstack-test--shown "backups")))))
+
+(ert-deftest openstack-list-children-follow-the-sort-column ()
+  "The rows of the table fix the order of the walk."
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-server-list-mode '("srv-1" "srv-2" "srv-3") nil)))
+    (with-current-buffer table
+      (should (equal (openstack-list--children) '("srv-1" "srv-2" "srv-3")))
+      ;; A second sort on the same column reverses the order.
+      (tabulated-list-sort 0)
+      (tabulated-list-sort 0)
+      (should (equal (openstack-list--children) '("srv-3" "srv-2" "srv-1"))))))
+
+(ert-deftest openstack-next-sibling-without-a-collection ()
+  "A table, a plain buffer and a resource without an ID have no siblings."
+  (with-temp-buffer
+    (openstack-server-list-mode)
+    (should-error (openstack-next-sibling) :type 'user-error))
+  (with-temp-buffer
+    (openstack-mode)
+    (should-error (openstack-previous-sibling) :type 'user-error))
+  (openstack-test--with-sibling-buffers
+      ((table (openstack-test--sibling-table
+               #'openstack-container-list-mode '("logs") nil)))
+    (with-temp-buffer
+      (openstack-container-mode)
+      (should-error (openstack-next-sibling) :type 'user-error))))
+
+(ert-deftest openstack-sibling-keys ()
+  "Show buffers bind the two walks and the two side buttons."
+  (with-temp-buffer
+    (openstack-server-mode)
+    (should (eq (key-binding (kbd "C-c C-n")) #'openstack-next-sibling))
+    (should (eq (key-binding (kbd "C-c C-p")) #'openstack-previous-sibling))
+    (should (eq (key-binding [mouse-9]) #'openstack-next-sibling))
+    (should (eq (key-binding [mouse-8]) #'openstack-previous-sibling))))
 
 (ert-deftest openstack-go-to-parent-remaps-dired-jump ()
   "Show and list buffers remap the two dired climb commands."

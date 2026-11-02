@@ -103,6 +103,15 @@
 ;;   clickable column header, per-column sorting, column resizing and
 ;;   point keeping across refreshes.
 ;;
+;; The buffer ladder has two directions.  `openstack-go-to-parent'
+;; climbs one level: a resource buffer opens the collection of its
+;; own type, and a scoped collection opens its parent resource.
+;; `openstack-next-sibling' and `openstack-previous-sibling' walk
+;; sideways inside one collection.  The open collection buffer holds
+;; the order of its rows, so a walk reads that buffer and makes no
+;; client call; a walk whose collection buffer is not open signals
+;; `user-error' and names the missing view.
+;;
 ;;   `openstack-define-resource' writes a whole resource type from
 ;;   one form: the show mode, the list mode, their display commands,
 ;;   fetchers, renderers and defcustoms.  It also records the type in
@@ -479,6 +488,10 @@ mode switch back to a single-resource view must clear it.")
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "J") #'openstack-json-view)
     (define-key map (kbd "p") #'openstack-pop)
+    (define-key map (kbd "C-c C-n") #'openstack-next-sibling)
+    (define-key map (kbd "C-c C-p") #'openstack-previous-sibling)
+    (define-key map [mouse-9] #'openstack-next-sibling)
+    (define-key map [mouse-8] #'openstack-previous-sibling)
     (define-key map [remap dired-jump] #'openstack-go-to-parent)
     (define-key map [remap dired-up-directory] #'openstack-go-to-parent)
     (define-key map (kbd "RET") #'openstack-display-at-point)
@@ -493,7 +506,10 @@ RET and `mouse-2' open the resource at point (a row in a
 collection buffer.  `dired-jump' and `dired-up-directory' climb
 one level with `openstack-go-to-parent', so the keys that walk up
 a directory tree walk up the resource hierarchy in these
-buffers.")
+buffers.  \\[openstack-next-sibling] and
+\\[openstack-previous-sibling] walk to the next and the previous
+resource of the same collection, and the back and forward mouse
+buttons run the same two commands.")
 
 (defvar openstack-bookmark-handler 'openstack-bookmark-jump
   "Symbol of the bookmark handler for resource buffers.")
@@ -1649,6 +1665,136 @@ signals `user-error'."
    ((derived-mode-p 'openstack-list-mode) (openstack--go-to-scope))
    ((derived-mode-p 'openstack-mode) (openstack--go-to-own-list))
    (t (user-error "This buffer displays no OpenStack resource"))))
+
+;;; Sibling navigation
+
+(defun openstack--collection-label (type scope)
+  "Return the human name of the collection of TYPE with SCOPE.
+SCOPE is the scope plist of the table, or nil for the top-level
+table of TYPE.  The commands that need an open table name it in
+their `user-error'."
+  (if scope
+      (format "%s list of %s %s"
+              type (plist-get scope :type) (plist-get scope :id))
+    (format "%s list" type)))
+
+(defun openstack--same-scope-p (one other)
+  "Return non-nil when the scope plists ONE and OTHER name one parent.
+The client arguments of the scope stay out of the comparison, so a
+table keeps its identity across a fetch."
+  (equal (and one (list (plist-get one :type) (plist-get one :id)))
+         (and other (list (plist-get other :type) (plist-get other :id)))))
+
+(defun openstack--collection-buffer (type scope)
+  "Return the open table buffer of TYPE with SCOPE, or nil.
+The lookup reads the major mode and the scope of every buffer, so a
+customized buffer name or a moved buffer still answers.  A table
+without a scope is the top-level collection of TYPE."
+  (let ((mode (plist-get (openstack-resource-definition type) :list-mode)))
+    (and mode
+         (seq-find (lambda (buffer)
+                     (with-current-buffer buffer
+                       (and (eq major-mode mode)
+                            (openstack--same-scope-p openstack-list--scope
+                                                     scope))))
+                   (buffer-list)))))
+
+(defun openstack-list--children ()
+  "Return the IDs of the rows of the current table in display order.
+The function reads the rows that the buffer shows, so the sort
+column decides the order and a narrowed table reports what its
+reader sees."
+  (save-excursion
+    (goto-char (point-min))
+    (let (ids)
+      (while (not (eobp))
+        (when-let* ((id (openstack-list--id-at-point)))
+          (push id ids))
+        (forward-line 1))
+      (nreverse ids))))
+
+(defun openstack--sibling-collection ()
+  "Return the collection that holds the siblings of the current resource.
+The value is a plist with :type, the resource type of the buffer,
+:label, the human name of the table, and :ids, the row IDs in
+display order.  The table of the resource's own type holds the
+siblings, scoped to the parent that `openstack-go-to-parent' names,
+so the climb and the walk share one ladder.
+
+Signal `user-error' when the buffer displays no resource, when the
+definition names a parent but the data lacks its ID, and when the
+table is not open."
+  (let ((type (openstack-resource-type-for-mode major-mode)))
+    (unless type
+      (user-error "This OpenStack buffer holds no collection"))
+    (let* ((scope (openstack--parent-scope type openstack--last-data))
+           (label (openstack--collection-label type scope))
+           (buffer (openstack--collection-buffer type scope)))
+      (unless buffer
+        (user-error "Open the %s first" label))
+      (list :type type
+            :label label
+            :ids (with-current-buffer buffer
+                   (openstack-list--children))))))
+
+(defun openstack--display-sibling (type id)
+  "Display the resource TYPE with ID and keep the origin of the walk.
+`openstack-pop' returns to the buffer that started the walk, not to
+the neighbour that the walk came from."
+  (let ((display (plist-get (openstack-resource-definition type) :display))
+        (origin openstack--origin-buffer))
+    (unless display
+      (user-error "No display command for resource type %s" type))
+    (funcall display id)
+    (when (and (buffer-live-p origin)
+               (derived-mode-p 'openstack-mode)
+               (not (eq openstack--origin-buffer origin)))
+      (setq-local openstack--origin-buffer origin))))
+
+(defun openstack--move-sibling (n)
+  "Open the sibling N entries from the resource of the current buffer.
+A negative N walks back.  Signal `user-error' when the sibling
+collection is not open, when the resource is not a row of that
+table, and when the walk leaves the collection."
+  (let* ((collection (openstack--sibling-collection))
+         (ids (plist-get collection :ids))
+         (label (plist-get collection :label))
+         (id (openstack--resource-id t))
+         (position (seq-position ids id #'equal)))
+    (unless ids
+      (user-error "The %s holds no resources" label))
+    (unless position
+      (user-error "%s is not in the %s" id label))
+    (let ((target (+ position n)))
+      (unless (and (<= 0 target) (< target (length ids)))
+        (user-error "No %s sibling for %s"
+                    (if (> n 0) "next" "previous") id))
+      (openstack--display-sibling (plist-get collection :type)
+                                  (nth target ids)))))
+
+;;;###autoload
+(defun openstack-next-sibling (&optional n)
+  "Open the N-th next resource of the collection of this buffer.
+The collection is the table of the resource's own type, scoped to
+its parent when the definition names one, so a walk stays inside
+the project of a server.  The open table holds the order, so the
+walk fetches nothing and the sort column of that table decides the
+order.  N defaults to 1, and a negative N walks back.
+
+Signal `user-error' when the buffer displays no resource, when the
+table is not open, when the resource is not a row of that table,
+and when the walk leaves the collection."
+  (interactive "p")
+  (openstack--move-sibling (or n 1)))
+
+;;;###autoload
+(defun openstack-previous-sibling (&optional n)
+  "Open the N-th previous resource of the collection of this buffer.
+This is `openstack-next-sibling' with the opposite direction, so it
+reads the same table.  N defaults to 1, and a negative N walks
+forward."
+  (interactive "p")
+  (openstack--move-sibling (- (or n 1))))
 
 ;;; Buffer state
 
