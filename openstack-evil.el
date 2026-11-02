@@ -158,7 +158,8 @@ reaches beyond the last row still stops at its last ID."
    (if (evil-visual-state-p)
        (let ((range (evil-visual-range)))
          (list (nth 0 range) (nth 1 range)))
-     (list (region-beginning) (region-end))))
+     (list (region-beginning) (region-end)))
+   openstack-list-mode)
   (let ((ids (openstack-evil--ids-between start end)))
     (unless ids
       (user-error "No OpenStack resource in the selection"))

@@ -61,6 +61,31 @@ an explicit `require'."
                        (regexp-quote entry))
                source)))))
 
+(ert-deftest openstack-mode-command-modes ()
+  "The show and list commands name the modes they serve.
+`execute-extended-command-for-buffer' (`M-S-x') then offers the
+commands of an OpenStack buffer and `M-x' can hide them elsewhere."
+  (require 'openstack-read)
+  (dolist (entry '((openstack-copy-id openstack-mode)
+                   (openstack-open-web openstack-mode)
+                   (openstack-pop openstack-mode)
+                   (openstack-set-id openstack-mode)
+                   (openstack-next-sibling openstack-mode)
+                   (openstack-previous-sibling openstack-mode)
+                   (openstack-json-view openstack-mode openstack-list-mode)
+                   (openstack-display-at-point
+                    openstack-mode openstack-list-mode)
+                   (openstack-mouse-display-at-point
+                    openstack-mode openstack-list-mode)
+                   (openstack-go-to-parent
+                    openstack-mode openstack-list-mode)
+                   (openstack-list-copy-id openstack-list-mode)
+                   (openstack-list-open-web openstack-list-mode)))
+    (should (equal (command-modes (car entry)) (cdr entry))))
+  (dolist (command '(openstack-display openstack-read-refresh
+                     openstack-open-id))
+    (should-not (command-modes command))))
+
 (ert-deftest openstack-mode-resource-autoloads ()
   "The mode file loads the resource definitions from the autoloads.
 The macro writes the commands, so no cookie can precede them in the

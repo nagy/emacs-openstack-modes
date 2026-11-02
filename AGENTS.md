@@ -484,6 +484,21 @@ includes evil.
   its own `;;;###autoload` cookie: the generated autoload file holds
   the copied form only, so the variable otherwise stays void when
   the autoloads load (`openstack-url-regexp`).
+- A command names the modes it serves in its `interactive' form:
+  `(interactive nil openstack-mode)`,
+  `(interactive "p" openstack-mode)` or
+  `(interactive nil openstack-mode openstack-list-mode)`.
+  `M-S-x' (`execute-extended-command-for-buffer`) then offers the
+  command in an OpenStack buffer only, and `M-x' hides it elsewhere
+  under `command-completion-default-include-p'.  A show command
+  names `openstack-mode', a row command `openstack-list-mode', and
+  a command of both views names both.  A command that opens a
+  buffer from any context stays untagged: `openstack-display',
+  `openstack-open-id', `openstack-read-refresh' and the generated
+  `openstack-TYPE-display' / `openstack-TYPE-list-display' entry
+  points.  `openstack-mode-tests.el' holds the list in
+  `openstack-mode-command-modes'; add a command there when adding
+  it to the source.
 - The evil layer is optional and lives in `openstack-evil.el`:
   the file requires evil 1.14 or later, but `Package-Requires`
   does not name it, so users without evil install nothing.

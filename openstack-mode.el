@@ -933,7 +933,7 @@ this buffer, whether it displays a resource or a collection.
 The command reuses the buffer it created before: a second call
 switches to that buffer instead of making another one, and a
 refresh of this buffer redraws it."
-  (interactive)
+  (interactive nil openstack-mode openstack-list-mode)
   (unless (derived-mode-p 'openstack-mode 'openstack-list-mode)
     (user-error "Not an OpenStack buffer"))
   (unless openstack--rendered
@@ -1068,7 +1068,7 @@ and keeps it up to date in MODE; this command pops it into a window."
 ;;;###autoload
 (defun openstack-copy-id ()
   "Copy the ID of the current OpenStack resource to the kill ring."
-  (interactive)
+  (interactive nil openstack-mode)
   (let ((id (openstack--resource-id t)))
     (kill-new id)
     (message "Copied OpenStack resource ID: %s" id)))
@@ -1076,14 +1076,14 @@ and keeps it up to date in MODE; this command pops it into a window."
 ;;;###autoload
 (defun openstack-open-web ()
   "Open the dashboard page for the current OpenStack resource."
-  (interactive)
+  (interactive nil openstack-mode)
   (browse-url (openstack-dashboard-url
                (openstack--resource-id t))))
 
 ;;;###autoload
 (defun openstack-pop ()
   "Pop back to the buffer the resource was displayed from."
-  (interactive)
+  (interactive nil openstack-mode)
   (let ((origin openstack--origin-buffer))
     (cond ((buffer-live-p origin)
            (pop-to-buffer origin))
@@ -1093,7 +1093,7 @@ and keeps it up to date in MODE; this command pops it into a window."
 ;;;###autoload
 (defun openstack-set-id (id)
   "Set the ID of the current buffer's OpenStack resource to ID."
-  (interactive "sOpenStack resource ID: ")
+  (interactive "sOpenStack resource ID: " openstack-mode)
   (setq-local openstack--id id)
   (message "Set OpenStack resource ID: %s" id))
 
@@ -1110,7 +1110,7 @@ a subnet opens in a subnet buffer once its mode exists.  Every
 other ID opens with the buffer-local `openstack-show-command',
 which a collection mode binds to its resource's display command,
 defaulting to `openstack-display'."
-  (interactive)
+  (interactive nil openstack-mode openstack-list-mode)
   (let* ((id (openstack--id-property-at-point))
          (type (and id (get-char-property (point) 'openstack-ref-type)))
          (entry (and type (openstack-resource-type type))))
@@ -1126,7 +1126,7 @@ defaulting to `openstack-display'."
   "Display the OpenStack resource at the position of mouse EVENT.
 Like `openstack-display-at-point', but takes the position from
 the click, which need not be point."
-  (interactive "e")
+  (interactive "e" openstack-mode openstack-list-mode)
   (let* ((position (event-end event))
          (window (posn-window position))
          (pos (posn-point position)))
@@ -1660,7 +1660,7 @@ names one; a second call then opens that parent.  The ladder of a
 server runs server, server list of its project, project.  A
 collection buffer without a scope sits at the top level and
 signals `user-error'."
-  (interactive)
+  (interactive nil openstack-mode openstack-list-mode)
   (cond
    ((derived-mode-p 'openstack-list-mode) (openstack--go-to-scope))
    ((derived-mode-p 'openstack-mode) (openstack--go-to-own-list))
@@ -1784,7 +1784,7 @@ order.  N defaults to 1, and a negative N walks back.
 Signal `user-error' when the buffer displays no resource, when the
 table is not open, when the resource is not a row of that table,
 and when the walk leaves the collection."
-  (interactive "p")
+  (interactive "p" openstack-mode)
   (openstack--move-sibling (or n 1)))
 
 ;;;###autoload
@@ -1793,7 +1793,7 @@ and when the walk leaves the collection."
 This is `openstack-next-sibling' with the opposite direction, so it
 reads the same table.  N defaults to 1, and a negative N walks
 forward."
-  (interactive "p")
+  (interactive "p" openstack-mode)
   (openstack--move-sibling (- (or n 1))))
 
 ;;; Buffer state
@@ -2116,7 +2116,7 @@ A resize changes the width that the columns can use."
 ;;;###autoload
 (defun openstack-list-copy-id ()
   "Copy the ID of the resource on the current row to the kill ring."
-  (interactive)
+  (interactive nil openstack-list-mode)
   (let ((id (openstack-list--id-at-point)))
     (unless id
       (user-error "No OpenStack resource on this line"))
@@ -2126,7 +2126,7 @@ A resize changes the width that the columns can use."
 ;;;###autoload
 (defun openstack-list-open-web ()
   "Open the dashboard page of the resource on the current row."
-  (interactive)
+  (interactive nil openstack-list-mode)
   (let ((id (openstack-list--id-at-point)))
     (unless id
       (user-error "No OpenStack resource on this line"))
