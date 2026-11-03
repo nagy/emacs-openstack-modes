@@ -64,6 +64,7 @@ not hold stays out of the annotation."
 NAMES is a list of strings.  The comparison ignores case,
 because `RESOURCE list' reports title case keys while `RESOURCE
 show' reports lower case ones."
+  (declare (side-effect-free t))
   (seq-some (lambda (name)
               (seq-some (lambda (key)
                           (and (stringp key)
@@ -76,6 +77,7 @@ show' reports lower case ones."
   "Return the identifier of the list ROW, or nil.
 Read the ID field of ROW; a resource without one, such as a Swift
 container, uses its Name field."
+  (declare (side-effect-free t))
   (when (hash-table-p row)
     (let ((id (openstack-read--row-value row '("ID")))
           (name (openstack-read--row-value row '("Name"))))
@@ -84,6 +86,7 @@ container, uses its Name field."
 
 (defun openstack-read--row-name (row)
   "Return the name field of the list ROW, or nil."
+  (declare (side-effect-free t))
   (and (hash-table-p row)
        (openstack-read--row-value row '("Name"))))
 
@@ -95,6 +98,7 @@ Read the cache of `openstack-data.el' while it stays within
 
 (defun openstack-read-choices (type)
   "Return completion candidates of resource TYPE as (LABEL . ID)."
+  (declare (side-effect-free t))
   (seq-keep (lambda (row)
               (when-let* ((id (openstack-read--row-id row)))
                 (let ((name (openstack-read--row-name row)))
@@ -108,6 +112,7 @@ Read the cache of `openstack-data.el' while it stays within
 
 (defun openstack-read--row-of (id)
   "Return the cached list row of ID, or nil."
+  (declare (side-effect-free t))
   (seq-some (lambda (type)
               (seq-some (lambda (row)
                           (and (equal id (openstack-read--row-id row)) row))
@@ -118,6 +123,7 @@ Read the cache of `openstack-data.el' while it stays within
   "Return the annotation string of list ROW, or nil.
 The string holds the values of `openstack-read-annotation-fields'
 that ROW provides, separated by a comma."
+  (declare (side-effect-free t))
   (when (hash-table-p row)
     (let ((values
            (seq-keep
@@ -177,6 +183,7 @@ prompt wins, and a client failure falls back to a plain prompt."
   "Return the cached resource IDs, of TYPE or of every cached type.
 Order the result by `openstack-resource-types', so the IDs of a
 type stay together."
+  (declare (side-effect-free t))
   (let (ids)
     (dolist (one (if type (list type) (mapcar #'car openstack-resource-types))
                  (nreverse ids))
@@ -187,6 +194,7 @@ type stay together."
 (defun openstack-read-name (id)
   "Return the cached name of the resource with ID, or nil.
 Search the cache only, so the call never runs the client."
+  (declare (side-effect-free t))
   (seq-some (lambda (one)
               (seq-some (lambda (row)
                           (when (equal id (openstack-read--row-id row))
@@ -220,6 +228,7 @@ failure yields nil instead of an error."
 
 (defun openstack-read--row-values (row)
   "Return the string field values of list ROW."
+  (declare (side-effect-free t))
   (when (hash-table-p row)
     (seq-keep (lambda (key)
                 (let ((value (gethash key row)))
@@ -232,6 +241,7 @@ Return a list of plists with :type, :id and :name, one per row.
 Read the cache only: no client call.  A `RESOURCE list' row
 holds an ID only for a related resource, such as the image of a
 server or the network of a port."
+  (declare (side-effect-free t))
   (let (found)
     (dolist (one (mapcar #'car openstack-resource-types) (nreverse found))
       (dolist (row (openstack-resource-cached-rows one))

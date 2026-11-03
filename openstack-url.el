@@ -61,6 +61,7 @@
 PATH is `TYPE/ID' or `ID'.  A PATH without a slash yields a nil
 TYPE, so `openstack-open-id' resolves the type through the
 cache."
+  (declare (pure t) (side-effect-free t))
   (let ((slash (string-search "/" path)))
     (if slash
         (cons (substring path 0 slash)

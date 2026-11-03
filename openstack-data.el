@@ -127,20 +127,24 @@ is its view for the ID prompts, the Org links and the xref backend.")
 
 (defun openstack-resource-definition (type)
   "Return the definition plist of resource TYPE, or nil."
+  (declare (side-effect-free t))
   (alist-get type openstack-resource-definitions nil nil #'equal))
 
 (defun openstack-resource-cli-name (type)
   "Return the client resource command name of resource TYPE.
 The type string is the command name, unless the definition sets a
 different :cli value."
+  (declare (side-effect-free t))
   (or (plist-get (openstack-resource-definition type) :cli) type))
 
 (defun openstack-resource-type (type)
   "Return the `openstack-resource-types' entry of resource TYPE."
+  (declare (side-effect-free t))
   (assoc type openstack-resource-types))
 
 (defun openstack-resource-type-for-mode (mode)
   "Return the resource type that MODE displays, or nil."
+  (declare (side-effect-free t))
   (car (cl-find mode openstack-resource-types
                 :key (lambda (entry) (nth 1 entry)))))
 
@@ -203,6 +207,7 @@ Read the generated `openstack-TYPE-list-arguments' defcustom while
 the variable exists, so a user customization wins over the default
 of the definition.  Signal `openstack-resource-error' for an
 unknown TYPE."
+  (declare (side-effect-free t))
   (let* ((definition (openstack--definition-or-error type))
          (variable (plist-get definition :list-arguments-variable)))
     (if (and variable (boundp variable))
@@ -215,6 +220,7 @@ Read the generated `openstack-TYPE-fields' defcustom while the
 variable exists, so a user customization wins over the default of
 the definition.  Signal `openstack-resource-error' for an unknown
 TYPE."
+  (declare (side-effect-free t))
   (let* ((definition (openstack--definition-or-error type))
          (variable (plist-get definition :fields-variable)))
     (if (and variable (boundp variable))
@@ -227,6 +233,7 @@ Read the generated `openstack-TYPE-list-fields' defcustom while the
 variable exists, so a user customization wins over the default of
 the definition.  Signal `openstack-resource-error' for an unknown
 TYPE."
+  (declare (side-effect-free t))
   (let* ((definition (openstack--definition-or-error type))
          (variable (plist-get definition :list-fields-variable)))
     (if (and variable (boundp variable))
@@ -250,17 +257,20 @@ plist with these keys:
 A resource without a single parent, such as a Swift container,
 leaves the property out.  Signal `openstack-resource-error' for an
 unknown TYPE."
+  (declare (side-effect-free t))
   (plist-get (openstack--definition-or-error type) :parent))
 
 (defun openstack-resource-parent-type (type)
   "Return the resource type that owns resource TYPE, or nil.
 Signal `openstack-resource-error' for an unknown TYPE."
+  (declare (side-effect-free t))
   (plist-get (openstack-resource-parent type) :type))
 
 (defun openstack-resource-parent-field (type)
   "Return the show fields that hold the parent ID of resource TYPE.
 Always return a list, so a definition names one field or several.
 Signal `openstack-resource-error' for an unknown TYPE."
+  (declare (side-effect-free t))
   (let ((field (plist-get (openstack-resource-parent type) :field)))
     (cond ((null field) nil)
           ((listp field) field)
@@ -273,6 +283,7 @@ Read the fields of `openstack-resource-parent-field' in order, so a
 client that reports the owner of a resource under more than one
 name still resolves.  Return nil when DATA holds none of them.
 Signal `openstack-resource-error' for an unknown TYPE."
+  (declare (side-effect-free t))
   (cl-loop for field in (openstack-resource-parent-field type)
            for value = (openstack-resource-field data field)
            when value
@@ -285,6 +296,7 @@ placeholders with ID.  A bare `:id' entry becomes a positional
 argument, as `object list CONTAINER' needs.  Return nil when the
 spec names no arguments.  Signal `openstack-resource-error' for an
 unknown TYPE."
+  (declare (side-effect-free t))
   (mapcar (lambda (argument) (if (eq argument :id) id argument))
           (plist-get (openstack-resource-parent type) :arguments)))
 
@@ -356,11 +368,13 @@ modes bypass the cache, so this hook reports the cache only.")
 
 (defun openstack-resource--cache-put (cache key value)
   "Return CACHE, an alist, with KEY bound to VALUE and the current time."
+  (declare (side-effect-free t))
   (cons (cons key (cons (float-time) value))
         (assoc-delete-all key cache)))
 
 (defun openstack-resource--cache-fresh-p (cell)
   "Return non-nil when cache CELL is still within the TTL."
+  (declare (side-effect-free t))
   (or (null openstack-resource-cache-ttl)
       (< (- (float-time) (cadr cell))
          openstack-resource-cache-ttl)))
@@ -371,6 +385,7 @@ Answers are parsed JSON: hash tables, lists, strings and numbers.
 `equal' compares hash tables by identity, so recurse into their
 contents here; this is what lets the change hook and the refresh
 pipeline treat unchanged data as no change."
+  (declare (side-effect-free t))
   (cond
    ((and (hash-table-p a) (hash-table-p b))
     (and (= (hash-table-count a) (hash-table-count b))
@@ -402,6 +417,7 @@ Never run the client and never check the TTL: a stale entry comes
 back as it is, and a type without an entry returns nil.  The ID
 prompts, the xref backend and `openstack-read-name' read the cache
 this way."
+  (declare (side-effect-free t))
   (cddr (assoc type openstack-resource--list-cache)))
 
 (defun openstack-resource-list-cached (type &optional force)
@@ -484,6 +500,7 @@ entry that goes.  Return nil."
 (defun openstack--hash-field (table name)
   "Return the value of TABLE field NAME, ignoring key case.
 Return nil when TABLE holds no key that matches NAME."
+  (declare (side-effect-free t))
   (cl-loop for key being the hash-keys of table
            using (hash-value value)
            when (and (stringp key) (string-equal-ignore-case key name))
@@ -494,6 +511,7 @@ Return nil when TABLE holds no key that matches NAME."
 DATA is the hash table that `openstack-resource-show' or
 `openstack-resource-list' returns, NAME a field name such as
 \"name\" or \"ID\".  Return nil when DATA holds no such field."
+  (declare (side-effect-free t))
   (if (hash-table-p data)
       (openstack--hash-field data name)
     nil))
@@ -503,12 +521,14 @@ DATA is the hash table that `openstack-resource-show' or
 DATA is the hash table that `openstack-resource-show' or
 `openstack-resource-list' returns; a list row spells the field
 \"ID\" and a show result spells it \"id\"."
+  (declare (side-effect-free t))
   (openstack-resource-field data "id"))
 
 (defun openstack-resource-name (data)
   "Return the name field of resource DATA, or nil.
 A resource without a name field, such as a Swift container, reports
 its identifier under another key; see `openstack-resource-field'."
+  (declare (side-effect-free t))
   (openstack-resource-field data "name"))
 
 (provide 'openstack-data)

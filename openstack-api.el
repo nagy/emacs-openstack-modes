@@ -106,6 +106,7 @@ DONE flag, the timeout timer and the timeout in seconds."
   "Return the value of RESPONSE header NAME, or nil.
 The lookup ignores case, so \"X-Subject-Token\" finds the header
 the identity service spells that way."
+  (declare (side-effect-free t))
   (cdr (assoc-string name (openstack-api-response-headers response) t)))
 
 ;;; Response parsing
@@ -114,37 +115,44 @@ the identity service spells that way."
   "Split response TEXT into a cons of header block and body.
 Accept the CRLF line endings of the wire and the LF endings that
 `url-http' leaves in the response buffer."
-  (cond
-   ((string-match "\r\n\r\n" text)
-    (cons (substring text 0 (match-beginning 0))
-          (substring text (match-end 0))))
-   ((string-match "\n\n" text)
-    (cons (substring text 0 (match-beginning 0))
-          (substring text (match-end 0))))
-   (t (cons text ""))))
+  (declare (pure t) (side-effect-free t))
+  (save-match-data
+    (cond
+     ((string-match "\r\n\r\n" text)
+      (cons (substring text 0 (match-beginning 0))
+            (substring text (match-end 0))))
+     ((string-match "\n\n" text)
+      (cons (substring text 0 (match-beginning 0))
+            (substring text (match-end 0))))
+     (t (cons text "")))))
 
 (defun openstack-api--parse-status (head)
   "Return the HTTP status code of header block HEAD, or nil.
 HEAD starts with the status line, for example \"HTTP/1.1 200 OK\"."
-  (when (string-match "\\`HTTP/[0-9.]+[ \t]+\\([0-9][0-9][0-9]\\)" head)
-    (string-to-number (match-string 1 head))))
+  (declare (pure t) (side-effect-free t))
+  (save-match-data
+    (when (string-match "\\`HTTP/[0-9.]+[ \t]+\\([0-9][0-9][0-9]\\)" head)
+      (string-to-number (match-string 1 head)))))
 
 (defun openstack-api--parse-headers (head)
   "Return the headers of HEAD as an alist of lower-case names.
 HEAD starts with the status line, which the result omits.  Header
 names compare without case afterwards, so the caller writes them
 in their natural spelling."
-  (let ((lines (cdr (split-string head "\r?\n" t))))
-    (delq nil
-          (mapcar
-           (lambda (line)
-             (when (string-match "\\`\\([^:]+\\):[ \t]*\\(.*\\)\\'" line)
-               (cons (downcase (string-trim (match-string 1 line)))
-                     (string-trim (match-string 2 line)))))
-           lines))))
+  (declare (pure t) (side-effect-free t))
+  (save-match-data
+    (let ((lines (cdr (split-string head "\r?\n" t))))
+      (delq nil
+            (mapcar
+             (lambda (line)
+               (when (string-match "\\`\\([^:]+\\):[ \t]*\\(.*\\)\\'" line)
+                 (cons (downcase (string-trim (match-string 1 line)))
+                       (string-trim (match-string 2 line)))))
+             lines)))))
 
 (defun openstack-api--parse-response (text)
   "Return an `openstack-api-response' parsed from response TEXT."
+  (declare (pure t) (side-effect-free t))
   (let* ((parts (openstack-api--split-response text))
          (head (car parts)))
     (openstack-api--make-response

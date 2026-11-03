@@ -56,14 +56,17 @@
   "Split the `openstack' link PATH into a (TYPE . ID) pair.
 Signal a `user-error' when PATH does not follow the
 TYPE/ID form."
-  (unless (string-match "\\`\\([^/]+\\)/\\(.+\\)\\'" path)
-    (user-error "Malformed OpenStack link, expected TYPE/ID: %s" path))
-  (cons (match-string 1 path) (match-string 2 path)))
+  (declare (side-effect-free t))
+  (save-match-data
+    (unless (string-match "\\`\\([^/]+\\)/\\(.+\\)\\'" path)
+      (user-error "Malformed OpenStack link, expected TYPE/ID: %s" path))
+    (cons (match-string 1 path) (match-string 2 path))))
 
 (defun openstack-org--entry (type)
   "Return the resource entry of link TYPE.
 Signal a `user-error' when TYPE is not in
 `openstack-resource-types'."
+  (declare (side-effect-free t))
   (or (openstack-resource-type type)
       (user-error "Unknown OpenStack resource type: %s" type)))
 

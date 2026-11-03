@@ -149,6 +149,7 @@ Both callbacks are mandatory: the sentinel would otherwise fail with
 The command is `openstack-program' followed by ARGS with
 `--format json' inserted at the end (unless ARGS already
 contains `--format' or `-f')."
+  (declare (side-effect-free t))
   (let ((prog openstack-program)
         (has-format (seq-some (lambda (a) (member a '("--format" "-f")))
                               args)))

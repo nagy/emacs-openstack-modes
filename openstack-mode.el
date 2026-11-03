@@ -660,6 +660,7 @@ nil; ERROR-FN is unused."
 
 (defun openstack--status-field-p (field)
   "Return non-nil when FIELD holds a status value."
+  (declare (side-effect-free t))
   (cl-some (lambda (name) (string-equal-ignore-case name field))
            openstack-status-fields))
 
@@ -667,6 +668,7 @@ nil; ERROR-FN is unused."
   "Return the status face of FIELD with VALUE, or nil.
 Only a field named in `openstack-status-fields' takes a face, and
 `openstack-status-faces' supplies it."
+  (declare (side-effect-free t))
   (when (and (stringp value) (openstack--status-field-p field))
     (cdr (assoc-string value openstack-status-faces t))))
 
@@ -681,6 +683,7 @@ Only a field named in `openstack-status-fields' takes a face, and
   "Return non-nil when FIELD holds a date value.
 The client spells a list column with spaces where `RESOURCE show'
 uses underscores, so both spellings match."
+  (declare (side-effect-free t))
   (let ((name (string-replace " " "_" field)))
     (cl-some (lambda (other) (string-equal-ignore-case other name))
              openstack-date-fields)))
@@ -689,18 +692,21 @@ uses underscores, so both spellings match."
   "Return non-nil when FIELD names the ID of the resource.
 `RESOURCE show' spells the field `id' and `RESOURCE list' spells
 the column `ID', so the comparison ignores case."
+  (declare (pure t) (side-effect-free t))
   (string-equal-ignore-case field "id"))
 
 (defun openstack--reference-type (field)
   "Return the resource type that the values of FIELD name, or nil.
 Read `openstack-reference-fields'; the field name comparison
 ignores case."
+  (declare (side-effect-free t))
   (cdr (assoc-string field openstack-reference-fields t)))
 
 (defun openstack--cell-face (field value changed)
   "Return the face list for FIELD with VALUE.
 CHANGED marks a value that differs from the previous refresh, so
 a status, ID or date face and the change face combine."
+  (declare (side-effect-free t))
   (let ((special (or (openstack--status-face field value)
                      (and (openstack--id-field-p field)
                           'openstack-id)
@@ -785,12 +791,14 @@ notification."
 
 (defun openstack--transitional-state-p (state)
   "Return non-nil when STATE still changes."
+  (declare (side-effect-free t))
   (and (stringp state)
        (cl-some (lambda (name) (string-equal-ignore-case name state))
                 openstack-transitional-states)))
 
 (defun openstack--transitional-row-p (row)
   "Return non-nil when a status field of ROW still changes."
+  (declare (side-effect-free t))
   (and (hash-table-p row)
        (cl-some (lambda (field)
                   (openstack--transitional-state-p
@@ -801,6 +809,7 @@ notification."
   "Return non-nil when DATA holds a status that still changes.
 DATA is the hash table of a resource or the list of rows of a
 collection."
+  (declare (side-effect-free t))
   (cond
    ((hash-table-p data) (openstack--transitional-row-p data))
    ((listp data) (cl-some #'openstack--transitional-row-p data))
@@ -1159,6 +1168,7 @@ A resource definition sets it through `:value-formatters'.")
 (defun openstack--format-size (value)
   "Return byte count VALUE in human readable form.
 A non-numeric VALUE falls back to `openstack--format-value'."
+  (declare (side-effect-free t))
   (if (numberp value)
       (file-size-human-readable value)
     (openstack--format-value value)))
@@ -1167,6 +1177,7 @@ A non-numeric VALUE falls back to `openstack--format-value'."
   "Return non-nil when VALUE is a non-empty list of plain values.
 A plain value is a string, a number, a boolean or nil.  A list
 that holds a hash table or another list stays JSON."
+  (declare (pure t) (side-effect-free t))
   (and (consp value)
        (seq-every-p (lambda (item)
                       (or (stringp item) (numberp item)
@@ -1182,6 +1193,7 @@ list of plain values such as the `tags' of an image print as
 text; a field that `openstack-reference-fields' names prints
 through `openstack--insert-references' instead; nested lists,
 hash tables and anything else fall back to their JSON encoding."
+  (declare (side-effect-free t))
   (let ((formatter (and field
                         (cdr (assoc (downcase field)
                                     openstack-value-formatters)))))
@@ -1320,6 +1332,7 @@ field table, `records' a `locations' list of hash tables,
 `references' a list of IDs of another resource type as
 `openstack-reference-fields' names it, and nil a plain field
 line."
+  (declare (side-effect-free t))
   (cond
    ((and (hash-table-p value) (string-equal field "properties"))
     'properties)
@@ -1589,6 +1602,7 @@ FIELDS names the columns shown first, in that order; every
 remaining field of ROWS follows, sorted by name.  The field
 names are the title-case names the client prints for lists,
 for example `ID' or `Volume Type'."
+  (declare (side-effect-free t))
   (let ((unseen (make-hash-table :test #'equal))
         (columns nil))
     (dolist (row rows)
@@ -1605,12 +1619,14 @@ for example `ID' or `Volume Type'."
 
 (defun openstack--display-command (type)
   "Return the display command that `openstack-resource-types' holds for TYPE."
+  (declare (side-effect-free t))
   (nth 2 (openstack-resource-type type)))
 
 (defun openstack-list--scope-buffer-name (base scope)
   "Return the buffer name of the collection named BASE with SCOPE.
 A scoped table needs its own buffer, so two parents do not
 overwrite each other's table."
+  (declare (pure t) (side-effect-free t))
   (format "%s <%s>" base (plist-get scope :id)))
 
 (defun openstack--parent-scope (type data)
@@ -1674,6 +1690,7 @@ signals `user-error'."
 SCOPE is the scope plist of the table, or nil for the top-level
 table of TYPE.  The commands that need an open table name it in
 their `user-error'."
+  (declare (pure t) (side-effect-free t))
   (if scope
       (format "%s list of %s %s"
               type (plist-get scope :type) (plist-get scope :id))
@@ -1683,6 +1700,7 @@ their `user-error'."
   "Return non-nil when the scope plists ONE and OTHER name one parent.
 The client arguments of the scope stay out of the comparison, so a
 table keeps its identity across a fetch."
+  (declare (pure t) (side-effect-free t))
   (equal (and one (list (plist-get one :type) (plist-get one :id)))
          (and other (list (plist-get other :type) (plist-get other :id)))))
 
@@ -1817,6 +1835,7 @@ The sorters read the typed cell values through it.")
 The client returns an empty string or nil for an empty list, and
 a single hash table when the list holds one resource; normalize
 both cases."
+  (declare (pure t) (side-effect-free t))
   (cl-remove-if-not #'hash-table-p
                     (cond ((null rows) nil)
                           ((listp rows) rows)
@@ -1824,6 +1843,7 @@ both cases."
 
 (defun openstack-list--row-identity-field (row name)
   "Return the value of ROW field NAME when it is a non-empty string."
+  (declare (side-effect-free t))
   (let ((value (openstack--hash-field row name)))
     (and (stringp value) (not (string-empty-p value)) value)))
 
@@ -1832,6 +1852,7 @@ both cases."
 Use the resource ID of ROW, then its name, because a Swift
 container has no UUID; use NUMBER for a row without either
 field, so `tabulated-list-print' can find the row again."
+  (declare (side-effect-free t))
   (or (openstack-list--row-identity-field row "ID")
       (openstack-list--row-identity-field row "Name")
       (format "row-%d" number)))
@@ -1840,6 +1861,7 @@ field, so `tabulated-list-print' can find the row again."
   "Return a hash table that maps the row identities of ROWS to rows.
 The sorters of `tabulated-list-format' receive entry identities
 only, so they read the typed cell values through this index."
+  (declare (side-effect-free t))
   (let ((index (make-hash-table :test #'equal))
         (number 0))
     (dolist (row rows index)
@@ -1883,12 +1905,14 @@ cons makes `tabulated-list-print-entry' signal a type error."
 
 (defun openstack-list--numeric-string-p (string)
   "Return non-nil when STRING holds a decimal number."
+  (declare (pure t) (side-effect-free t))
   (and (string-match-p "\\`[+-]?[0-9]+\\(?:\\.[0-9]+\\)?\\'" string) t))
 
 (defun openstack-list--value-lessp (a b)
   "Return non-nil when value A sorts before value B.
 Numbers compare as numbers, numeric strings compare as numbers,
 and every other pair compares as strings, ignoring case."
+  (declare (side-effect-free t))
   (cond
    ((and (numberp a) (numberp b)) (< a b))
    ((and (stringp a) (stringp b))
@@ -1900,6 +1924,7 @@ and every other pair compares as strings, ignoring case."
 
 (defun openstack-list--sort-value (column entry)
   "Return the value of COLUMN for ENTRY, or nil when the row has none."
+  (declare (side-effect-free t))
   (when-let* ((row (gethash (car entry) openstack-list--rows)))
     (gethash column row)))
 
@@ -1907,6 +1932,7 @@ and every other pair compares as strings, ignoring case."
   "Return the sort predicate of COLUMN.
 The predicate compares typed values, so a numeric column sorts as
 numbers.  Rows without a value sort last."
+  (declare (side-effect-free t))
   (lambda (entry-a entry-b)
     (let ((a (openstack-list--sort-value column entry-a))
           (b (openstack-list--sort-value column entry-b)))
@@ -1917,6 +1943,7 @@ numbers.  Rows without a value sort last."
 (defun openstack-list--numeric-column-p (rows column)
   "Return non-nil when every value in ROWS of COLUMN is a number.
 An empty column does not count as numeric."
+  (declare (side-effect-free t))
   (let ((seen nil)
         (numeric t))
     (dolist (row rows)
@@ -1971,6 +1998,7 @@ does not show the table stays unpinned."
 (defun openstack-list--natural-widths (rows columns)
   "Return the width that each column needs to show all ROWS.
 There is one width for every name in COLUMNS."
+  (declare (side-effect-free t))
   (mapcar
    (lambda (column)
      (let ((width (string-width column)))
@@ -1986,6 +2014,7 @@ There is one width for every name in COLUMNS."
 The result leaves room for `tabulated-list-padding' and for the
 separator that `tabulated-list-print-col' inserts after every
 column but the last."
+  (declare (side-effect-free t))
   (let ((window (openstack-list--width-window window))
         (separators (max 0 (1- (length columns)))))
     (max (* (length columns) openstack-list-min-column-width)
@@ -1995,6 +2024,7 @@ column but the last."
   "Return the narrowest width of every name in COLUMNS.
 A column keeps `openstack-list-min-column-width' and the whole of
 its own name, so a fitted table never cuts a column label."
+  (declare (side-effect-free t))
   (mapcar (lambda (column)
             (max openstack-list-min-column-width (string-width column)))
           columns))
@@ -2003,6 +2033,7 @@ its own name, so a fitted table never cuts a column label."
   "Return the position of the widest column that can shrink.
 WIDTHS holds the column widths and FLOORS their narrowest values.
 The answer is nil when every column already sits at its floor."
+  (declare (pure t) (side-effect-free t))
   (let ((position 0)
         (number 0)
         (widest nil))
@@ -2021,6 +2052,7 @@ of each column and defaults to `openstack-list-min-column-width'
 for every one of them.  A column never goes below its minimum, and
 `tabulated-list-print-col' then truncates the cells that still
 overflow."
+  (declare (side-effect-free t))
   (let ((widths (copy-sequence widths))
         (floors (or minimums
                     (make-list (length widths)
@@ -2043,6 +2075,7 @@ overflow."
 Every column sorts through `openstack-list--sorter', a numeric
 column is right-aligned, and the widths fit WINDOW, which defaults
 to the window that decides the widths of the table."
+  (declare (side-effect-free t))
   (let* ((minimums (openstack-list--column-floors columns))
          (widths (openstack-list--fit-widths
                   (openstack-list--natural-widths rows columns)
@@ -2075,6 +2108,7 @@ adds `openstack-id' and `mouse-face' to the whole line, so RET and
 ALIGNS holds `right' for a right-aligned cell and any other symbol
 for a left-aligned one.  Trailing blanks go away, so a line ends at
 its last visible character."
+  (declare (pure t) (side-effect-free t))
   (string-trim-right
    (mapconcat #'identity
               (cl-mapcar (lambda (cell width align)

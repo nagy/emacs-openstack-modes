@@ -251,6 +251,19 @@ includes evil.
   bind to `openstack-show-command`.
   `tabulated-list-print` requires an entry as a list `(ID COLS)`:
   a cons of ID and column vector makes it signal a type error.
+- Leaf helpers that read only their arguments carry
+  `(declare (pure t) (side-effect-free t))`, for example
+  `openstack--plain-list-p`, `openstack-list--numeric-string-p`,
+  `openstack-list--table-line` and `openstack-url-split`.  A reader
+  of a defcustom, the registry, a cache or a buffer still has no
+  side effects, so it carries `(declare (side-effect-free t))`
+  alone; the accessors of the data layer, `openstack--hash-field`
+  among them, and the sorting and width helpers work this way.  A pure
+  function must preserve the match data, so wrap a body that calls
+  `string-match` in `save-match-data`, as `openstack-org--split` and
+  the response parsers of `openstack-api.el` do.  Do not annotate a
+  function that runs a process, writes a buffer, changes a cache or
+  runs a hook.
 - The resource show and list tests live in one table, not one file
   per resource: `openstack-resource-tests.el` holds
   `openstack-resource-test--fixtures` (the client answers and the
