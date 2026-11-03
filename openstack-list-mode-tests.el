@@ -193,7 +193,7 @@ The columns come from `openstack-list-test--fields'."
     ;; The mode truncates long display lines instead of wrapping them.
     (should truncate-lines)
     (cl-letf (((symbol-function 'openstack-list--available-width)
-               (lambda (_columns) 40)))
+               (lambda (_columns &optional _window) 40)))
       (openstack-list-test--render
        (openstack-list-test--rows
         (list (cons "ID" "id-1")
@@ -202,6 +202,59 @@ The columns come from `openstack-list-test--fields'."
     (should (equal (count-lines (point-min) (point-max)) 1))
     ;; The long column took the window budget, not its full 200 characters.
     (should (<= (nth 1 (aref tabulated-list-format 1)) 40))))
+
+(ert-deftest openstack-list-widths-keep-column-labels ()
+  "A fitted column keeps the whole of its label."
+  ;; The label of the first column sets its floor, so the column gives
+  ;; up its space before it cuts its own name.
+  (let ((fitted (openstack-list--fit-widths '(40 30 20) 40 '(20 6 6))))
+    (should (<= (apply #'+ fitted) 40))
+    (should (>= (nth 0 fitted) 20)))
+  (let* ((rows (openstack-list-test--rows
+                (list (cons "Availability Zone" "nova")
+                      (cons "Name" "web-1"))))
+         (format
+          (cl-letf (((symbol-function 'openstack-list--available-width)
+                     (lambda (_columns &optional _window) 14)))
+            (openstack-list--format rows '("Availability Zone" "Name")))))
+    (should (>= (nth 1 (aref format 0)) 17))))
+
+(ert-deftest openstack-list-render-records-the-budget ()
+  "A render keeps the column budget of its window."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (cl-letf (((symbol-function 'openstack-list--available-width)
+               (lambda (_columns &optional _window) 40)))
+      (openstack-list-test--render
+       (openstack-list-test--rows
+        (list (cons "ID" "id-1") (cons "Name" "web-1")))))
+    (should (equal openstack-list--fit-width 40))))
+
+(ert-deftest openstack-list-refit-follows-the-window-width ()
+  "A resize repaints only when the column budget changed."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (let ((calls 0)
+          (budget 100))
+      (setq-local openstack-render-function
+                  (lambda (&rest _arguments) (setq calls (1+ calls))))
+      (setq-local openstack--rendered t)
+      (setq-local openstack--last-data (list (make-hash-table :test #'equal)))
+      (setq-local tabulated-list-format [("ID" 4 nil)])
+      (cl-letf (((symbol-function 'openstack-list--available-width)
+                 (lambda (_columns &optional _window) budget)))
+        (setq-local openstack-list--fit-width budget)
+        ;; A frame event that keeps the width asks for no reprint.
+        (should-not (openstack-list--refit-needed-p (selected-window)))
+        (openstack-list--schedule-refit)
+        (openstack-list--run-refits)
+        (should (= calls 0))
+        ;; A narrower window repaints once.
+        (setq budget 20)
+        (should (openstack-list--refit-needed-p (selected-window)))
+        (openstack-list--schedule-refit)
+        (openstack-list--run-refits)
+        (should (= calls 1))))))
 
 ;;; Status display
 

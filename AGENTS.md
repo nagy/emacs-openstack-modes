@@ -372,8 +372,28 @@ includes evil.
   `dired-up-directory` to `openstack-go-to-parent`, and
   `openstack-evil.el` remaps the same two keys in its state maps.
 - Column widths depend on the window width, so
-  `window-size-change-functions` redraws visible list buffers from
-  the cached rows (`openstack-list--redraw`, no new CLI call).
+  `window-size-change-functions` refits visible list buffers from
+  the cached rows (`openstack-list--redraw`, no new CLI call).  The
+  hook runs during redisplay, so it only queues the buffer in
+  `openstack-list--refit-buffers`, and a zero delay timer runs
+  `openstack-list--run-refits`.  `openstack-list--refit-needed-p`
+  compares `openstack-list--available-width` with the budget of the
+  last render in `openstack-list--fit-width`, so a frame event that
+  changes no width reprints nothing.  The buffer holds one
+  `tabulated-list-format` for every window that shows it, so
+  `openstack-list--pin-width-window` pins the window that draws the
+  table in `openstack-list--width-window`, and a later resize reads
+  the pin instead of the window that the event names.  Do not
+  reprint from the display hook itself.
+- A fitted column keeps the whole of its label.
+  `openstack-list--natural-widths` starts every column at the width
+  of its name, and `openstack-list--column-floors` keeps the label
+  and `openstack-list-min-column-width` as the narrowest width that
+  a shrink reaches.  `openstack-list--fit-widths` takes those floors
+  as its optional MINIMUMS and shrinks the widest column that still
+  stands above its own floor, so no column cuts its header.  A table
+  too narrow even for the floors overflows the window, and
+  `tabulated-list-print-col` then truncates the cells.
 - Navigation: the renderers attach an `openstack-id` text
   property to ID field lines, to every ID of a
   `openstack-reference-fields` field and to whole list rows; RET

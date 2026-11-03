@@ -297,7 +297,9 @@ from =tabulated-list-mode=.  The table therefore has a clickable
 column header, per-column sorting (=S= or a header click, a second
 sort flips the direction), per-column resizing (={= and =}=) and
 column widths that fit the window; a resize re-lays out visible
-lists without a new CLI call.  The mode line shows the row count,
+lists without a new CLI call.  A column takes the width of its widest
+value, and it never shrinks below its own label, so a narrow window
+keeps every header readable.  The mode line shows the row count,
 the sort column and the last fetch error, because the header line
 carries the column labels.
 

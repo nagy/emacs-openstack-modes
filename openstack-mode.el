@@ -1532,8 +1532,9 @@ the buffer updates when `openstack-fetch-function' delivers data."
 (defcustom openstack-list-min-column-width 6
   "Narrowest width of a table column, in characters.
 `openstack-list-render' shrinks the widest columns first when the
-table does not fit the window, and stops at this width, so every
-column keeps a readable part of its value."
+table does not fit the window, and stops at this width or at the
+width of the column label, whichever is wider, so every column
+keeps a readable part of its value and its whole name."
   :type 'natnum
   :group 'openstack-list)
 
@@ -1930,6 +1931,43 @@ An empty column does not count as numeric."
 
 ;;; Column widths
 
+(defvar-local openstack-list--width-window nil
+  "Window that decides the column widths, or nil before a render.
+The buffer holds one `tabulated-list-format' for every window that
+shows it, so one window decides the widths.  A render pins the
+window that draws the table here, and a later resize reads the pin,
+because a timer or a frame event never restyles the columns from a
+window of another size.")
+
+(defvar-local openstack-list--fit-width nil
+  "Column budget of the last render, or nil before the first one.
+A resize compares `openstack-list--available-width' with this value
+before it redraws, so an event that changes no width reprints
+nothing.")
+
+(defun openstack-list--width-window (&optional hint)
+  "Return the window whose width decides the column widths.
+Prefer the pin in `openstack-list--width-window' while it still
+shows the table, then HINT, then the selected window while it shows
+the table, then the first window that shows it."
+  (let ((shown (get-buffer-window-list (current-buffer) nil t)))
+    (cond
+     ((memq openstack-list--width-window shown)
+      openstack-list--width-window)
+     ((memq hint shown) hint)
+     ((memq (selected-window) shown) (selected-window))
+     ((car shown))
+     (t (selected-window)))))
+
+(defun openstack-list--pin-width-window (&optional hint)
+  "Pin the window that decides the column widths, and return it.
+HINT is the window that the caller offers, or nil.  A window that
+does not show the table stays unpinned."
+  (let ((window (openstack-list--width-window hint)))
+    (when (memq window (get-buffer-window-list (current-buffer) nil t))
+      (setq openstack-list--width-window window))
+    window))
+
 (defun openstack-list--natural-widths (rows columns)
   "Return the width that each column needs to show all ROWS.
 There is one width for every name in COLUMNS."
@@ -1943,43 +1981,74 @@ There is one width for every name in COLUMNS."
                      (openstack--format-value (gethash column row))))))))
    columns))
 
-(defun openstack-list--available-width (columns)
-  "Return the cell width available for COLUMNS in the current window.
+(defun openstack-list--available-width (columns &optional window)
+  "Return the cell width available for COLUMNS in WINDOW.
 The result leaves room for `tabulated-list-padding' and for the
 separator that `tabulated-list-print-col' inserts after every
 column but the last."
-  (let* ((window (or (get-buffer-window (current-buffer) 0)
-                     (selected-window)))
-         (separators (max 0 (1- (length columns)))))
+  (let ((window (openstack-list--width-window window))
+        (separators (max 0 (1- (length columns)))))
     (max (* (length columns) openstack-list-min-column-width)
          (- (window-width window) tabulated-list-padding separators))))
 
-(defun openstack-list--fit-widths (widths available)
+(defun openstack-list--column-floors (columns)
+  "Return the narrowest width of every name in COLUMNS.
+A column keeps `openstack-list-min-column-width' and the whole of
+its own name, so a fitted table never cuts a column label."
+  (mapcar (lambda (column)
+            (max openstack-list-min-column-width (string-width column)))
+          columns))
+
+(defun openstack-list--widest-above-floor (widths floors)
+  "Return the position of the widest column that can shrink.
+WIDTHS holds the column widths and FLOORS their narrowest values.
+The answer is nil when every column already sits at its floor."
+  (let ((position 0)
+        (number 0)
+        (widest nil))
+    (dolist (width widths)
+      (when (and (> width (nth number floors))
+                 (or (null widest) (> width widest)))
+        (setq widest width
+              position number))
+      (setq number (1+ number)))
+    (and widest position)))
+
+(defun openstack-list--fit-widths (widths available &optional minimums)
   "Return WIDTHS shrunk to fit AVAILABLE characters.
-Shrink the widest column first, and stop shrinking at
-`openstack-list-min-column-width'; `tabulated-list-print-col'
-then truncates the cells that still overflow."
+Shrink the widest column first.  MINIMUMS holds the narrowest width
+of each column and defaults to `openstack-list-min-column-width'
+for every one of them.  A column never goes below its minimum, and
+`tabulated-list-print-col' then truncates the cells that still
+overflow."
   (let ((widths (copy-sequence widths))
+        (floors (or minimums
+                    (make-list (length widths)
+                               openstack-list-min-column-width)))
         (total (apply #'+ widths)))
-    (while (and (> (length widths) 0)
-                (> total available)
-                (> (apply #'max widths) openstack-list-min-column-width))
-      (let* ((widest (apply #'max widths))
-             (position (cl-position widest widths))
-             (width (max openstack-list-min-column-width
-                         (- widest (- total available)))))
-        (setf (nth position widths) width)
-        (setq total (apply #'+ widths))))
+    (let ((position (and (> total available)
+                         (openstack-list--widest-above-floor widths floors))))
+      (while position
+        (setf (nth position widths)
+              (max (nth position floors)
+                   (- (nth position widths) (- total available))))
+        (setq total (apply #'+ widths))
+        (setq position (and (> total available)
+                            (openstack-list--widest-above-floor
+                             widths floors)))))
     widths))
 
-(defun openstack-list--format (rows columns)
+(defun openstack-list--format (rows columns &optional window)
   "Return `tabulated-list-format' for ROWS and COLUMNS.
 Every column sorts through `openstack-list--sorter', a numeric
-column is right-aligned, and the widths fit the current window."
-  (let ((widths (openstack-list--fit-widths
-                 (openstack-list--natural-widths rows columns)
-                 (openstack-list--available-width columns)))
-        (format nil))
+column is right-aligned, and the widths fit WINDOW, which defaults
+to the window that decides the widths of the table."
+  (let* ((minimums (openstack-list--column-floors columns))
+         (widths (openstack-list--fit-widths
+                  (openstack-list--natural-widths rows columns)
+                  (openstack-list--available-width columns window)
+                  minimums))
+         (format nil))
     (dolist (column columns)
       (push (list column
                   (pop widths)
@@ -2071,10 +2140,14 @@ order; the remaining fields follow, sorted by name.  Collection
 modes call this from their `openstack-render-function' with their
 own column order."
   (let* ((rows (openstack-list--rows rows))
-         (columns (or (openstack-list-columns rows fields) fields)))
+         (columns (or (openstack-list-columns rows fields) fields))
+         (window (openstack-list--pin-width-window)))
     (setq-local openstack-list--count (length rows))
     (setq-local openstack-list--rows (openstack-list--row-index rows))
-    (setq-local tabulated-list-format (openstack-list--format rows columns))
+    (setq-local openstack-list--fit-width
+                (openstack-list--available-width columns window))
+    (setq-local tabulated-list-format
+                (openstack-list--format rows columns window))
     (setq-local tabulated-list-entries
                 (and rows (openstack-list--entries rows columns)))
     ;; The renderer supplies its own printer, so it can fill a plain
@@ -2090,20 +2163,62 @@ own column order."
 
 (defun openstack-list--redraw ()
   "Redraw the table from the cached rows, without a new fetch.
-`window-size-change-functions' calls this after a resize, because
-the column widths depend on the window width.  The rows stay the
-same, so no cell takes the change face."
+`openstack-list--run-refits' calls this after a resize, because the
+column widths depend on the window width.  The rows stay the same,
+so no cell takes the change face."
   (when (and openstack--rendered openstack--last-data)
     (let ((openstack--previous-data openstack--last-data))
       (funcall openstack-render-function nil openstack--last-data))))
 
+(defun openstack-list--refit-needed-p (window)
+  "Return non-nil when WINDOW offers another column budget.
+The table holds the budget of its last render in
+`openstack-list--fit-width', so a frame event that changed no width
+asks for no reprint.  A buffer that never rendered needs none."
+  (let ((columns (mapcar #'car (append tabulated-list-format nil))))
+    (and openstack-list--fit-width
+         columns
+         (not (equal (openstack-list--available-width columns window)
+                     openstack-list--fit-width)))))
+
+(defvar openstack-list--refit-buffers nil
+  "List buffers that wait for a column refit.")
+
+(defvar openstack-list--refit-timer nil
+  "Timer that runs the pending column refits, or nil.")
+
+(defun openstack-list--schedule-refit ()
+  "Queue a column refit of the current list buffer.
+`window-size-change-functions' runs during redisplay, and a reprint
+must wait for the redisplay to end, so the refit goes through a
+zero delay timer."
+  (cl-pushnew (current-buffer) openstack-list--refit-buffers)
+  (unless (timerp openstack-list--refit-timer)
+    (setq openstack-list--refit-timer
+          (run-at-time 0 nil #'openstack-list--run-refits))))
+
+(defun openstack-list--run-refits ()
+  "Redraw the list buffers that wait for a column refit."
+  (setq openstack-list--refit-timer nil)
+  (dolist (buffer (prog1 openstack-list--refit-buffers
+                    (setq openstack-list--refit-buffers nil)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (when (and (derived-mode-p 'openstack-list-mode)
+                   (openstack-list--refit-needed-p
+                    (openstack-list--width-window)))
+          (openstack-list--redraw))))))
+
 (defun openstack-list--window-size-changed (frame)
-  "Redraw the OpenStack list buffers shown in FRAME.
-A resize changes the width that the columns can use."
+  "Queue a column refit for the list buffers shown in FRAME.
+A resize changes the width that the columns can use.  Only a buffer
+whose column budget changed repaints, so an event that grows the
+echo area costs nothing."
   (dolist (window (window-list frame 'nomini))
     (with-current-buffer (window-buffer window)
-      (when (derived-mode-p 'openstack-list-mode)
-        (openstack-list--redraw)))))
+      (when (and (derived-mode-p 'openstack-list-mode)
+                 (openstack-list--refit-needed-p window))
+        (openstack-list--schedule-refit)))))
 
 (add-hook 'window-size-change-functions #'openstack-list--window-size-changed)
 
