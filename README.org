@@ -307,6 +307,23 @@ blocks, one record per interface and per extra route, and the
 gateway hash keeps its JSON text.  Horizon serves the router
 detail view at =project/routers/ID=.
 
+* Flavors
+
+=openstack-flavor-mode= displays a flavor of the Compute service:
+
+- =M-x openstack-flavor-display= -- display a flavor by ID
+  (=openstack flavor show=)
+- =M-x openstack-flavor-list-display= -- list the flavors
+  (=openstack flavor list=)
+
+A flavor belongs to no project, so the mode has no parent to
+climb to.  The =extra_specs= hash keeps its JSON text, and the
+numeric columns =RAM=, =Disk=, =Ephemeral= and =VCPUs= sort as
+numbers.  Horizon serves flavors in the admin panel only, and that
+panel has no page per flavor, so the dashboard link lands on
+=admin/flavors/ID=; set =openstack-id-prefix= if your deployment
+serves one.
+
 * Projects
 
 =openstack-project-mode= displays a project of the Identity

@@ -302,7 +302,35 @@
                       "Alpha" "Zebra")
        :list-rows ("^router-1 +main +ACTIVE +UP +proj-1 +early +late"
                    "^router-2 +edge +DOWN +DOWN +proj-1 +early +late")
-       :list-first-id "router-1"))
+       :list-first-id "router-1")
+
+      ("flavor"
+       :show-id "flavor-1"
+       :show-json
+       ,(concat "{\"id\": \"flavor-1\", \"name\": \"m1.small\", "
+                "\"vcpus\": 1, \"ram\": 2048, \"disk\": 20, "
+                "\"ephemeral\": 0, \"swap\": 0, "
+                "\"rxtx_factor\": 1.0, \"is_public\": true, "
+                "\"extra_specs\": {\"hw:cpu_policy\": \"dedicated\"}, "
+                "\"description\": \"\", "
+                "\"zzz_extra\": \"late\"}")
+       :show-missing ("updated_at")
+       :show-nested (("extra_specs" . "{\"hw:cpu_policy\""))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"flavor-1\", \"Name\": \"m1.small\", "
+                "\"RAM\": 2048, \"Disk\": 20, \"Ephemeral\": 0, "
+                "\"VCPUs\": 1, \"Is Public\": true, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"flavor-2\", \"Name\": \"m2.large\", "
+                "\"RAM\": 512, \"Disk\": 40, \"Ephemeral\": 0, "
+                "\"VCPUs\": 2, \"Is Public\": false, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "RAM" "Disk" "Ephemeral" "VCPUs"
+                      "Is Public" "Alpha" "Zebra")
+       :list-rows ("^flavor-1 +m1\\.small +2048 +20 +0 +1 +true +early +late"
+                   "^flavor-2 +m2\\.large + +512 +40 +0 +2 +- +early +late")
+       :list-first-id "flavor-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and

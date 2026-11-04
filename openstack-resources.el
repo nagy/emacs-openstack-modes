@@ -208,5 +208,20 @@
             :arguments ("--project" :id))
   :list-fields '("ID" "Name" "Status" "State" "Project"))
 
+;;; Flavors
+
+;; A flavor belongs to no project: it describes a size that a server
+;; takes.  Horizon serves flavors in the admin panel only, and that
+;; panel has no page per flavor, so the dashboard link lands on the
+;; panel path.
+
+(openstack-define-resource "flavor"
+  :noun "flavors"
+  :id-prefix "admin/flavors"
+  :fields '("name" "vcpus" "ram" "disk" "ephemeral" "swap"
+            "is_public" "rxtx_factor" "extra_specs" "description")
+  :list-fields '("ID" "Name" "RAM" "Disk" "Ephemeral" "VCPUs"
+                 "Is Public"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here
