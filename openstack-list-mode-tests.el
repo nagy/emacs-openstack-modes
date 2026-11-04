@@ -367,6 +367,17 @@ row stop before its newline and the runs of two rows never join."
     (openstack-list-copy-id)
     (should (equal (car kill-ring) "id-7"))))
 
+(ert-deftest openstack-list-copy-id-with-a-prefix-copies-a-link ()
+  "A prefix argument copies the `openstack:TYPE/ID' form of the row."
+  (let ((kill-ring nil)
+        (kill-ring-yank-pointer nil))
+    (with-temp-buffer
+      (openstack-server-list-mode)
+      (openstack-list-test--render
+       (openstack-list-test--rows '(("ID" . "id-7") ("Name" . "web-7"))))
+      (openstack-list-copy-id '(4))
+      (should (equal (car kill-ring) "openstack:server/id-7")))))
+
 (ert-deftest openstack-list-copy-id-needs-a-row ()
   "The row commands signal a user-error off a resource row."
   (with-temp-buffer

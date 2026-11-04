@@ -71,7 +71,8 @@ Commands:
 - =M-x openstack-read-refresh= -- refill the cached resource
   lists
 - =M-x openstack-copy-id= (=c=) -- copy the resource ID to
-  the kill ring
+  the kill ring; with a prefix argument, copy the
+  =openstack:TYPE/ID= link instead
 - =M-x openstack-open-web= (=w=) -- open the dashboard page
   for the resource
 - =M-x openstack-pop= (=p=) -- pop back to the buffer the
@@ -86,6 +87,8 @@ Commands:
 - =M-x openstack-toggle-section= (=TAB=) -- fold or unfold the
   block around point: the title and field table, the
   =properties= block or a =locations= block
+- =M-x openstack-export-json= -- write the last fetch to a JSON
+  file
 
 Customization (=M-x customize-group openstack=):
 
@@ -428,7 +431,8 @@ row, an ID field line and a reference are text buttons of the type
 =openstack-object=, so a tooltip names the resource, =C-h .= describes
 the button and a single click follows a link in a show buffer.  In
 a list buffer the left click keeps the row selection.  =c=
-copies the ID of the row and =w= opens its dashboard page.  =n= and
+copies the ID of the row, =C-u c= copies its =openstack:TYPE/ID=
+link, and =w= opens its dashboard page.  =n= and
 =p= move by row, and =q= buries the buffer: =openstack-pop= (=p=)
 stays a show-mode command.  The ID field line in show buffers works
 the same way, and so does a subnet ID in a network buffer, which
@@ -535,6 +539,14 @@ buffer it made before, and a refresh of the display buffer
 redraws it in place.  =gr= in the JSON buffer redraws it from the
 source buffer.  The buffer name is the display buffer name with a
 =JSON= suffix, for example =*OpenStack Server* <id> JSON=.
+
+=M-x openstack-export-json= writes the same text to a file, so a
+fetch can go into a bug report or a review.  The default name holds
+the resource type and the ID, or the type and =list= for a
+collection buffer.  Both display modes remap =js-json-mode= and
+=json-ts-mode= to =openstack-json-view=, so a menu or a key that runs
+a JSON major mode shows the view instead of replacing the display
+buffer.
 
 * Resource types
 

@@ -580,6 +580,17 @@ includes evil.
   calls `openstack-json--redraw` after a render.  The name is the
   source name plus " JSON", so it needs no registry.  Do not fetch
   again from the JSON buffer; `gr` renders the cached data.
+  `openstack-json--string` returns that text without a buffer, and
+  `openstack-export-json` writes it to a file, so an empty
+  collection writes `[]` there too.  Both base maps remap
+  `js-json-mode` and `json-ts-mode` to `openstack-json-view`, because
+  Emacs 30 ships two JSON major modes and a key or a menu that runs
+  either one would replace the display buffer.
+- `openstack-copy-id` and `openstack-list-copy-id` copy the bare ID,
+  and a prefix argument copies the `openstack:TYPE/ID` form that
+  `ol-openstack.el` and `openstack-url.el` read.  The type comes from
+  `openstack-resource-type-for-mode`, so a base mode buffer without a
+  type keeps the bare ID.
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode
   cancels any in-flight fetch via `openstack--kill-pending`);

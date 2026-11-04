@@ -57,6 +57,7 @@ an explicit `require'."
                      "openstack-open-web" "openstack-pop"
                      "openstack-set-id" "openstack-mode"
                      "openstack-json-view"
+                     "openstack-export-json"
                      "openstack-display-at-point"
                      "openstack-mouse-display-at-point"
                      "openstack-next-sibling" "openstack-previous-sibling"
@@ -182,6 +183,28 @@ project and no version-controlled tree."
   (with-temp-buffer
     (openstack-mode)
     (should-error (openstack-copy-id) :type 'user-error)))
+
+(ert-deftest openstack-mode-copy-id-with-a-prefix-copies-a-link ()
+  "A prefix argument copies the `openstack:TYPE/ID' form."
+  (let ((kill-ring nil)
+        (kill-ring-yank-pointer nil))
+    (with-temp-buffer
+      (openstack-server-mode)
+      (setq-local openstack--id "srv-1")
+      (openstack-copy-id '(4))
+      (should (equal (car kill-ring) "openstack:server/srv-1"))
+      (openstack-copy-id)
+      (should (equal (car kill-ring) "srv-1")))))
+
+(ert-deftest openstack-mode-copy-id-of-a-base-buffer-stays-plain ()
+  "A base mode buffer has no type, so a prefix still copies the ID."
+  (let ((kill-ring nil)
+        (kill-ring-yank-pointer nil))
+    (with-temp-buffer
+      (openstack-mode)
+      (setq-local openstack--id "res-1")
+      (openstack-copy-id '(4))
+      (should (equal (car kill-ring) "res-1")))))
 
 (ert-deftest openstack-mode-pop ()
   "`openstack-pop' returns to the origin buffer."
@@ -1377,6 +1400,47 @@ that `openstack-json-view' opened.  Kill both buffers afterwards."
   "The command needs an OpenStack display buffer."
   (with-temp-buffer
     (should-error (openstack-json-view) :type 'user-error)))
+
+(ert-deftest openstack-json-major-modes-remap-to-the-view ()
+  "Both JSON major modes remap to the JSON view of the buffer."
+  (dolist (mode '(openstack-server-mode openstack-server-list-mode))
+    (with-temp-buffer
+      (funcall mode)
+      (dolist (json '(js-json-mode json-ts-mode))
+        (should (eq (command-remapping json) #'openstack-json-view))))))
+
+(ert-deftest openstack-export-json-writes-the-last-fetch ()
+  "The export writes the parsed data as pretty printed JSON."
+  (let ((file (make-temp-file "openstack-export" nil ".json"))
+        (data (openstack-test--parse "{\"name\": \"web-1\"}")))
+    (unwind-protect
+        (with-temp-buffer
+          (openstack-server-mode)
+          ;; Without a render there is nothing to write.
+          (should-error (openstack-export-json file) :type 'user-error)
+          (setq-local openstack--last-data data
+                      openstack--rendered t)
+          (openstack-export-json file)
+          (with-temp-buffer
+            (insert-file-contents file)
+            (let ((text (buffer-string)))
+              (should (string-match-p "\"name\": \"web-1\"" text))
+              (should (hash-table-p (json-parse-buffer
+                                     :object-type 'hash-table))))))
+      (delete-file file))))
+
+(ert-deftest openstack-export-json-writes-an-empty-collection ()
+  "An empty collection writes the empty JSON array of the view."
+  (let ((file (make-temp-file "openstack-export" nil ".json")))
+    (unwind-protect
+        (with-temp-buffer
+          (openstack-server-list-mode)
+          (setq-local openstack--rendered t)
+          (openstack-export-json file)
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (equal (buffer-string) "[]"))))
+      (delete-file file))))
 
 
 ;;; Things at point

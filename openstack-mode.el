@@ -495,6 +495,8 @@ mode switch back to a single-resource view must clear it.")
     (define-key map (kbd "c") #'openstack-copy-id)
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "J") #'openstack-json-view)
+    (define-key map [remap js-json-mode] #'openstack-json-view)
+    (define-key map [remap json-ts-mode] #'openstack-json-view)
     (define-key map (kbd "TAB") #'openstack-toggle-section)
     (define-key map (kbd "p") #'openstack-pop)
     (define-key map (kbd "C-c C-n") #'openstack-next-sibling)
@@ -901,17 +903,25 @@ redraws the linked buffer after a fetch.")
   "Return the JSON view buffer name for SOURCE."
   (format "%s JSON" (buffer-name source)))
 
+(defun openstack-json--string (data &optional collection)
+  "Return DATA as pretty printed JSON text.
+COLLECTION marks DATA that a collection fetch returned, whose
+empty nil result prints as an empty JSON array."
+  (with-temp-buffer
+    (if (and collection (null data))
+        (insert "[]")
+      (when data
+        (insert (json-encode data))
+        (json-pretty-print-buffer)))
+    (buffer-string)))
+
 (defun openstack-json--render (data &optional collection)
   "Replace the current buffer with DATA as pretty printed JSON.
 COLLECTION marks DATA that a collection fetch returned, whose
 empty nil result prints as an empty JSON array."
   (let ((inhibit-read-only t))
     (erase-buffer)
-    (if (and collection (null data))
-        (insert "[]")
-      (when data
-        (insert (json-encode data))
-        (json-pretty-print-buffer)))
+    (insert (openstack-json--string data collection))
     (goto-char (point-min))
     ;; A read-only view has nothing to save: keep the buffer out of
     ;; the modification state, so exiting asks no question.
@@ -981,6 +991,39 @@ refresh of this buffer redraws it."
          (buffer-local-value 'openstack-collection source))))
     (setq-local openstack--json-buffer buffer)
     (pop-to-buffer buffer)))
+
+;;; Point keeping
+
+(defun openstack--export-file-name ()
+  "Return the default file name of a JSON export.
+The name holds the resource type and the ID, or `list' for a
+collection buffer."
+  (let ((type (or (openstack-resource-type-for-mode major-mode)
+                  "openstack")))
+    (expand-file-name
+     (if openstack-collection
+         (format "%s-list.json" type)
+       (format "%s-%s.json" type (or openstack--id "resource")))
+     default-directory)))
+
+;;;###autoload
+(defun openstack-export-json (file)
+  "Write the last fetch of the current buffer to FILE as JSON.
+The text matches the view of `openstack-json-view', so an empty
+collection writes `[]'.  FILE defaults to a name built from the
+resource type and the ID, or from the type and `list' in a
+collection buffer."
+  (interactive
+   (list (read-file-name "Export OpenStack JSON to: " nil
+                         (openstack--export-file-name))))
+  (unless (derived-mode-p 'openstack-mode 'openstack-list-mode)
+    (user-error "Not an OpenStack buffer"))
+  (unless openstack--rendered
+    (user-error "No OpenStack data to show yet"))
+  (write-region (openstack-json--string openstack--last-data
+                                        openstack-collection)
+                nil file nil 'silent)
+  (message "Wrote %s" (abbreviate-file-name file)))
 
 ;;; Point keeping
 
@@ -1257,12 +1300,19 @@ and keeps it up to date in MODE; this command pops it into a window."
   (pop-to-buffer (openstack-buffer id mode)))
 
 ;;;###autoload
-(defun openstack-copy-id ()
-  "Copy the ID of the current OpenStack resource to the kill ring."
-  (interactive nil openstack-mode)
-  (let ((id (openstack--resource-id t)))
-    (kill-new id)
-    (message "Copied OpenStack resource ID: %s" id)))
+(defun openstack-copy-id (&optional link)
+  "Copy the ID of the current OpenStack resource to the kill ring.
+With LINK, copy the `openstack:TYPE/ID' form that the Org link type
+and the `openstack:' URL scheme read instead."
+  (interactive "P" openstack-mode)
+  (let ((id (openstack--resource-id t))
+        (type (openstack-resource-type-for-mode major-mode)))
+    (if (and link type)
+        (let ((text (format "openstack:%s/%s" type id)))
+          (kill-new text)
+          (message "Copied OpenStack link: %s" text))
+      (kill-new id)
+      (message "Copied OpenStack resource ID: %s" id))))
 
 ;;;###autoload
 (defun openstack-open-web ()
@@ -2730,14 +2780,20 @@ echo area costs nothing."
   (get-text-property (line-beginning-position) 'openstack-id))
 
 ;;;###autoload
-(defun openstack-list-copy-id ()
-  "Copy the ID of the resource on the current row to the kill ring."
-  (interactive nil openstack-list-mode)
-  (let ((id (openstack-list--id-at-point)))
+(defun openstack-list-copy-id (&optional link)
+  "Copy the ID of the resource on the current row to the kill ring.
+With LINK, copy the `openstack:TYPE/ID' form of the row instead."
+  (interactive "P" openstack-list-mode)
+  (let ((id (openstack-list--id-at-point))
+        (type (openstack-resource-type-for-mode major-mode)))
     (unless id
       (user-error "No OpenStack resource on this line"))
-    (kill-new id)
-    (message "Copied OpenStack resource ID: %s" id)))
+    (if (and link type)
+        (let ((text (format "openstack:%s/%s" type id)))
+          (kill-new text)
+          (message "Copied OpenStack link: %s" text))
+      (kill-new id)
+      (message "Copied OpenStack resource ID: %s" id))))
 
 ;;;###autoload
 (defun openstack-list-open-web ()
@@ -2809,6 +2865,11 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   "c" #'openstack-list-copy-id
   "J" #'openstack-json-view
   "w" #'openstack-list-open-web)
+
+(keymap-set openstack-list-mode-map "<remap> <js-json-mode>"
+            #'openstack-json-view)
+(keymap-set openstack-list-mode-map "<remap> <json-ts-mode>"
+            #'openstack-json-view)
 
 (keymap-set openstack-list-mode-map "<remap> <dired-jump>"
             #'openstack-go-to-parent)
