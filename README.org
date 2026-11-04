@@ -16,7 +16,7 @@ resource-specific modes can depend on it.
 | =openstack-data.el=          | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
 | =openstack-error.el=         | The package-wide parent condition =openstack-error=     |
 | =openstack-mode.el=          | Display layer: base mode, collection base mode, the resource macro, the text renderer |
-| =openstack-resources.el=     | The six resource types, one macro call each             |
+| =openstack-resources.el=     | The resource types, one macro call each                  |
 | =openstack-evil.el=          | Optional evil bindings for show and list buffers       |
 | =openstack-cli.el=           | CLI layer: sync/async access to =openstack-program=      |
 | =openstack-read.el=          | ID completion, type and name lookups                   |
@@ -27,7 +27,7 @@ resource-specific modes can depend on it.
 | =openstack-cli-tests.el=       | ERT test suite for the CLI layer (mocked)              |
 | =openstack-api-tests.el=       | ERT test suite for the native API layer                |
 | =openstack-data-tests.el=      | ERT test suite for the data layer and its cache        |
-| =openstack-resource-tests.el=  | ERT tests: the six resource show and list modes        |
+| =openstack-resource-tests.el=  | ERT tests: the resource show and list modes             |
 | =openstack-list-mode-tests.el= | ERT test suite for the collection base mode            |
 | =openstack-evil-tests.el=      | ERT test suite for the evil bindings                   |
 | =ol-openstack-tests.el=        | ERT test suite for the Org link type                   |
@@ -273,6 +273,23 @@ comma-separated list.  =openstack-go-to-parent= opens the subnet
 list scoped to the network, and a second climb opens the
 network.  Horizon serves the subnet detail view below the
 network panel: =project/networks/subnets/ID/detail=.
+
+* Ports
+
+=openstack-port-mode= displays a port of the Networking service.
+A port belongs to a network and connects a device, so the mode
+names the network as its parent:
+
+- =M-x openstack-port-display= -- display a port by ID
+  (=openstack port show=)
+- =M-x openstack-port-list-display= -- list the ports
+  (=openstack port list=)
+
+The =fixed_ips= field prints as an indented block of records, one
+per IP address and subnet, and the =network_id= field opens the
+network.  `openstack-go-to-parent= opens the port list scoped to
+the network.  Horizon serves the port detail view below the
+network panel: =project/networks/ports/ID/detail=.
 
 * Projects
 

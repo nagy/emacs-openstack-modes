@@ -230,7 +230,43 @@
        :list-columns ("ID" "Name" "Network" "Subnet" "Alpha" "Zebra")
        :list-rows ("^subnet-1 +private-subnet +net-1 +10\\.0\\.0\\.0/24 +early +late"
                    "^subnet-2 +- +net-1 +10\\.0\\.1\\.0/24 +early +late")
-       :list-first-id "subnet-1"))
+       :list-first-id "subnet-1")
+
+      ("port"
+       :show-id "port-1"
+       :show-json
+       ,(concat "{\"id\": \"port-1\", \"name\": \"\", "
+                "\"status\": \"ACTIVE\", "
+                "\"mac_address\": \"fa:16:3e:00:00:01\", "
+                "\"fixed_ips\": [{\"ip_address\": \"10.0.0.5\", "
+                "\"subnet_id\": \"subnet-1\"}], "
+                "\"device_owner\": \"compute:nova\", "
+                "\"device_id\": \"srv-1\", "
+                "\"network_id\": \"net-1\", "
+                "\"security_group_ids\": [\"sg-1\", \"sg-2\"], "
+                "\"admin_state_up\": true, "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("security_group_ids" . "sg-1, sg-2"))
+       :show-blocks (("fixed_ips" . "^  - ip_address: 10\\.0\\.0\\.5$"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"port-1\", \"Name\": \"\", "
+                "\"MAC Address\": \"fa:16:3e:00:00:01\", "
+                "\"Fixed IP Addresses\": \"10.0.0.5\", "
+                "\"Status\": \"ACTIVE\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"port-2\", \"Name\": \"dhcp\", "
+                "\"MAC Address\": \"fa:16:3e:00:00:02\", "
+                "\"Fixed IP Addresses\": \"10.0.0.6\", "
+                "\"Status\": \"DOWN\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "MAC Address" "Fixed IP Addresses"
+                      "Status" "Alpha" "Zebra")
+       :list-rows ("^port-1 +- +fa:16:3e:00:00:01 +10\\.0\\.0\\.5 +ACTIVE +early +late"
+                   "^port-2 +dhcp +fa:16:3e:00:00:02 +10\\.0\\.0\\.6 +DOWN +early +late")
+       :list-first-id "port-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and

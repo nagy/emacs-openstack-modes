@@ -174,5 +174,23 @@
             :arguments ("--network" :id))
   :list-fields '("ID" "Name" "Network" "Subnet"))
 
+;;; Ports
+
+;; A port belongs to a network and connects a device: its
+;; `fixed_ips' name the subnets and its `device_owner' names the
+;; service that holds it.  Horizon serves the port detail view below
+;; the network panel, at `project/networks/ports/ID/detail'.
+
+(openstack-define-resource "port"
+  :noun "ports"
+  :id-prefix "project/networks/ports"
+  :url-suffix "/detail"
+  :fields '("name" "status" "mac_address" "fixed_ips" "device_owner"
+            "device_id" "network_id" "security_group_ids"
+            "admin_state_up" "created_at" "updated_at")
+  :parent '(:type "network" :field "network_id"
+            :arguments ("--network" :id))
+  :list-fields '("ID" "Name" "MAC Address" "Fixed IP Addresses" "Status"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here
