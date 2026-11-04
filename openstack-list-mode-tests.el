@@ -59,12 +59,14 @@ The columns come from `openstack-list-test--fields'."
     (should (null tabulated-list-sort-key))))
 
 (ert-deftest openstack-list-mode-keymap ()
-  "RET, `mouse-2', `c', `J' and `w' act on the row, and sorting keeps S."
+  "RET, `mouse-2', `c', `J', `w', `%' and `W' act on the table."
   (dolist (binding (list (cons (kbd "RET") #'openstack-display-at-point)
                          (cons [mouse-2] #'openstack-mouse-display-at-point)
                          (cons (kbd "c") #'openstack-list-copy-id)
                          (cons (kbd "J") #'openstack-json-view)
-                         (cons (kbd "w") #'openstack-list-open-web)))
+                         (cons (kbd "w") #'openstack-list-open-web)
+                         (cons (kbd "%") #'openstack-list-narrow)
+                         (cons (kbd "W") #'openstack-list-widen)))
     (should (eq (lookup-key openstack-list-mode-map (car binding))
                 (cdr binding))))
   (should (eq (lookup-key openstack-list-mode-map (kbd "S"))
@@ -124,6 +126,73 @@ The columns come from `openstack-list-test--fields'."
                    (openstack-list-type . "nope")
                    (handler . openstack-list-bookmark-jump)))
                 :type 'user-error))
+
+;;; Narrowing
+
+(ert-deftest openstack-list-narrow-keeps-the-matching-rows ()
+  "A narrow keeps the rows whose text matches, and widen restores all.
+The filter reads every field of a row, not just the shown columns."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (let ((data (openstack-list-test--rows
+                 '(("ID" . "id-1") ("Name" . "web-1")
+                   ("Status" . "ACTIVE"))
+                 '(("ID" . "id-2") ("Name" . "db-1")
+                   ("Status" . "SHUTOFF")))))
+      (setq-local openstack-render-function
+                  (lambda (_id rows)
+                    (openstack-list-render "(no rows)" rows '("ID" "Name"))))
+      (setq-local openstack--rendered t
+                  openstack--last-data data)
+      (openstack-list-render "(no rows)" data '("ID" "Name"))
+      (should (string-match-p "^id-1" (buffer-string)))
+      (should (string-match-p "^id-2" (buffer-string)))
+      (openstack-list-narrow "active")
+      (should (string-match-p "^id-1" (buffer-string)))
+      (should-not (string-match-p "id-2" (buffer-string)))
+      (should (equal openstack-list--count 1))
+      (should (string-match-p "\\[match: active\\]"
+                              (openstack-list--mode-line)))
+      (openstack-list-widen)
+      (should (string-match-p "^id-2" (buffer-string)))
+      (should-not openstack-list--filter))))
+
+(ert-deftest openstack-list-narrow-reports-no-match ()
+  "A filter that matches nothing says so instead of \"no rows\"."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (let ((data (openstack-list-test--rows
+                 '(("ID" . "id-1") ("Name" . "web-1")))))
+      (setq-local openstack-render-function
+                  (lambda (_id rows)
+                    (openstack-list-render "(no servers)" rows '("ID" "Name"))))
+      (setq-local openstack--rendered t
+                  openstack--last-data data)
+      (openstack-list-render "(no servers)" data '("ID" "Name"))
+      (openstack-list-narrow "zzz")
+      (should (equal (buffer-string) "(no rows match zzz)\n"))
+      (should (equal openstack-list--count 0)))))
+
+(ert-deftest openstack-list-filter-survives-a-refresh ()
+  "A refresh keeps the filter and the rows that match it."
+  (with-temp-buffer
+    (openstack-server-list-mode)
+    (let ((success-fn nil)
+          (rows (openstack-list-test--rows
+                 '(("ID" . "id-1") ("Name" . "web-1"))
+                 '(("ID" . "id-2") ("Name" . "db-1")))))
+      (setq-local openstack-fetch-function
+                  (lambda (_id success _error) (setq success-fn success)))
+      (openstack--refresh)
+      (funcall success-fn rows)
+      (openstack-list-narrow "web")
+      (should (string-match-p "^id-1" (buffer-string)))
+      (should-not (string-match-p "id-2" (buffer-string)))
+      (openstack--refresh)
+      (funcall success-fn rows)
+      (should (string-match-p "^id-1" (buffer-string)))
+      (should-not (string-match-p "id-2" (buffer-string)))
+      (should (equal openstack-list--filter "web")))))
 
 ;;; Rendering
 

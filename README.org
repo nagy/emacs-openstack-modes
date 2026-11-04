@@ -448,7 +448,11 @@ a list buffer the left click keeps the row selection.  =c=
 copies the ID of the row, =C-u c= copies its =openstack:TYPE/ID=
 link, and =w= opens its dashboard page.  =n= and
 =p= move by row, and =q= buries the buffer: =openstack-pop= (=p=)
-stays a show-mode command.  The ID field line in show buffers works
+stays a show-mode command.  =%= narrows the table to the rows whose
+text matches a regexp, and =W= shows every row again (the mode line
+says =[match: REGEXP]= while a filter is on).  The filter reads the
+displayed text of every field, ignores case, makes no client call and
+survives =gr=.  The ID field line in show buffers works
 the same way, and so does a subnet ID in a network buffer, which
 opens through the display command of the type that
 =openstack-reference-fields= names.

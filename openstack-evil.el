@@ -49,7 +49,8 @@
 ;;
 ;; List buffers treat a row as the unit: RET opens the row, c or Y
 ;; copies its ID, w opens its dashboard page, q quits the window, gr
-;; refreshes and S sorts the current column.  The evil motions stay
+;; refreshes, S sorts the current column, % narrows the table to the
+;; rows that match and W widens it again.  The evil motions stay
 ;; untouched, so n and N repeat a search and j and k move by row.  A
 ;; visual line selection followed by y copies the IDs of every
 ;; selected row, one per line.
@@ -90,6 +91,8 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
     ("q" . quit-window)
     ("gr" . revert-buffer)
     ("S" . tabulated-list-sort)
+    ("%" . openstack-list-narrow)
+    ("W" . openstack-list-widen)
     ("c" . openstack-list-copy-id)
     ("Y" . openstack-list-copy-id)
     ("w" . openstack-list-open-web)
@@ -97,8 +100,10 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
     ("<remap> <dired-up-directory>" . openstack-go-to-parent))
   "Keys that `openstack-evil-mode' binds in list buffers.
 Each entry is a key description and the command it runs.  A row is
-the unit: S sorts the column at point, and c or Y copies the ID of
-the row at point.  n, N, j and k stay evil motions.")
+the unit: S sorts the column at point, c or Y copies the ID of
+the row at point, and % narrows the table while W widens it again.
+The table is read-only, so the evil operators behind % and W have
+nothing to do there.  n, N, j and k stay evil motions.")
 
 (defvar openstack-evil-list-visual-keys
   '(("y" . openstack-evil-list-copy-ids))

@@ -421,7 +421,8 @@ includes evil.
 - `openstack-list-mode-map` builds on `tabulated-list-mode-map`,
   so `n`/`p` move by line and `S` sorts; `openstack-pop` stays a
   show-mode command.  `RET` and `mouse-2` open the row's resource,
-  `c` copies the row ID and `w` opens the row's dashboard page.
+  `c` copies the row ID, `w` opens the row's dashboard page, `%`
+  narrows the table and `W` widens it again.
   The printer makes the whole row an `openstack-object` button that
   carries `openstack-id`, so the button type supplies the mouse
   face and the tooltip, not just on the ID cell.  Both keymaps
@@ -663,9 +664,26 @@ includes evil.
   untouched: show buffers keep `RET`, `<mouse-2>`, `q`, `gr`,
   `p`, `c`, `w` and `TAB` because the operators do nothing in a
   read-only buffer; list buffers treat a row as the unit
-  (`<mouse-2>` opens, `c` or `Y` copies, `S` sorts, `j`/`k`
+  (`<mouse-2>` opens, `c` or `Y` copies, `S` sorts, `%` narrows,
+  `W` widens, `j`/`k`
   move, `n`/`N` repeat the search, visual `y` copies the IDs of
   the selected rows and leaves visual state).
+- A collection buffer narrows itself without a client call:
+  `openstack-list--filter`, a buffer-local regexp, and
+  `openstack-list--filtered-rows`, which `openstack-list-render` runs
+  on the parsed rows before it builds the columns.  The comparison
+  ignores case and reads the displayed text of every field through
+  `openstack-list--row-text`, so a name, a status, an ID and a tag all
+  answer.  `openstack-list-narrow` sets the filter and reprints from
+  `openstack--last-data`; `openstack-list-widen` clears it, and a
+  prefix argument to the narrow command does the same.  The renderer
+  keeps no second row list: the filter runs on every render, so a
+  refresh and a resize keep it, and the mode line says
+  `[match: REGEXP]`.  A filter that matches nothing prints
+  `(no rows match REGEXP)` instead of the placeholder of the mode, and
+  the row count follows the visible rows.  Do not fetch a filtered
+  list from the client, and do not make the filter a defcustom: it
+  belongs to the buffer that set it.
 - A show buffer folds its blocks through `outline-minor-mode`.  A
   heading is a line that carries the text property
   `openstack-section` with the name of the block, and

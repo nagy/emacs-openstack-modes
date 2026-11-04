@@ -2012,6 +2012,11 @@ keeps a readable part of its value and its whole name."
 
 ;;; Fetcher and columns
 
+(defvar-local openstack-list--filter nil
+  "Regexp that the current table keeps its rows to, or nil.
+`openstack-list-narrow' sets it and `openstack-list-render' filters
+the rows with it on every render, so a refresh keeps the filter.")
+
 (defvar-local openstack-list--prefix-arguments nil
   "Extra client arguments that the last display command requested.
 `openstack-list-fetch' appends them after the resource's
@@ -2345,6 +2350,32 @@ both cases."
                     (cond ((null rows) nil)
                           ((listp rows) rows)
                           (t (list rows)))))
+
+(defun openstack-list--row-text (row)
+  "Return the display text of the fields of ROW, one string."
+  (declare (side-effect-free t))
+  (mapconcat (lambda (key)
+               (let ((value (gethash key row)))
+                 (if (stringp value)
+                     value
+                   (openstack--format-value value))))
+             (sort (hash-table-keys row) #'string<)
+             " "))
+
+(defun openstack-list--filtered-rows (rows)
+  "Return the rows of ROWS that match `openstack-list--filter'.
+A nil filter keeps every row.  The comparison ignores case and
+reads the displayed text of every field, so a name, a status, an
+ID and a tag all answer."
+  (declare (side-effect-free t))
+  (let ((filter openstack-list--filter))
+    (if (or (null filter) (string-empty-p filter))
+        rows
+      (let ((case-fold-search t))
+        (cl-remove-if-not (lambda (row)
+                            (string-match-p filter
+                                            (openstack-list--row-text row)))
+                          rows)))))
 
 (defun openstack-list--row-identity-field (row name)
   "Return the value of ROW field NAME when it is a non-empty string."
@@ -2687,10 +2718,11 @@ function and the list mode of TYPE show the same columns.  Signal
 PLACEHOLDER is a string such as \"(no servers)\", inserted when
 ROWS is empty.  ROWS is the parsed `RESOURCE list' JSON, a list
 of hash tables.  FIELDS names the columns shown first, in that
-order; the remaining fields follow, sorted by name.  Collection
+order; the remaining fields follow, sorted by name.  A filter of
+`openstack-list-narrow' keeps the rows that match it.  Collection
 modes call this from their `openstack-render-function' with their
 own column order."
-  (let* ((rows (openstack-list--rows rows))
+  (let* ((rows (openstack-list--filtered-rows (openstack-list--rows rows)))
          (columns (or (openstack-list-columns rows fields) fields))
          (window (openstack-list--pin-width-window)))
     (setq-local openstack-list--count (length rows))
@@ -2709,7 +2741,11 @@ own column order."
     (when (null rows)
       (let ((inhibit-read-only t))
         (goto-char (point-min))
-        (insert placeholder "\n")))
+        (insert (if (and openstack-list--filter
+                         (not (string-empty-p openstack-list--filter)))
+                    (format "(no rows match %s)" openstack-list--filter)
+                  placeholder)
+                "\n")))
     (set-buffer-modified-p nil)))
 
 (defun openstack-list--redraw ()
@@ -2780,6 +2816,26 @@ echo area costs nothing."
   (get-text-property (line-beginning-position) 'openstack-id))
 
 ;;;###autoload
+(defun openstack-list-narrow (regexp)
+  "Show only the rows whose text matches REGEXP.
+The filter reads the displayed text of every field, ignores case and
+stays over later refreshes, so `gr' keeps the narrowed table.  An
+empty REGEXP, or a prefix argument, shows every row again.  The
+filter makes no client call."
+  (interactive
+   (list (if current-prefix-arg
+             ""
+           (read-regexp "Narrow to rows matching: "))))
+  (setq-local openstack-list--filter
+              (and (not (string-empty-p regexp)) regexp))
+  (openstack-list--redraw))
+
+(defun openstack-list-widen ()
+  "Show every row of the table again."
+  (interactive nil openstack-list-mode)
+  (setq-local openstack-list--filter nil)
+  (openstack-list--redraw))
+
 (defun openstack-list-copy-id (&optional link)
   "Copy the ID of the resource on the current row to the kill ring.
 With LINK, copy the `openstack:TYPE/ID' form of the row instead."
@@ -2844,6 +2900,9 @@ error.  The header line cannot carry them, because
             (format " [sort: %s %s]"
                     (car tabulated-list-sort-key)
                     (if (cdr tabulated-list-sort-key) "desc" "asc")))
+          (when (and openstack-list--filter
+                     (not (string-empty-p openstack-list--filter)))
+            (format " [match: %s]" openstack-list--filter))
           (when openstack--last-error
             (propertize (concat " [" (openstack--error-string
                                       openstack--last-error) "]")
@@ -2863,6 +2922,8 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   "RET" #'openstack-display-at-point
   "<mouse-2>" #'openstack-mouse-display-at-point
   "c" #'openstack-list-copy-id
+  "%" #'openstack-list-narrow
+  "W" #'openstack-list-widen
   "J" #'openstack-json-view
   "w" #'openstack-list-open-web)
 
