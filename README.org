@@ -243,19 +243,36 @@ service:
 
 A network lists the subnets it owns.  The =subnets= field prints
 one subnet ID per line, each with the =openstack-id= face and the
-=openstack-id= text property: =RET= or =mouse-2= on such a line
-opens the subnet.  No subnet mode exists yet, so the command
-signals a =user-error= until one arrives.  A subnet mode that
-=openstack-define-resource= defines makes these lines open the
-subnet in its own buffer, without a change to the network mode.
-The =openstack-reference-fields= defcustom maps a field name to
-the resource type of its values; it holds the =subnets= entry.
+=openstack-id= text property: =RET=, =mouse-2= or a click on such a
+line opens the subnet in its own buffer (see [[*Subnets]]).  The
+=openstack-reference-fields= defcustom maps a field name to the
+resource type of its values; it holds the =subnets= entry.
 
 Horizon shows a network below the project's network panel, so
 this mode uses the URL suffix: the dashboard URL is
 =project/networks/ID/detail=.  The =openstack-url-suffix=
 defcustom carries the trailing segment; =openstack-id-prefix=
-carries the leading ones.  Other modes leave the suffix empty.
+carries the leading ones.
+
+* Subnets
+
+=openstack-subnet-mode= displays a subnet of the Networking
+service.  A subnet belongs to a network, so the mode names that
+network as its parent and the subnet list takes =--network=:
+
+- =M-x openstack-subnet-display= -- display a subnet by ID
+  (=openstack subnet show=)
+- =M-x openstack-subnet-list-display= -- list the subnets
+  (=openstack subnet list=)
+
+=RET=, =mouse-2= or a click on a subnet ID of a network buffer
+opens the subnet now, and the =network_id= field of a subnet
+opens its network.  The =allocation_pools= and =host_routes=
+fields print as indented blocks, and =dns_nameservers= as a
+comma-separated list.  =openstack-go-to-parent= opens the subnet
+list scoped to the network, and a second climb opens the
+network.  Horizon serves the subnet detail view below the
+network panel: =project/networks/subnets/ID/detail=.
 
 * Projects
 

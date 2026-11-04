@@ -283,6 +283,7 @@ Set this to nil to render dates with the default face."
 
 (defcustom openstack-reference-fields
   '(("subnets" . "subnet")
+    ("network_id" . "network")
     ("project_id" . "project")
     ("tenant_id" . "project"))
   "Fields whose values name other resources.

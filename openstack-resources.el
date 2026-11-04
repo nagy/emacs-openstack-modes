@@ -156,5 +156,23 @@
   :list-fields '("Name" "Bytes" "Count")
   :list-arguments '("--long"))
 
+;;; Subnets
+
+;; A subnet belongs to a network, so its list takes `--network' and its
+;; `network_id' field opens that network.  Horizon shows a subnet below
+;; the network panel, at `project/networks/subnets/ID/detail'.
+
+(openstack-define-resource "subnet"
+  :noun "subnets"
+  :id-prefix "project/networks/subnets"
+  :url-suffix "/detail"
+  :fields '("name" "network_id" "cidr" "gateway_ip" "ip_version"
+            "enable_dhcp" "dns_nameservers" "subnetpool_id"
+            "allocation_pools" "host_routes" "project_id"
+            "created_at" "updated_at")
+  :parent '(:type "network" :field "network_id"
+            :arguments ("--network" :id))
+  :list-fields '("ID" "Name" "Network" "Subnet"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here

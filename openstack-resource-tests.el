@@ -198,7 +198,39 @@
        :list-columns ("Name" "Bytes" "Count")
        :list-rows ("^logs +4096 +2"
                    "^backups +1048576 +12")
-       :list-first-id "logs"))
+       :list-first-id "logs")
+
+      ("subnet"
+       :show-id "subnet-1"
+       :show-json
+       ,(concat "{\"id\": \"subnet-1\", \"name\": \"private-subnet\", "
+                "\"network_id\": \"net-1\", "
+                "\"cidr\": \"10.0.0.0/24\", "
+                "\"gateway_ip\": \"10.0.0.1\", \"ip_version\": 4, "
+                "\"enable_dhcp\": true, "
+                "\"dns_nameservers\": [\"8.8.8.8\", \"1.1.1.1\"], "
+                "\"subnetpool_id\": \"pool-1\", "
+                "\"allocation_pools\": [{\"start\": \"10.0.0.10\", "
+                "\"end\": \"10.0.0.99\"}], "
+                "\"host_routes\": [], "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("dns_nameservers" . "8.8.8.8, 1.1.1.1"))
+       :show-blocks (("allocation_pools" . "^  - end: +10\\.0\\.0\\.99$"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"subnet-1\", \"Name\": \"private-subnet\", "
+                "\"Network\": \"net-1\", \"Subnet\": \"10.0.0.0/24\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"subnet-2\", \"Name\": \"\", "
+                "\"Network\": \"net-1\", \"Subnet\": \"10.0.1.0/24\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "Network" "Subnet" "Alpha" "Zebra")
+       :list-rows ("^subnet-1 +private-subnet +net-1 +10\\.0\\.0\\.0/24 +early +late"
+                   "^subnet-2 +- +net-1 +10\\.0\\.1\\.0/24 +early +late")
+       :list-first-id "subnet-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and

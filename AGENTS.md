@@ -20,7 +20,7 @@ name as the ID.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
-| `openstack-resources.el` | The six resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container.  The server, volume, image and network forms name their project as the `:parent`; project and container name none |
+| `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet.  The server, volume, image, network and subnet forms name a parent (a project, a network for the subnet); project and container name none |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
@@ -28,7 +28,7 @@ name as the ID.
 | `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
 | `openstack-api-tests.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
 | `openstack-data-tests.el` | ERT tests for the data layer: the sync and async entry points, definition and defcustom arguments, cancellation, accessors, condition hierarchy; no buffer, no mode |
-| `openstack-resource-tests.el` | ERT tests for the six resource show and list modes, one table of fixtures and one test body per check |
+| `openstack-resource-tests.el` | ERT tests for the resource show and list modes, one table of fixtures and one test body per check |
 | `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
 | `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
@@ -454,9 +454,10 @@ includes evil.
   `openstack-ref-type` property: `openstack-display-at-point` runs
   the display command that `openstack-resource-types` holds for
   that type, and signals a `user-error` while no mode registers
-  it.  So the subnets of a network open in subnet buffers as soon
-  as `openstack-define-resource` defines the `subnet` type; do not
-  bind `openstack-show-command` for it.
+  it.  So the subnets of a network open in subnet buffers, through
+  the `openstack-define-resource` form of the `subnet` type; do not
+  bind `openstack-show-command` for it, and a reference of a type
+  without a definition stays a `user-error`.
   `openstack-display-at-point` reads the
   `openstack-id` property only: a bare UUID in a log line stays `M-.` territory.
 - `openstack-mode` also registers the `openstack-id` thing:
@@ -754,15 +755,15 @@ includes evil.
   a parity test that compares buffer text against the CLI fixtures,
   a per-host queue, and the request-object cancellation contract
   in `openstack--kill-pending` once parity passes.
-- Derived modes for more resource types (routers, subnets,
-  ports, flavors, hosts, domains, …); servers, volumes, images,
-  networks, projects and containers exist.  The git-bug tracker
-  holds one ticket per missing single-parent type (subnet, port,
-  volume snapshot, volume backup, security group, router, Swift
-  object, domain); `git bug bug` lists them.
-- Collection modes for more resource types (routers, subnets,
-  ports, flavors, hosts, domains, …); server, volume, image,
-  network, project and container lists exist.
+- Derived modes for more resource types (ports, routers,
+  flavors, security groups, hosts, domains, …); servers, volumes,
+  images, networks, projects, containers and subnets exist.  The
+  git-bug tracker holds one ticket per missing single-parent type
+  (port, volume snapshot, volume backup, security group, router,
+  Swift object, domain); `git bug bug` lists them.
+- Collection modes for more resource types (routers, ports,
+  flavors, hosts, domains, …); server, volume, image, network,
+  project, container and subnet lists exist.
 - Objects of the Object Storage service.  `object list` needs a
   container argument and an object has no ID at all (its identity
   is container plus name), so decide the identity scheme first:
