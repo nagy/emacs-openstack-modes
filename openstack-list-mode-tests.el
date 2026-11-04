@@ -18,6 +18,7 @@
 
 (require 'ert)
 (require 'openstack-mode)
+(require 'openstack-resources)
 
 ;;; Helpers
 
@@ -49,6 +50,8 @@ The columns come from `openstack-list-test--fields'."
     (should openstack-render-manages-buffer)
     (should-not (eq bookmark-make-record-function
                     #'openstack--bookmark-make-record))
+    (should (eq bookmark-make-record-function
+                #'openstack-list--bookmark-make-record))
     ;; The refresh pipeline of `openstack-mode' still drives the buffer.
     (should (eq revert-buffer-function #'openstack--revert-buffer))
     (should (eq buffer-stale-function #'openstack--buffer-stale-p))
@@ -66,6 +69,61 @@ The columns come from `openstack-list-test--fields'."
                 (cdr binding))))
   (should (eq (lookup-key openstack-list-mode-map (kbd "S"))
               #'tabulated-list-sort)))
+
+;;; Bookmarks
+
+(ert-deftest openstack-list-bookmark-record ()
+  "A collection bookmark keeps the type, scope, arguments and sort."
+  (with-temp-buffer
+    (openstack-server-list-mode)
+    (setq-local openstack-list--scope
+                '(:type "project" :id "proj-1"
+                  :arguments ("--project" "proj-1")))
+    (setq-local openstack-list--prefix-arguments '("--all"))
+    (setq-local tabulated-list-sort-key '("Name" . t))
+    (let ((record (openstack-list--bookmark-make-record)))
+      (should (equal (car record) "Servers ::OpenStack list"))
+      (should (equal (bookmark-prop-get record 'openstack-list-type)
+                     "server"))
+      (should (equal (bookmark-prop-get record 'openstack-list-scope)
+                     '(:type "project" :id "proj-1"
+                       :arguments ("--project" "proj-1"))))
+      (should (equal (bookmark-prop-get
+                      record 'openstack-list-prefix-arguments)
+                     '("--all")))
+      (should (equal (bookmark-prop-get record 'openstack-list-sort-key)
+                     '("Name" . t)))
+      (should (eq (bookmark-prop-get record 'handler)
+                  'openstack-list-bookmark-jump)))))
+
+(ert-deftest openstack-list-bookmark-jump ()
+  "A jump reopens the table with the recorded scope and sort."
+  (let ((buffer (generate-new-buffer " *openstack-list-bookmark*"))
+        (seen nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'openstack-server-list-display)
+                   (lambda (arg scope)
+                     (setq seen (list arg scope))
+                     buffer)))
+          (openstack-list-bookmark-jump
+           `(("Servers ::OpenStack list")
+             (openstack-list-type . "server")
+             (openstack-list-scope . (:type "project" :id "proj-1"))
+             (openstack-list-prefix-arguments . ("--all"))
+             (openstack-list-sort-key . ("Name" . t))
+             (handler . openstack-list-bookmark-jump))))
+        (should (equal seen '(t (:type "project" :id "proj-1"))))
+        (with-current-buffer buffer
+          (should (equal tabulated-list-sort-key '("Name" . t)))))
+      (kill-buffer buffer)))
+
+(ert-deftest openstack-list-bookmark-jump-unknown-type ()
+  "A bookmark of an unregistered type signals a `user-error'."
+  (should-error (openstack-list-bookmark-jump
+                 '(("X")
+                   (openstack-list-type . "nope")
+                   (handler . openstack-list-bookmark-jump)))
+                :type 'user-error))
 
 ;;; Rendering
 

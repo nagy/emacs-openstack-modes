@@ -143,10 +143,16 @@ different :cli value."
   (assoc type openstack-resource-types))
 
 (defun openstack-resource-type-for-mode (mode)
-  "Return the resource type that MODE displays, or nil."
+  "Return the resource type that MODE displays, or nil.
+MODE is the show mode or the list mode of a resource type, so a
+table and its detail buffer answer with the same type."
   (declare (side-effect-free t))
-  (car (cl-find mode openstack-resource-types
-                :key (lambda (entry) (nth 1 entry)))))
+  (or (car (cl-find mode openstack-resource-types
+                    :key (lambda (entry) (nth 1 entry))))
+      (let (type)
+        (dolist (cell openstack-resource-definitions type)
+          (when (eq mode (plist-get (cdr cell) :list-mode))
+            (setq type (car cell)))))))
 
 (defun openstack--register-resource (type definition)
   "Record resource TYPE with the definition plist DEFINITION.

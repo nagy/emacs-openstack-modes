@@ -337,7 +337,12 @@ opens through the display command of the type that
 =openstack-reference-fields= names.
 
 The list buffer has no resource ID: the buffer-level ID commands
-do not apply there.  Columns come from the mode's =-fields=
+do not apply there.  A show buffer bookmarks its ID and its mode,
+so =M-x bookmark-set= (=C-x r m=) in a server buffer reopens a server
+buffer.  A table bookmarks what it lists: the type, the scope of a
+parent, the prefix arguments and the sort column, so a jump reopens
+=server list --project P= sorted the way it was saved.  Columns come
+from the mode's =-fields=
 defcustom (=openstack-server-list-fields=,
 =openstack-volume-list-fields=, =openstack-image-list-fields=,
 =openstack-network-list-fields=, =openstack-project-list-fields=,

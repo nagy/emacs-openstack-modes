@@ -244,13 +244,15 @@ project and no version-controlled tree."
                    "https://horizon.example.org/servers/abc-123"))))
 
 (ert-deftest openstack-mode-bookmark-record ()
-  "`openstack--bookmark-make-record' stores the ID."
+  "`openstack--bookmark-make-record' stores the ID and the mode."
   (let ((buf (openstack-test--make-resource-buffer)))
     (unwind-protect
         (with-current-buffer buf
           (let ((record (openstack--bookmark-make-record)))
             (should (equal (bookmark-prop-get record 'openstack-id)
                            "res-123"))
+            (should (eq (bookmark-prop-get record 'openstack-mode)
+                        'openstack-mode))
             (should (equal (car record) "res-123 ::OpenStack"))
             ;; A live buffer object in the record dies with the session.
             (should-not (assq 'buffer (cdr record)))
@@ -259,16 +261,17 @@ project and no version-controlled tree."
       (kill-buffer buf))))
 
 (ert-deftest openstack-mode-bookmark-jump ()
-  "Jumping to a bookmark displays the recorded resource ID."
+  "Jumping to a bookmark displays the ID in the recorded mode."
   (let ((buf (openstack-test--make-resource-buffer))
         displayed)
     (unwind-protect
         (let ((record (with-current-buffer buf
                         (openstack--bookmark-make-record))))
           (cl-letf (((symbol-function 'openstack-display)
-                     (lambda (id) (setq displayed id))))
+                     (lambda (id &optional mode)
+                       (setq displayed (cons id mode)))))
             (openstack-bookmark-jump record))
-          (should (equal displayed "res-123")))
+          (should (equal displayed '("res-123" . openstack-mode))))
       (kill-buffer buf))))
 
 (ert-deftest openstack-mode-revert ()
@@ -1980,6 +1983,7 @@ once, so a definition and its generated commands cannot drift."
       (dolist (function (list mode display list-mode list-display))
         (should (fboundp function)))
       (should (equal (openstack-resource-type-for-mode mode) type))
+      (should (equal (openstack-resource-type-for-mode list-mode) type))
       (should (equal (nth 1 (openstack-resource-type type)) mode))
       (should (eq (nth 2 (openstack-resource-type type)) display)))))
 
@@ -2006,9 +2010,11 @@ so a definition missing there stays invisible to them."
                            (plist-get definition :noun)))
             (should (eq openstack-show-command
                         (plist-get definition :display)))
+            ;; The table answers with its type too, so a collection
+            ;; bookmark knows what it lists.
             (should (equal (openstack-resource-type-for-mode
                             (plist-get definition :list-mode))
-                           nil)))
+                           (plist-get definition :type))))
         (kill-buffer buf)))))
 
 (ert-deftest openstack-resource-cli-name-override ()

@@ -591,15 +591,19 @@ Signal an error if ERRORP is non-nil and no ID is set."
       ;; warns against it (it dies with the session) and the jump
       ;; handler rebuilds the buffer from `openstack-id' anyway.
       (openstack-id . ,id)
+      (openstack-mode . ,major-mode)
       (handler . ,openstack-bookmark-handler))))
 
 ;;;###autoload
 (defun openstack-bookmark-jump (bookmark)
   "Jump to the OpenStack resource described by BOOKMARK.
 BOOKMARK is a bookmark record as created by
-`openstack--bookmark-make-record'."
-  (let ((id (bookmark-prop-get bookmark 'openstack-id)))
-    (openstack-display id)))
+`openstack--bookmark-make-record'.  The recorded mode renders the
+buffer, so a server bookmark comes back as a server buffer; a
+record of an older bookmark without a mode opens the base mode."
+  (let ((id (bookmark-prop-get bookmark 'openstack-id))
+        (mode (bookmark-prop-get bookmark 'openstack-mode)))
+    (openstack-display id mode)))
 
 
 ;;; Identifier
@@ -2017,6 +2021,52 @@ for example `ID' or `Volume Type'."
       (maphash (lambda (key _value) (push key remaining)) unseen)
       (nconc (nreverse columns) (sort remaining #'string<)))))
 
+;;; Collection bookmarks
+
+(defconst openstack-list--saved-suffix " ::OpenStack list"
+  "Suffix appended to the name of a collection bookmark.")
+
+(defun openstack-list--bookmark-make-record ()
+  "Return a bookmark record for the current collection buffer.
+The record holds the resource type, the scope, the prefix
+arguments and the sort key, so a jump reopens the table that the
+user saved.  A collection has no resource ID, so the record of a
+resource bookmark does not apply."
+  (let* ((type (openstack-resource-type-for-mode major-mode))
+         (definition (and type (openstack-resource-definition type))))
+    (unless definition
+      (user-error "This OpenStack buffer lists no resources"))
+    `(,(format "%s%s" (capitalize (plist-get definition :noun))
+               openstack-list--saved-suffix)
+      (openstack-list-type . ,type)
+      (openstack-list-scope . ,openstack-list--scope)
+      (openstack-list-prefix-arguments . ,openstack-list--prefix-arguments)
+      (openstack-list-sort-key . ,tabulated-list-sort-key)
+      (handler . openstack-list-bookmark-jump))))
+
+;;;###autoload
+(defun openstack-list-bookmark-jump (bookmark)
+  "Jump to the OpenStack collection described by BOOKMARK.
+BOOKMARK is a bookmark record as created by
+`openstack-list--bookmark-make-record'.  The display command of
+the resource type opens the table, scoped and sorted as the record
+says."
+  (let* ((type (bookmark-prop-get bookmark 'openstack-list-type))
+         (definition (and type (openstack-resource-definition type)))
+         (display (plist-get definition :list-display))
+         (prefix (bookmark-prop-get bookmark
+                                    'openstack-list-prefix-arguments))
+         (scope (bookmark-prop-get bookmark 'openstack-list-scope))
+         (sort (bookmark-prop-get bookmark 'openstack-list-sort-key)))
+    (unless display
+      (user-error "Unknown OpenStack resource type: %s" type))
+    (let ((buffer (funcall display (and prefix t) scope)))
+      (with-current-buffer buffer
+        (setq-local tabulated-list-sort-key sort)
+        (when (bound-and-true-p openstack--rendered)
+          (openstack-list--redraw)))
+      buffer)))
+
 ;;; Going up one level
 
 (defun openstack--display-command (type)
@@ -2795,6 +2845,9 @@ line, because the header line holds the column labels.
   (setq-local tabulated-list-sort-key nil)
   (setq-local tabulated-list-printer #'openstack-list--print-entry)
   (setq-local imenu-create-index-function #'openstack-list--imenu-index)
+  ;; A collection bookmarks its type, scope, arguments and sort key.
+  (setq-local bookmark-make-record-function
+              #'openstack-list--bookmark-make-record)
   (setq-local mode-line-format
               (append (default-value 'mode-line-format)
                       '((:eval (openstack-list--mode-line)))))

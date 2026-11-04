@@ -330,6 +330,20 @@ includes evil.
   `openstack-list-mode` sets the buffer-local `openstack-collection`
   flag, so `openstack--refresh` runs and the fetcher receives nil as
   the ID.  The ID commands user-error on collection buffers.
+- A show buffer bookmarks its ID and its mode
+  (`openstack--bookmark-make-record`,
+  `openstack-bookmark-jump`), so a jump comes back in the same
+  derived mode.  A collection bookmarks what it lists:
+  `openstack-list--bookmark-make-record` stores the resource type,
+  the scope plist, the prefix arguments and `tabulated-list-sort-key`,
+  and `openstack-list-bookmark-jump` reopens the table through the
+  `:list-display` command with all four.  A scope is a plist of
+  strings, so `bookmark.el` writes it to the bookmark file unchanged;
+  never store a buffer object or a marker.  The jump passes a
+  non-nil prefix argument when the record holds prefix arguments,
+  because the display command takes a flag, not a list.
+  `openstack-resource-type-for-mode` answers for a show mode and for a
+  list mode, so both record functions find the type of the buffer.
 - The collection base mode derives from `tabulated-list-mode`:
   `openstack-list-mode` is the parent of every `*-list-mode`.  The
   macro sets `openstack-fetch-function`, `openstack-render-function`,
