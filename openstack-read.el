@@ -45,6 +45,13 @@
 ;;   openstack-read-id       - read an ID of a known type
 ;;   openstack-open-id       - display any resource by ID
 ;;   openstack-read-refresh  - refill the cache
+;;
+;; Every prompt announces a completion category per resource type
+;; and one annotation function, so a completion UI that reads the
+;; metadata of the completion table shows the state of a resource
+;; beside its ID, and `completion-category-overrides' treats one
+;; kind of resource as one kind of object.  The answers go to
+;; `openstack-read-id-history'.
 
 ;;; Code:
 
@@ -58,6 +65,11 @@ to the candidate that names the row.  A field that the row does
 not hold stays out of the annotation."
   :type '(repeat string)
   :group 'openstack)
+
+(defvar openstack-read-id-history nil
+  "History of the OpenStack ID prompts.
+Every prompt of `openstack-read-id' shares it, so `M-p' recalls
+the ID that the user opened last.")
 
 (defun openstack-read--row-value (row names)
   "Return the value of the first key of ROW that matches NAMES.
@@ -96,8 +108,11 @@ Read the cache of `openstack-data.el' while it stays within
 `openstack-resource-cache-ttl' and call the client otherwise."
   (openstack-resource-list-cached type))
 
-(defun openstack-read-choices (type)
-  "Return completion candidates of resource TYPE as (LABEL . ID)."
+(defun openstack-read--choices-with-rows (type)
+  "Return completion candidates of resource TYPE as (LABEL . ROW).
+The label names the row, and the value keeps the row itself, so
+an annotation reads the row that the user sees and no cache
+lookup runs per candidate."
   (declare (side-effect-free t))
   (seq-keep (lambda (row)
               (when-let* ((id (openstack-read--row-id row)))
@@ -107,17 +122,24 @@ Read the cache of `openstack-data.el' while it stays within
                                  (not (equal name id)))
                             (format "%s (%s)" name id)
                           id)
-                        id))))
+                        row))))
             (openstack-read-rows type)))
 
-(defun openstack-read--row-of (id)
-  "Return the cached list row of ID, or nil."
+(defun openstack-read-choices (type)
+  "Return completion candidates of resource TYPE as (LABEL . ID)."
   (declare (side-effect-free t))
-  (seq-some (lambda (type)
-              (seq-some (lambda (row)
-                          (and (equal id (openstack-read--row-id row)) row))
-                        (openstack-resource-cached-rows type)))
-            (mapcar #'car openstack-resource-types)))
+  (mapcar (lambda (choice)
+            (cons (car choice)
+                  (openstack-read--row-id (cdr choice))))
+          (openstack-read--choices-with-rows type)))
+
+(defun openstack-read--category (type)
+  "Return the completion category symbol of resource TYPE.
+Every type gets its own category, so `completion-category-overrides'
+and a completion UI that reads categories treat the servers, the
+volumes and the images as different kinds of object."
+  (declare (pure t) (side-effect-free t))
+  (intern (format "openstack-%s" type)))
 
 (defun openstack-read--annotation (row)
   "Return the annotation string of list ROW, or nil.
@@ -138,22 +160,25 @@ that ROW provides, separated by a comma."
 
 (defun openstack-read--annotation-function (choices)
   "Return a completion annotation function over CHOICES.
-CHOICES is a list of (LABEL . ID) pairs, as
-`openstack-read-choices' returns.  The function annotates a
-candidate with the fields of its cached row."
+CHOICES is a list of (LABEL . ROW) pairs, as
+`openstack-read--choices-with-rows' returns.  The function
+annotates a candidate with the fields of the row that the choice
+keeps."
   (lambda (candidate)
-    (when-let* ((id (cdr (assoc candidate choices)))
-                (row (openstack-read--row-of id)))
+    (when-let* ((row (cdr (assoc candidate choices))))
       (openstack-read--annotation row))))
 
-(defun openstack-read--choices-table (choices)
-  "Return a completion table over CHOICES with row annotations.
-The table answers the `metadata' action with an
-`annotation-function', so every completion UI shows the state of
-a resource before the user chooses it."
+(defun openstack-read--choices-table (choices type)
+  "Return a completion table over CHOICES of resource TYPE.
+CHOICES is a list of (LABEL . ROW) pairs.  The table answers the
+`metadata' action with an `annotation-function', so every
+completion UI shows the state of a resource before the user
+chooses it, and with the category of TYPE, so a UI sorts and
+annotates one kind of resource as one kind."
   (lambda (string predicate action)
     (if (eq action 'metadata)
-        `(metadata (annotation-function
+        `(metadata (category . ,(openstack-read--category type))
+                   (annotation-function
                     . ,(openstack-read--annotation-function choices)))
       (complete-with-action action choices string predicate))))
 
@@ -163,19 +188,25 @@ a resource before the user chooses it."
 PROMPT defaults to a message naming TYPE.  Offer the names of the
 cached `RESOURCE list' rows, so the user picks \"web-1 (UUID)\"
 instead of a bare UUID.  Annotate each candidate with the fields
-of `openstack-read-annotation-fields'.  A raw ID typed at the
-prompt wins, and a client failure falls back to a plain prompt."
+of `openstack-read-annotation-fields', and announce the category
+`openstack-read--category' names for TYPE, so a completion UI
+sorts and annotates the candidates of one type together.  The
+prompt keeps its answers in `openstack-read-id-history'.  A raw
+ID typed at the prompt wins, and a client failure falls back to a
+plain prompt."
   (let* ((prompt (or prompt (format "OpenStack %s ID: " type)))
          (choices (condition-case err
-                      (openstack-read-choices type)
+                      (openstack-read--choices-with-rows type)
                     (error
                      (message "%s" (error-message-string err))
                      nil)))
          (answer (completing-read
                   prompt
-                  (openstack-read--choices-table choices)
-                  nil nil)))
-    (or (cdr (assoc answer choices))
+                  (openstack-read--choices-table choices type)
+                  nil nil nil
+                  'openstack-read-id-history)))
+    (or (when-let* ((row (cdr (assoc answer choices))))
+          (openstack-read--row-id row))
         (unless (string-empty-p answer) answer)
         (user-error "No OpenStack %s ID given" type))))
 

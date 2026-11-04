@@ -228,10 +228,11 @@ A Swift container has a name and no UUID."
            (mode (nth 1 entry))
            (command (nth 2 entry))
            (seen nil))
-      (cl-letf (((symbol-function 'openstack-read-choices)
+      (cl-letf (((symbol-function 'openstack-read--choices-with-rows)
                  (lambda (asked)
                    (should (equal asked type))
-                   '(("web-1 (res-1)" . "res-1"))))
+                   (list (cons "web-1 (res-1)"
+                               (openstack-read-test--row "res-1" "web-1")))))
                 ((symbol-function 'completing-read)
                  (lambda (_prompt _collection &rest _) "web-1 (res-1)"))
                 ((symbol-function 'openstack-display)
@@ -251,13 +252,61 @@ A Swift container has a name and no UUID."
                    (openstack-read-test--row "srv-2" "web-2"))))))
 
 (ert-deftest openstack-read-choices-table-metadata ()
-  "The completion table answers the metadata action with an annotation."
-  (let* ((choices '(("web-1 (srv-1)" . "srv-1")))
-         (table (openstack-read--choices-table choices)))
-    (let ((metadata (funcall table "" nil 'metadata)))
+  "The completion table answers the metadata action.
+It names the annotation function of the rows and the category of
+the resource type."
+  (let* ((choices (list (cons "web-1 (srv-1)"
+                               (openstack-read-test--row "srv-1" "web-1"))))
+         (table (openstack-read--choices-table choices "server")))
+    (let* ((metadata (funcall table "" nil 'metadata))
+           (entries (cdr metadata)))
       (should (eq (car metadata) 'metadata))
-      (should (functionp (alist-get 'annotation-function (cdr metadata)))))
+      (should (functionp (alist-get 'annotation-function entries)))
+      (should (eq (alist-get 'category entries) 'openstack-server)))
     (should (equal (funcall table "web" nil t) '("web-1 (srv-1)")))))
+
+(ert-deftest openstack-read-category-names-the-type ()
+  "Every resource type gets its own completion category."
+  (dolist (entry openstack-resource-types)
+    (let ((type (nth 0 entry)))
+      (should (eq (openstack-read--category type)
+                  (intern (format "openstack-%s" type)))))))
+
+(ert-deftest openstack-read-id-keeps-a-history ()
+  "The ID prompt passes its own history symbol to `completing-read'."
+  (let ((openstack-resource--list-cache nil)
+        (history nil))
+    (openstack-read-test--with-client calls
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _collection _predicate _require _initial
+                                  hist)
+                   (setq history hist)
+                   "web-1 (srv-1)")))
+        (should (equal (openstack-read-id "server") "srv-1"))
+        (should (eq history 'openstack-read-id-history))))))
+
+(ert-deftest openstack-read-id-annotation-needs-no-cache ()
+  "A choice keeps its row, so the annotation reads no cache entry.
+The prompt annotates every candidate of a long list, and a cache
+lookup per candidate would scan every type."
+  (let ((openstack-resource--list-cache nil)
+        (openstack-read-annotation-fields '("Status"))
+        (annotation nil))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args)
+                 (let ((row (openstack-read-test--row "srv-1" "web-1")))
+                   (puthash "Status" "ACTIVE" row)
+                   (list row))))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq annotation
+                       (alist-get 'annotation-function
+                                  (cdr (funcall collection "" nil 'metadata))))
+                 "web-1 (srv-1)")))
+      (should (equal (openstack-read-id "server") "srv-1"))
+      ;; The annotation still answers after the cache is gone.
+      (setq openstack-resource--list-cache nil)
+      (should (equal (funcall annotation "web-1 (srv-1)") "  ACTIVE")))))
 
 (ert-deftest openstack-read-id-annotates-candidates ()
   "`openstack-read-id' passes a table that annotates each candidate."

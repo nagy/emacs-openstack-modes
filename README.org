@@ -165,7 +165,10 @@ mail, a log line or =goto-address-mode=.  A URL is
 =imenu= indexes the fields of a show buffer and the rows of a list
 buffer, so =M-x imenu= or =consult-imenu= jumps to a field or to a
 resource.  The ID prompt annotates each candidate with the fields
-of =openstack-read-annotation-fields=, such as =ACTIVE= or =20=.
+of =openstack-read-annotation-fields=, such as =ACTIVE= or =20=,
+and announces the =openstack-TYPE= completion category, so
+=completion-category-overrides= sorts one kind of resource as one
+kind.  =M-p= recalls the ID that the prompt answered last.
 
 * Servers
 

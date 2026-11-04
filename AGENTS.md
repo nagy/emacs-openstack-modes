@@ -446,10 +446,18 @@ includes evil.
 - `openstack-read-id` passes `openstack-read--choices-table` to
   `completing-read`, not the raw alist: the table answers the
   `metadata` action with an `annotation-function` built by
-  `openstack-read--annotation-function` over the choices.  The
+  `openstack-read--annotation-function` over the choices, and with
+  the category that `openstack-read--category` names for the
+  resource type, so `completion-category-overrides` sorts one kind
+  of resource as one kind.  A choice keeps its row
+  (`openstack-read--choices-with-rows`), so the annotation reads
+  the row that the user sees and never scans the cache per
+  candidate; `openstack-read-choices` stays the public
+  `(LABEL . ID)` alist that the answer lookup reads.  The
   annotation holds the values of
-  `openstack-read-annotation-fields` that the row has.  Keep the
-  `(LABEL . ID)` alist for the answer lookup.
+  `openstack-read-annotation-fields` that the row has.  The prompt
+  keeps its answers in `openstack-read-id-history`, which every
+  type shares, so `M-p` recalls the ID that the user opened last.
 - `openstack-dashboard-url` builds every dashboard URL.  The Org
   export and the `openstack:` URL handler in `openstack-url.el`
   call it, so a resource type names its path segments once.  The
