@@ -65,7 +65,7 @@
 
 (ert-deftest ol-openstack-follow-rejects-unknown-type ()
   "An unknown type and a malformed path signal a `user-error'."
-  (should-error (openstack-org-follow "router/res-1") :type 'user-error)
+  (should-error (openstack-org-follow "ironic/res-1") :type 'user-error)
   (should-error (openstack-org-follow "res-1") :type 'user-error))
 
 (ert-deftest ol-openstack-store ()
@@ -152,8 +152,8 @@
 
 (ert-deftest ol-openstack-export-keeps-unknown-types-plain ()
   "An unknown type exports the link text, so a document still builds."
-  (should (equal (openstack-org-export "router/r-1" "my router" 'html nil)
-                 "my router"))
+  (should (equal (openstack-org-export "ironic/r-1" "an ironic node" 'html nil)
+                 "an ironic node"))
   (should (equal (openstack-org-export "broken" nil 'html nil) "broken")))
 
 (ert-deftest ol-openstack-complete ()

@@ -192,5 +192,21 @@
             :arguments ("--network" :id))
   :list-fields '("ID" "Name" "MAC Address" "Fixed IP Addresses" "Status"))
 
+;;; Routers
+
+;; A router belongs to a project and holds its gateway, its interfaces
+;; and its extra routes as nested values.  Horizon serves the router
+;; detail view at `project/routers/ID', without a trailing segment.
+
+(openstack-define-resource "router"
+  :noun "routers"
+  :id-prefix "project/routers"
+  :fields '("name" "status" "admin_state_up" "ha" "distributed"
+            "external_gateway_info" "interfaces_info" "routes"
+            "project_id" "created_at" "updated_at")
+  :parent '(:type "project" :field "project_id"
+            :arguments ("--project" :id))
+  :list-fields '("ID" "Name" "Status" "State" "Project"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here

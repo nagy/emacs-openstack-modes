@@ -291,6 +291,22 @@ network.  `openstack-go-to-parent= opens the port list scoped to
 the network.  Horizon serves the port detail view below the
 network panel: =project/networks/ports/ID/detail=.
 
+* Routers
+
+=openstack-router-mode= displays a router of the Networking
+service.  A router belongs to a project, so the mode names the
+project as its parent:
+
+- =M-x openstack-router-display= -- display a router by ID
+  (=openstack router show=)
+- =M-x openstack-router-list-display= -- list the routers
+  (=openstack router list=)
+
+The =interfaces_info= and =routes= fields print as indented
+blocks, one record per interface and per extra route, and the
+gateway hash keeps its JSON text.  Horizon serves the router
+detail view at =project/routers/ID=.
+
 * Projects
 
 =openstack-project-mode= displays a project of the Identity

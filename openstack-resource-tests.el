@@ -266,7 +266,43 @@
                       "Status" "Alpha" "Zebra")
        :list-rows ("^port-1 +- +fa:16:3e:00:00:01 +10\\.0\\.0\\.5 +ACTIVE +early +late"
                    "^port-2 +dhcp +fa:16:3e:00:00:02 +10\\.0\\.0\\.6 +DOWN +early +late")
-       :list-first-id "port-1"))
+       :list-first-id "port-1")
+
+      ("router"
+       :show-id "router-1"
+       :show-json
+       ,(concat "{\"id\": \"router-1\", \"name\": \"main\", "
+                "\"status\": \"ACTIVE\", \"admin_state_up\": true, "
+                "\"ha\": true, \"distributed\": true, "
+                "\"external_gateway_info\": {\"network_id\": \"net-ext\", "
+                "\"enable_snat\": true}, "
+                "\"interfaces_info\": [{\"port_id\": \"port-1\", "
+                "\"ip_address\": \"10.0.0.1\", "
+                "\"subnet_id\": \"subnet-1\"}], "
+                "\"routes\": [{\"destination\": \"0.0.0.0/0\", "
+                "\"nexthop\": \"10.0.0.1\"}], "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("external_gateway_info" . "{\"network_id\""))
+       :show-blocks (("interfaces_info" . "^  - ip_address: 10\\.0\\.0\\.1$")
+                     ("routes" . "^  - destination: 0\\.0\\.0\\.0/0$"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"router-1\", \"Name\": \"main\", "
+                "\"Status\": \"ACTIVE\", \"State\": \"UP\", "
+                "\"Project\": \"proj-1\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"router-2\", \"Name\": \"edge\", "
+                "\"Status\": \"DOWN\", \"State\": \"DOWN\", "
+                "\"Project\": \"proj-1\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "Status" "State" "Project"
+                      "Alpha" "Zebra")
+       :list-rows ("^router-1 +main +ACTIVE +UP +proj-1 +early +late"
+                   "^router-2 +edge +DOWN +DOWN +proj-1 +early +late")
+       :list-first-id "router-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and
