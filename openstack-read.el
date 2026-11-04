@@ -71,6 +71,9 @@ not hold stays out of the annotation."
 Every prompt of `openstack-read-id' shares it, so `M-p' recalls
 the ID that the user opened last.")
 
+(defvar openstack-read-resource-history nil
+  "History of the prompt that reads any OpenStack resource.")
+
 (defun openstack-read--row-value (row names)
   "Return the value of the first key of ROW that matches NAMES.
 NAMES is a list of strings.  The comparison ignores case,
@@ -141,6 +144,35 @@ volumes and the images as different kinds of object."
   (declare (pure t) (side-effect-free t))
   (intern (format "openstack-%s" type)))
 
+(defun openstack-read--any-choices ()
+  "Return completion candidates of every cached resource type.
+Each candidate is (LABEL . PLIST), where PLIST holds :type, :id and
+:row.  The label names the type first, so a server, a volume and a
+container with the same name stay apart."
+  (let (choices)
+    (dolist (type (mapcar #'car openstack-resource-types)
+                 (nreverse choices))
+      (dolist (choice (openstack-read--choices-with-rows type))
+        (when-let* ((id (openstack-read--row-id (cdr choice))))
+          (push (cons (format "%s %s" type (car choice))
+                      (list :type type :id id :row (cdr choice)))
+                choices))))))
+
+(defun openstack-read--any-choices-table (choices)
+  "Return a completion table over CHOICES of every resource type.
+CHOICES is a list of (LABEL . PLIST) pairs.  The table answers the
+`metadata' action with the annotation function of the row of each
+choice and with one category, because the prompt mixes the types."
+  (lambda (string predicate action)
+    (if (eq action 'metadata)
+        `(metadata (category . openstack-resource)
+                   (annotation-function
+                    . ,(lambda (candidate)
+                         (when-let* ((choice (assoc candidate choices))
+                                     (row (plist-get (cdr choice) :row)))
+                           (openstack-read--annotation row)))))
+      (complete-with-action action choices string predicate))))
+
 (defun openstack-read--annotation (row)
   "Return the annotation string of list ROW, or nil.
 The string holds the values of `openstack-read-annotation-fields'
@@ -209,6 +241,30 @@ plain prompt."
           (openstack-read--row-id row))
         (unless (string-empty-p answer) answer)
         (user-error "No OpenStack %s ID given" type))))
+
+;;;###autoload
+(defun openstack-read-resource (&optional prompt)
+  "Read any OpenStack resource from the cached lists.
+PROMPT defaults to \"OpenStack resource: \".  Every candidate names
+its resource type, the name of the resource and its ID, so one
+prompt opens a server, a volume or a subnet without naming a type
+first.  Annotate each candidate with the fields of
+`openstack-read-annotation-fields'.  Return a plist with :type and
+:id.  A typed ID that no candidate names resolves its type through
+`openstack-read-type-of-id', which may run the client."
+  (let* ((choices (openstack-read--any-choices))
+         (answer (completing-read (or prompt "OpenStack resource: ")
+                                  (openstack-read--any-choices-table choices)
+                                  nil nil nil
+                                  'openstack-read-resource-history)))
+    (if-let* ((choice (cdr (assoc answer choices))))
+        (list :type (plist-get choice :type)
+              :id (plist-get choice :id))
+      (let ((type (and (not (string-empty-p answer))
+                       (openstack-read-type-of-id answer))))
+        (unless type
+          (user-error "No OpenStack resource named %s" answer))
+        (list :type type :id answer)))))
 
 (defun openstack-read-ids (&optional type)
   "Return the cached resource IDs, of TYPE or of every cached type.
@@ -306,13 +362,12 @@ every type in `openstack-resource-types'."
   "Display the OpenStack resource with ID.
 TYPE names the resource type of ID.  Without TYPE, resolve it
 through `openstack-read-type-of-id', which may run the client.
-Interactive use prompts for the type and then for the ID."
+Interactive use reads any cached resource through
+`openstack-read-resource', so one prompt opens a server, a volume
+or a subnet."
   (interactive
-   (let* ((type (completing-read "OpenStack resource type: "
-                                 (mapcar #'car openstack-resource-types)
-                                 nil t))
-          (id (openstack-read-id type)))
-     (list id type)))
+   (let ((resource (openstack-read-resource)))
+     (list (plist-get resource :id) (plist-get resource :type))))
   (let ((type (or type (openstack-read-type-of-id id))))
     (unless type
       (user-error "Unknown OpenStack resource ID: %s" id))

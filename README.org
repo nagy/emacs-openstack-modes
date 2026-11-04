@@ -66,8 +66,8 @@ Commands:
 - =M-x openstack-mode= -- put the current buffer into the mode
 - =M-x openstack-display= -- display a resource by ID in a
   dedicated buffer
-- =M-x openstack-open-id= -- display any resource by ID; the
-  type comes from the list cache, or the prompt
+- =M-x openstack-open-id= -- display any resource; one prompt
+  completes the cached resources of every type
 - =M-x openstack-read-refresh= -- refill the cached resource
   lists
 - =M-x openstack-copy-id= (=c=) -- copy the resource ID to
@@ -134,8 +134,11 @@ falls back to a plain prompt.  The rows stay cached for
 =openstack-resource-cache-ttl= seconds; =M-x openstack-read-refresh=
 refills them.
 
-=M-x openstack-open-id= displays any resource.  Without a type
-it asks the cache, which runs =RESOURCE list= for each type in
+=M-x openstack-open-id= displays any resource.  Its prompt offers
+the cached resources of every type at once, each candidate
+starting with its type: =server web-1 (UUID)= or =volume data-1
+(UUID)=.  A typed ID that no candidate names resolves its type
+through the cache, which runs =RESOURCE list= for each type in
 =openstack-resource-types= until one holds the ID.
 
 The xref backend makes =M-.= open the resource whose ID sits at

@@ -507,6 +507,13 @@ includes evil.
   `openstack-read-annotation-fields` that the row has.  The prompt
   keeps its answers in `openstack-read-id-history`, which every
   type shares, so `M-p` recalls the ID that the user opened last.
+  `openstack-read-resource` reads any type in one prompt
+  (`openstack-read--any-choices`): every label starts with the type,
+  the value is a plist of :type and :id, and the table names the one
+  category `openstack-resource`, because the prompt mixes the types.
+  `openstack-open-id` reads through it interactively, so its two
+  arguments stay for callers such as the URL handler and a typed ID
+  resolves its type through `openstack-read-type-of-id`.
 - `openstack-dashboard-url` builds every dashboard URL.  The Org
   export and the `openstack:` URL handler in `openstack-url.el`
   call it, so a resource type names its path segments once.  The

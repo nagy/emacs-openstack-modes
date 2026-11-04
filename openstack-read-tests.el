@@ -327,6 +327,55 @@ lookup per candidate would scan every type."
         (should (equal (funcall annotation "web-1 (srv-1)")
                        "  ACTIVE"))))))
 
+(ert-deftest openstack-read-resource-any-type ()
+  "One prompt offers the resources of every cached type."
+  (let ((openstack-resource--list-cache nil)
+        (labels nil))
+    (openstack-read-test--with-client calls
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt collection &rest _)
+                   (setq labels (funcall collection "" nil t))
+                   "server web-1 (srv-1)")))
+        (should (equal (openstack-read-resource)
+                       '(:type "server" :id "srv-1")))))
+    (should (member "server web-1 (srv-1)" labels))
+    (should (member "volume data-1 (vol-1)" labels))))
+
+(ert-deftest openstack-read-resource-accepts-a-typed-id ()
+  "A typed ID that no candidate names resolves its type."
+  (let ((openstack-resource--list-cache nil))
+    (openstack-read-test--with-client calls
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt _collection &rest _) "srv-1")))
+        (should (equal (openstack-read-resource)
+                       '(:type "server" :id "srv-1")))))))
+
+(ert-deftest openstack-read-resource-table-metadata ()
+  "The mixed prompt names one category and annotates each row."
+  (let* ((row (openstack-read-test--row "srv-1" "web-1"))
+         (choices (list (cons "server web-1 (srv-1)"
+                              (list :type "server" :id "srv-1" :row row))))
+         (openstack-read-annotation-fields '("Status"))
+         (table (openstack-read--any-choices-table choices)))
+    (puthash "Status" "ACTIVE" row)
+    (let* ((metadata (funcall table "" nil 'metadata))
+           (entries (cdr metadata)))
+      (should (eq (alist-get 'category entries) 'openstack-resource))
+      (should (equal (funcall (alist-get 'annotation-function entries)
+                              "server web-1 (srv-1)")
+                     "  ACTIVE")))))
+
+(ert-deftest openstack-open-id-interactive-reads-any-resource ()
+  "Interactive use of `openstack-open-id' reads any resource."
+  (let ((seen nil))
+    (cl-letf (((symbol-function 'openstack-read-resource)
+               (lambda (&optional _prompt)
+                 (list :type "volume" :id "vol-1")))
+              ((symbol-function 'openstack-volume-display)
+               (lambda (id) (setq seen id))))
+      (call-interactively #'openstack-open-id)
+      (should (equal seen "vol-1")))))
+
 (ert-deftest openstack-read-references-finds-mentions ()
   "A cached row that names the ID in a field references it."
   (let ((server (openstack-read-test--row "srv-1" "web-1"))
