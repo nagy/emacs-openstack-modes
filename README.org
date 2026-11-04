@@ -324,6 +324,25 @@ panel has no page per flavor, so the dashboard link lands on
 =admin/flavors/ID=; set =openstack-id-prefix= if your deployment
 serves one.
 
+* Security groups
+
+=openstack-security-group-mode= displays a security group of the
+Networking service.  Its client command names two words, so the
+type string takes a hyphen and the definition names the command
+in =:cli=:
+
+- =M-x openstack-security-group-display= -- display a security
+  group by ID (=openstack security group show=)
+- =M-x openstack-security-group-list-display= -- list the security
+  groups (=openstack security group list=)
+
+A security group belongs to a project, so the mode names the
+project as its parent.  The =rules= field prints as an indented
+block, one record per rule.  A port reaches its security groups
+through the =security_group_ids= entry of
+=openstack-reference-fields=, which prints one ID per line.
+Horizon serves the detail view at =project/security_groups/ID=.
+
 * Projects
 
 =openstack-project-mode= displays a project of the Identity
@@ -377,6 +396,16 @@ single resource; the server list mode is the reference:
   (=openstack project list=)
 - =M-x openstack-container-list-display= -- list all containers
   (=openstack container list=)
+- =M-x openstack-subnet-list-display= -- list all subnets
+  (=openstack subnet list=)
+- =M-x openstack-port-list-display= -- list all ports
+  (=openstack port list=)
+- =M-x openstack-router-list-display= -- list all routers
+  (=openstack router list=)
+- =M-x openstack-flavor-list-display= -- list all flavors
+  (=openstack flavor list=)
+- =M-x openstack-security-group-list-display= -- list all security
+  groups (=openstack security group list=)
 
 Every list mode derives from =openstack-list-mode=, which derives
 from =tabulated-list-mode=.  The table therefore has a clickable

@@ -20,7 +20,7 @@ name as the ID.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
-| `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet, port, router, flavor.  The server, volume, image, network and router forms name a parent (a project, or a network for a subnet and a port); project, container and flavor name none |
+| `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet, port, router, flavor, security-group.  The server, volume, image, network, router and security-group forms name a parent (a project, or a network for a subnet and a port); project, container and flavor name none |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
@@ -764,15 +764,14 @@ includes evil.
   a parity test that compares buffer text against the CLI fixtures,
   a per-host queue, and the request-object cancellation contract
   in `openstack--kill-pending` once parity passes.
-- Derived modes for more resource types (security groups,
-  hosts, domains, …); servers, volumes, images, networks, projects,
-  containers, subnets, ports, routers and flavors exist.  The
-  git-bug tracker holds one ticket per missing single-parent type
-  (volume snapshot, volume backup, security group, Swift object,
-  domain); `git bug bug` lists them.
+- Derived modes for more resource types (hosts, domains, …);
+  every type of the Networking and Compute panels that has a single
+  parent exists, plus flavors.  The git-bug tracker holds one
+  ticket per missing single-parent type (volume snapshot, volume
+  backup, Swift object, domain); `git bug bug` lists them.
 - Collection modes for more resource types (hosts, domains, …);
   server, volume, image, network, project, container, subnet, port,
-  router and flavor lists exist.
+  router, flavor and security group lists exist.
 - Objects of the Object Storage service.  `object list` needs a
   container argument and an object has no ID at all (its identity
   is container plus name), so decide the identity scheme first:

@@ -223,5 +223,23 @@
   :list-fields '("ID" "Name" "RAM" "Disk" "Ephemeral" "VCPUs"
                  "Is Public"))
 
+;;; Security groups
+
+;; The client names this command in two words, so the type string takes
+;; a hyphen and `:cli' names the command.  A security group belongs to
+;; a project and lists its rules.  Horizon serves the detail view at
+;; `project/security_groups/ID'.
+
+(openstack-define-resource "security-group"
+  :noun "security groups"
+  :title "Security Group"
+  :cli "security group"
+  :id-prefix "project/security_groups"
+  :fields '("name" "description" "rules" "project_id" "shared"
+            "stateful" "tags" "created_at" "updated_at")
+  :parent '(:type "project" :field "project_id"
+            :arguments ("--project" :id))
+  :list-fields '("ID" "Name" "Description" "Project" "Tags" "Shared"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here

@@ -1974,8 +1974,10 @@ once, so a definition and its generated commands cannot drift."
            (list-mode (intern (format "openstack-%s-list-mode" type)))
            (list-display (intern (format "openstack-%s-list-display" type))))
       (should (equal (plist-get definition :type) type))
-      ;; The type string serves as the client command name.
-      (should (equal (openstack-resource-cli-name type) type))
+      ;; The type string serves as the client command name, unless the
+      ;; definition names a command of its own.
+      (should (equal (openstack-resource-cli-name type)
+                     (or (plist-get definition :cli) type)))
       (should (eq (plist-get definition :mode) mode))
       (should (eq (plist-get definition :display) display))
       (should (eq (plist-get definition :list-mode) list-mode))

@@ -248,7 +248,7 @@
                 "\"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
-       :show-nested (("security_group_ids" . "sg-1, sg-2"))
+       :show-references (("security_group_ids" . ("sg-1" "sg-2")))
        :show-blocks (("fixed_ips" . "^  - ip_address: 10\\.0\\.0\\.5$"))
        :show-unlisted ("zzz_extra")
        :list-json
@@ -330,7 +330,40 @@
                       "Is Public" "Alpha" "Zebra")
        :list-rows ("^flavor-1 +m1\\.small +2048 +20 +0 +1 +true +early +late"
                    "^flavor-2 +m2\\.large + +512 +40 +0 +2 +- +early +late")
-       :list-first-id "flavor-1"))
+       :list-first-id "flavor-1")
+
+      ("security-group"
+       :show-id "sg-1"
+       :show-json
+       ,(concat "{\"id\": \"sg-1\", \"name\": \"default\", "
+                "\"description\": \"Default security group\", "
+                "\"project_id\": \"proj-1\", \"shared\": false, "
+                "\"stateful\": true, \"tags\": [\"team-a\"], "
+                "\"rules\": [{\"id\": \"rule-1\", "
+                "\"direction\": \"ingress\", \"protocol\": \"tcp\", "
+                "\"port_range_min\": 22, \"port_range_max\": 22, "
+                "\"remote_ip_prefix\": \"0.0.0.0/0\"}], "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("tags" . "team-a"))
+       :show-blocks (("rules" . "^  - direction: +ingress$"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"ID\": \"sg-1\", \"Name\": \"default\", "
+                "\"Description\": \"Default security group\", "
+                "\"Project\": \"proj-1\", \"Tags\": \"team-a\", "
+                "\"Shared\": false, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"ID\": \"sg-2\", \"Name\": \"web\", "
+                "\"Description\": \"\", \"Project\": \"proj-1\", "
+                "\"Tags\": \"\", \"Shared\": true, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("ID" "Name" "Description" "Project" "Tags"
+                      "Shared" "Alpha" "Zebra")
+       :list-rows ("^sg-1 +default +Default security group +proj-1 +team-a +- +early +late"
+                   "^sg-2 +web +- +proj-1 +- +true +early +late")
+       :list-first-id "sg-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and
