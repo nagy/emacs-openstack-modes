@@ -111,7 +111,8 @@ Customization (=M-x customize-group openstack=):
   =launched_at=, =terminated_at=, =deleted_at=, =timestamp=);
   =nil= renders dates with the default face
 - =openstack-reference-fields= -- fields whose values name
-  other resources, one per line (=subnets= holds subnet IDs)
+  other resources, one per line (=subnets= holds subnet IDs,
+  =project_id= one project ID)
 - =openstack-transitional-states= -- statuses that still
   change, so their buffer polls faster
 - =openstack-refresh-fast-interval= -- seconds between refresh
@@ -212,7 +213,8 @@ of plain values prints as comma-separated text: the =tags= of an
 image read =subnet-1, subnet-2=
 instead of a JSON array.  A field that =openstack-reference-fields=
 names prints its IDs one per line instead, as the =subnets= of a
-network do.  The
+network do, and a field that holds one ID prints one link, as
+=project_id= does.  The
 image =size= and =virtual_size= print human readable through
 =file-size-human-readable=, for example =224M=, while the list
 column keeps the raw byte count for sorting.

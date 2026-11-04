@@ -281,16 +281,20 @@ Set this to nil to render dates with the default face."
   :type '(repeat string)
   :group 'openstack)
 
-(defcustom openstack-reference-fields '(("subnets" . "subnet"))
+(defcustom openstack-reference-fields
+  '(("subnets" . "subnet")
+    ("project_id" . "project")
+    ("tenant_id" . "project"))
   "Fields whose values name other resources.
 Each entry maps a show field name to the resource type of its
-values.  The client reports such values as a list of IDs: a
-network lists the `subnets' it owns.  The show renderer prints
-one ID per line, each with the `openstack-id' face and the
-`openstack-id' text property, so RET or `mouse-2' opens the
+values.  The client reports such values as a list of IDs, as a
+network lists the `subnets' it owns, or as one ID, as every
+resource names its `project_id'.  The show renderer prints one ID
+per line, each with the `openstack-id' face and the `openstack-id'
+text property, so RET, a click or `push-button' opens the
 referenced resource through the display command that
-`openstack-resource-types' holds for its type.  A type without
-a display command there signals a `user-error'.  The field name
+`openstack-resource-types' holds for its type.  A type without a
+display command there signals a `user-error'.  The field name
 comparison ignores case.  A list column still shows the IDs on
 one line of text."
   :type '(alist :key-type (string :tag "Field")
@@ -1456,17 +1460,19 @@ previous refresh takes `openstack-field-changed'."
             text "\n")))
 
 (defun openstack--insert-references (field values &optional width)
-  "Insert FIELD, a list of resource IDs in VALUES, one ID per line.
-Every ID becomes an `openstack-object' button that carries the
-`openstack-id' face, the `openstack-id' text property and
-`openstack-ref-type' with the resource type that
-`openstack-reference-fields' names for FIELD, so RET, `mouse-2', a
-click and `push-button' open the referenced resource.  WIDTH, when a
-number, gives the column at which values start, so the field name
-gets padded with spaces after its colon and the later IDs line up
-under the first one.  A list that differs from the previous
-refresh takes `openstack-field-changed' on every ID as well."
-  (let* ((type (openstack--reference-type field))
+  "Insert FIELD, a resource ID or a list of them in VALUES.
+VALUES is one ID string or a list of ID strings.  Every ID becomes
+an `openstack-object' button that carries the `openstack-id' face,
+the `openstack-id' text property and `openstack-ref-type' with the
+resource type that `openstack-reference-fields' names for FIELD,
+so RET, `mouse-2', a click and `push-button' open the referenced
+resource.  WIDTH, when a number, gives the column at which values
+start, so the field name gets padded with spaces after its colon
+and the later IDs line up under the first one.  A list that
+differs from the previous refresh takes `openstack-field-changed'
+on every ID as well."
+  (let* ((values (if (stringp values) (list values) values))
+         (type (openstack--reference-type field))
          (face (if (openstack--field-changed-p field values)
                    '(openstack-field-changed openstack-id)
                  'openstack-id))
@@ -1562,7 +1568,7 @@ field."
   "Return the kind of the display row of FIELD with VALUE.
 `properties' marks the metadata hash table that closes the
 field table, `records' a `locations' list of hash tables,
-`references' a list of IDs of another resource type as
+`references' a resource ID or a list of them, as
 `openstack-reference-fields' names it, and nil a plain field
 line."
   (declare (side-effect-free t))
@@ -1573,7 +1579,8 @@ line."
          (openstack--record-list-p value))
     'records)
    ((and (openstack--reference-type field)
-         (openstack--plain-list-p value))
+         (or (openstack--plain-list-p value)
+             (and (stringp value) (not (string-empty-p value)))))
     'references)))
 
 (defun openstack-render-fields-to-string (title id data fields)

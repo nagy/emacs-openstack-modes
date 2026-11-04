@@ -927,8 +927,40 @@ first one instead of one JSON array or comma list."
         (should (= (length columns) 2))
         (should (= (nth 0 columns) (nth 1 columns)))))))
 
-(ert-deftest openstack-render-fields-references-mark-changed ()
-  "A reference list that differs from the last render takes the change face."
+(ert-deftest openstack-render-fields-single-reference-is-a-link ()
+  "A registered field that holds one ID prints one link.
+Every resource names its `project_id', and a project has a mode."
+  (let ((data (openstack-test--parse
+               "{\"name\": \"web-1\", \"project_id\": \"proj-1\"}"))
+        (opened nil))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("name"))
+      (should (string-match-p "^project_id: +proj-1$" (buffer-string)))
+      (goto-char (point-min))
+      (search-forward "proj-1")
+      (goto-char (match-beginning 0))
+      (should (equal (get-text-property (point) 'openstack-ref-type) "project"))
+      (should (get-text-property (point) 'button))
+      (should (equal (get-text-property (point) 'help-echo)
+                     "Open project proj-1"))
+      (cl-letf (((symbol-function 'openstack-project-display)
+                 (lambda (id) (setq opened id))))
+        (openstack-display-at-point)))
+    (should (equal opened "proj-1"))))
+
+(ert-deftest openstack-render-fields-single-id-stays-plain ()
+  "A single ID of an unregistered field stays plain text."
+  (let ((data (openstack-test--parse
+               "{\"name\": \"web-1\", \"user_id\": \"user-1\"}")))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("name"))
+      (should (string-match-p "^user_id: +user-1$" (buffer-string)))
+      (goto-char (point-min))
+      (search-forward "user-1")
+      (should-not (get-text-property (match-beginning 0) 'button))
+      (should-not (get-text-property (match-beginning 0) 'openstack-id)))))
+
+(ert-deftest openstack-render-fields-references-mark-changed ()  "A reference list that differs from the last render takes the change face."
   (let ((data (json-parse-string
                "{\"subnets\": [\"subnet-1\", \"subnet-2\"]}"
                :object-type 'hash-table :array-type 'list))

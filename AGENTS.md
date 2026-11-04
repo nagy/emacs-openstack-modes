@@ -298,10 +298,14 @@ includes evil.
   it per mode.  A list of plain values, such as the `tags` of an
   image, prints as comma-separated text (`subnet-1, subnet-2`); a
   list that holds records stays JSON.  A field named in
-  `openstack-reference-fields` (`subnets` of a network, type
-  `subnet`) prints one ID per line instead, each with the
-  `openstack-id` face, the `openstack-id` property and the
-  `openstack-ref-type` property.  The field renderer collects
+  `openstack-reference-fields` prints one ID per line instead,
+  each with the `openstack-id` face, the `openstack-id` property
+  and the `openstack-ref-type` property; a list field such as the
+  `subnets` of a network holds many IDs, and a field that holds one
+  ID, such as `project_id`, prints one link on its own field line.
+  The default maps `project_id` and `tenant_id` to the `project`
+  type, so every resource reaches its project.  The field renderer
+  collects
   every row first and
   pads each name after its colon to the longest name, so all
   values start at one column (`openstack--insert-field' takes the
