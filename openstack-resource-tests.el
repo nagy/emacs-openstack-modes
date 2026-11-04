@@ -45,6 +45,7 @@
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("host_status" "image" "updated_at")
        :show-nested (("flavor" . "{\"id\":\"1\",\"name\":\"m1.small\"}"))
+       :show-blocks (("addresses" . "^  public: +10\\.0\\.0\\.5$"))
        :show-unlisted ("aaa_first" "custom_field" "zzz_last")
        :list-json
        ,(concat "[{\"ID\": \"id-1\", \"Name\": \"web-1\", "
@@ -71,7 +72,7 @@
                 "\"zzz_extra\": \"late\", "
                 "\"created_at\": \"2026-01-01T00:00:00Z\"}")
        :show-missing ("updated_at")
-       :show-nested (("attachments" . "[{\"server_id\""))
+       :show-blocks (("attachments" . "^    server_id: srv-1$"))
        :show-unlisted ("zzz_extra")
        :list-json
        ,(concat "[{\"ID\": \"vol-1\", \"Name\": \"data-1\", "
@@ -402,7 +403,10 @@ FORMAT holds one `%s' for the type string."
           (should (string-match-p
                    (concat "^" (regexp-quote (car entry)) ": +"
                            (regexp-quote (cdr entry)))
-                   text)))))))
+                   text)))
+        ;; A block field prints a heading and indented records.
+        (dolist (entry (plist-get fixture :show-blocks))
+          (should (string-match-p (cdr entry) text)))))))
 
 (openstack-resource-test--def-type-tests render-non-hash-data
   (let ((render (openstack-resource-test--name type "openstack-%s--render"))

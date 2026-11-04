@@ -960,6 +960,44 @@ Every resource names its `project_id', and a project has a mode."
       (should-not (get-text-property (match-beginning 0) 'button))
       (should-not (get-text-property (match-beginning 0) 'openstack-id)))))
 
+(ert-deftest openstack-render-fields-addresses-block ()
+  "A server addresses hash prints one network per line.
+Every network names itself, and its addresses follow, sorted and
+separated by a comma."
+  (let ((data (openstack-test--parse
+               (concat "{\"name\": \"web-1\", \"addresses\": {"
+                       "\"private\": [{\"addr\": \"10.0.0.6\"}, "
+                       "{\"addr\": \"10.0.0.5\"}], "
+                       "\"public\": [{\"addr\": \"192.0.2.7\"}]}}"))))
+    (with-temp-buffer
+      (openstack-render-fields "Server" "srv-1" data '("name"))
+      (let ((text (buffer-string)))
+        (should (string-match-p "^addresses:$" text))
+        (should (string-match-p "^  private: 10\\.0\\.0\\.5, 10\\.0\\.0\\.6$"
+                                text))
+        (should (string-match-p "^  public +: 192\\.0\\.2\\.7$" text))
+        (should-not (string-match-p "\\[" text)))
+      (goto-char (point-min))
+      (search-forward "addresses")
+      (should (equal (get-text-property (match-beginning 0) 'openstack-section)
+                     "addresses")))))
+
+(ert-deftest openstack-render-fields-record-list-is-a-block ()
+  "A field that holds a list of records prints an indented block.
+The volume attachments and the server security groups stop being
+one JSON line."
+  (let ((data (openstack-test--parse
+               (concat "{\"name\": \"vol-1\", \"attachments\": ["
+                       "{\"server_id\": \"srv-1\", "
+                       "\"device\": \"/dev/vdb\"}]}"))))
+    (with-temp-buffer
+      (openstack-render-fields "Volume" "vol-1" data '("name"))
+      (let ((text (buffer-string)))
+        (should (string-match-p "^attachments:$" text))
+        (should (string-match-p "^  - device: +/dev/vdb$" text))
+        (should (string-match-p "^    server_id: srv-1$" text))
+        (should-not (string-match-p "\\[{" text))))))
+
 (ert-deftest openstack-render-fields-references-mark-changed ()  "A reference list that differs from the last render takes the change face."
   (let ((data (json-parse-string
                "{\"subnets\": [\"subnet-1\", \"subnet-2\"]}"

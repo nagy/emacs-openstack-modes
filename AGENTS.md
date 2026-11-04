@@ -314,11 +314,15 @@ includes evil.
   `properties` value (Glance image properties, Swift container
   properties) prints last as an indented `key: value` block,
   sorted by key, through `openstack--insert-properties`; do not
-  JSON-encode it.  A `locations` list of hash tables (the Glance
-  image locations, which the client flattens into `properties')
+  JSON-encode it.  A field whose value is a list of hash tables
   prints as an indented block of records, sorted by key, through
-  `openstack--insert-records`, also when it appears as a
-  `properties` entry.  A mode whose Horizon page has trailing
+  `openstack--insert-records`: the Glance `locations` (also when
+  the client flattens them into `properties`), the `attachments`
+  of a volume, the `security_groups` of a server, the
+  `host_routes` of a subnet.  A hash of network name to address
+  records, the `addresses` of a server, prints one network per
+  line through `openstack--insert-addresses`.  Both blocks are
+  foldable sections.  A mode whose Horizon page has trailing
   segments sets `openstack-url-suffix` (e.g. "/detail"); the
   leading ones go into `openstack-id-prefix`.  Both come from the
   macro call (`:id-prefix`, `:url-suffix`).

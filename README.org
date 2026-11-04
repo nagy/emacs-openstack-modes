@@ -208,7 +208,11 @@ closes the table, one =key: value= line per property, sorted by
 key, instead of one JSON dump.  The same holds for the Glance
 =locations= list: the client flattens that attribute into
 =properties=, so the block nests there and prints each location
-as an indented record with its keys on their own lines.  A list
+as an indented record with its keys on their own lines.  A field
+whose value is a list of records prints that way too: the
+=attachments= of a volume, the =security_groups= of a server.  The
+=addresses= of a server print one network per line, its addresses
+sorted and comma-separated.  A list
 of plain values prints as comma-separated text: the =tags= of an
 image read =subnet-1, subnet-2=
 instead of a JSON array.  A field that =openstack-reference-fields=

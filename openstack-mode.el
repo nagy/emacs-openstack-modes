@@ -1529,6 +1529,50 @@ The block is a foldable section."
   "Return non-nil when VALUE is a non-empty list of hash tables."
   (and (listp value) value (seq-every-p #'hash-table-p value)))
 
+(defun openstack--address-list-p (field value)
+  "Return non-nil when FIELD names addresses and VALUE holds them.
+VALUE is a hash table that maps a network name to a list of
+address records, as `openstack server show' reports `addresses'."
+  (declare (side-effect-free t))
+  (and (hash-table-p value)
+       (string-equal field "addresses")))
+
+(defun openstack--address-strings (records)
+  "Return the `addr' values of the address RECORDS, sorted.
+Return nil when RECORDS is no list of address records or holds no
+address."
+  (declare (side-effect-free t))
+  (when (openstack--record-list-p records)
+    (let ((addresses (delq nil
+                           (mapcar (lambda (record)
+                                     (openstack-resource-field record "addr"))
+                                   records))))
+      (when addresses
+        (sort addresses #'string<)))))
+
+(defun openstack--insert-addresses (field networks)
+  "Insert FIELD with NETWORKS, one network per indented line.
+NETWORKS is a hash of network name to address records.  The
+addresses of a network follow its name, sorted and separated by a
+comma, aligned one column past the longest network name.  The
+block is a foldable section."
+  (insert (propertize (concat field ":")
+                      'face 'openstack-field-name
+                      'openstack-field field
+                      'openstack-section field)
+          "\n")
+  (let ((names nil))
+    (maphash (lambda (name _records) (push name names)) networks)
+    (setq names (sort names #'string<))
+    (let ((width (apply #'max 0 (mapcar #'string-width names))))
+      (dolist (name names)
+        (insert "  " (format (format "%%-%ds" width) name) ": "
+                (or (mapconcat #'identity
+                               (openstack--address-strings
+                                (gethash name networks))
+                               ", ")
+                    "-")
+                "\n")))))
 (defun openstack--insert-records (field records &optional indent)
   "Insert FIELD, a list of RECORDS, as an indented block.
 INDENT, the number of leading spaces, defaults to 0.  Every key of
@@ -1567,7 +1611,8 @@ field."
 (defun openstack--row-kind (field value)
   "Return the kind of the display row of FIELD with VALUE.
 `properties' marks the metadata hash table that closes the
-field table, `records' a `locations' list of hash tables,
+field table, `addresses' the hash of network name to address
+records of a server, `records' a list of hash tables,
 `references' a resource ID or a list of them, as
 `openstack-reference-fields' names it, and nil a plain field
 line."
@@ -1575,8 +1620,9 @@ line."
   (cond
    ((and (hash-table-p value) (string-equal field "properties"))
     'properties)
-   ((and (string-equal field "locations")
-         (openstack--record-list-p value))
+   ((openstack--address-list-p field value)
+    'addresses)
+   ((openstack--record-list-p value)
     'records)
    ((and (openstack--reference-type field)
          (or (openstack--plain-list-p value)
@@ -1643,6 +1689,8 @@ one referenced ID per line.  The text carries the same faces and
             (pcase (nth 3 row)
               ('records
                (openstack--insert-records (nth 0 row) (nth 1 row)))
+              ('addresses
+               (openstack--insert-addresses (nth 0 row) (nth 1 row)))
               ('references
                (openstack--insert-references (nth 0 row) (nth 1 row) width))
               (_
