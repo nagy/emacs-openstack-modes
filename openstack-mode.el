@@ -125,6 +125,7 @@
 
 (require 'bookmark)
 (require 'autorevert)
+(require 'button)
 (require 'cl-lib)
 (require 'js)
 (require 'json)
@@ -1374,17 +1375,63 @@ hash tables and anything else fall back to their JSON encoding."
       (mapconcat #'openstack--format-value value ", "))
      (t (json-encode value)))))
 
+;;; Text buttons
+
+;; An ID in a display buffer is a text button of the type
+;; `openstack-object'.  The type carries the mouse face, the follow link
+;; rule and the action, so a renderer names no mouse face of its own and
+;; the button works with `push-button', `C-h .' and `next-button'.  The
+;; mode keymap keeps RET and `mouse-2'.  Button properties are plain
+;; symbols here, because `define-button-type' reserves the keyword
+;; `:type' and `:supertype' alone.  The type keeps no keymap, because an
+;; inherited `button-map' would bind RET and TAB and shadow the mode
+;; keymap of a list row.
+
+(defun openstack--button-push (button)
+  "Open the OpenStack resource of BUTTON.
+A collection buffer opens the row of the table, and every other
+buffer opens the resource at point, as `openstack-display-at-point'
+documents."
+  (when (or (integerp button) (markerp button))
+    (goto-char button))
+  (openstack-display-at-point))
+
+(defun openstack--button-follow-mouse-1-p (_position)
+  "Return non-nil when one click follows the button at POSITION.
+A collection buffer keeps the left click for the selection of a
+row, so a reader opens a row with RET or the middle button."
+  (not (derived-mode-p 'openstack-list-mode)))
+
+(define-button-type 'openstack-object
+  'action #'openstack--button-push
+  'face nil
+  'mouse-face 'highlight
+  'follow-link #'openstack--button-follow-mouse-1-p
+  'keymap nil)
+
+(defun openstack--buttonize (start end &optional help)
+  "Make the text between START and END an OpenStack object button.
+HELP is the text of the tooltip.  The text keeps its own faces,
+because the type names no face."
+  (make-text-button start end :type 'openstack-object 'help-echo help))
+
+(defun openstack--button-string (text &optional help)
+  "Return TEXT as an OpenStack object button.
+HELP is the text of the tooltip."
+  (declare (pure t) (side-effect-free t))
+  (make-text-button text nil :type 'openstack-object 'help-echo help))
+
 (defun openstack--insert-field (field value &optional id width)
   "Insert one FIELD of a resource with its VALUE into the buffer.
-When ID is non-nil, the value is propertized with `openstack-id'
-and `mouse-face', so `openstack-display-at-point' can open the
-resource from the ID field line.  WIDTH, when a number, gives the
-column at which values start, so the field name gets padded with
-spaces after its colon.  A status value takes its face from
-`openstack-status-faces', a date field named in
-`openstack-date-fields' takes `openstack-date', the `id' field
-takes `openstack-id', and a value that differs from the previous
-refresh takes `openstack-field-changed'."
+When ID is non-nil, the value becomes an `openstack-object' button
+that carries `openstack-id', so `openstack-display-at-point' and
+`push-button' open the resource from the ID field line.  WIDTH,
+when a number, gives the column at which values start, so the
+field name gets padded with spaces after its colon.  A status
+value takes its face from `openstack-status-faces', a date field
+named in `openstack-date-fields' takes `openstack-date', the `id'
+field takes `openstack-id', and a value that differs from the
+previous refresh takes `openstack-field-changed'."
   (let* ((text (openstack--format-value value field))
          (name-width (string-width field))
          (face (openstack--cell-face
@@ -1392,8 +1439,9 @@ refresh takes `openstack-field-changed'."
     (when face
       (setq text (propertize text 'face face)))
     (when id
-      (setq text (propertize text 'openstack-id id
-                             'mouse-face 'highlight)))
+      (setq text (openstack--button-string
+                  (propertize text 'openstack-id id)
+                  (format "Open %s" id))))
     (insert (propertize field 'face 'openstack-field-name
                         'openstack-field field)
             ":"
@@ -1405,10 +1453,11 @@ refresh takes `openstack-field-changed'."
 
 (defun openstack--insert-references (field values &optional width)
   "Insert FIELD, a list of resource IDs in VALUES, one ID per line.
-Every ID takes the `openstack-id' face, the `openstack-id' text
-property and `mouse-face', plus `openstack-ref-type' with the
-resource type that `openstack-reference-fields' names for FIELD,
-so RET and `mouse-2' open the referenced resource.  WIDTH, when a
+Every ID becomes an `openstack-object' button that carries the
+`openstack-id' face, the `openstack-id' text property and
+`openstack-ref-type' with the resource type that
+`openstack-reference-fields' names for FIELD, so RET, `mouse-2', a
+click and `push-button' open the referenced resource.  WIDTH, when a
 number, gives the column at which values start, so the field name
 gets padded with spaces after its colon and the later IDs line up
 under the first one.  A list that differs from the previous
@@ -1431,11 +1480,14 @@ refresh takes `openstack-field-changed' on every ID as well."
                                       'openstack-field field)
                           ":" pad)
                 continuation))
-      (insert (propertize (openstack--format-value value)
-                          'face face
-                          'openstack-id value
-                          'openstack-ref-type type
-                          'mouse-face 'highlight)
+      (insert (openstack--button-string
+               (propertize (openstack--format-value value)
+                           'face face
+                           'openstack-id value
+                           'openstack-ref-type type)
+               (if type
+                   (format "Open %s %s" type value)
+                 (format "Open %s" value)))
               "\n")
       (setq first nil))))
 
@@ -1531,9 +1583,10 @@ one referenced ID per line.  The text carries the same faces and
                         id)))
     (when id
       (insert (propertize "ID" 'face 'openstack-field-name)
-              ": " (propertize id 'face 'openstack-id
-                              'openstack-id id
-                              'mouse-face 'highlight)
+              ": " (openstack--button-string
+                     (propertize id 'face 'openstack-id
+                                 'openstack-id id)
+                     (format "Open %s" id))
               "\n\n"))
     (when (hash-table-p data)
       (let ((unshown (make-hash-table :test #'equal))
@@ -2259,16 +2312,28 @@ to the window that decides the widths of the table."
 
 ;;; Rendering
 
+(defun openstack-list--row-help (id)
+  "Return the tooltip of the table row with identity ID.
+Name the row by its name field and its ID, as the completion
+prompt names a candidate."
+  (declare (side-effect-free t))
+  (let ((row (and (hash-table-p openstack-list--rows)
+                  (gethash id openstack-list--rows))))
+    (if-let* ((name (and row (openstack-resource-name row))))
+        (format "Open %s (%s)" name id)
+      (format "Open %s" id))))
+
 (defun openstack-list--print-entry (id columns)
   "Print the table row of ID with cell strings COLUMNS.
 `tabulated-list-print-entry' draws the cells; this function then
-adds `openstack-id' and `mouse-face' to the whole line, so RET and
-`mouse-2' open the row's resource from any column."
+makes the whole line an `openstack-object' button that carries
+`openstack-id', so RET, `mouse-2', a click and `push-button' open
+the row's resource from any column and a tooltip names it."
   (let ((start (point)))
     (tabulated-list-print-entry id columns)
-    (add-text-properties start (1- (point))
-                         (list 'openstack-id id
-                               'mouse-face 'highlight))))
+    (add-text-properties start (1- (point)) (list 'openstack-id id))
+    (openstack--buttonize start (1- (point))
+                          (openstack-list--row-help id))))
 
 (defun openstack-list--table-line (cells widths aligns)
   "Return CELLS as one table line, padded to WIDTHS with ALIGNS.

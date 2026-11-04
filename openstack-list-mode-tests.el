@@ -107,6 +107,28 @@ The columns come from `openstack-list-test--fields'."
     (should (equal (get-text-property (point) 'openstack-id) "id-1"))
     (should (eq (get-text-property (point) 'mouse-face) 'highlight))))
 
+(ert-deftest openstack-list-render-rows-are-buttons ()
+  "A row is one text button that names its resource in the tooltip.
+The mouse face comes from the button type, so the properties of a
+row stop before its newline and the runs of two rows never join."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (openstack-list-test--render
+     (openstack-list-test--rows
+      '(("ID" . "id-1") ("Name" . "web-1") ("Size" . "9"))
+      '(("ID" . "id-2") ("Name" . "web-2") ("Size" . "10"))))
+    (goto-char (point-min))
+    (should (get-text-property (point) 'button))
+    (should (eq (button-type (point)) 'openstack-object))
+    (should (equal (get-text-property (point) 'help-echo)
+                   "Open web-1 (id-1)"))
+    (should (eq (get-text-property (point) 'mouse-face) 'highlight))
+    ;; The newline of a row keeps no button, so the rows stay apart.
+    (should (null (get-text-property (line-end-position) 'mouse-face)))
+    (forward-line 1)
+    (should (equal (get-text-property (point) 'help-echo)
+                   "Open web-2 (id-2)"))))
+
 (ert-deftest openstack-list-render-keeps-point-on-id ()
   "A re-render with the rows in another order keeps point on the same ID."
   (with-temp-buffer

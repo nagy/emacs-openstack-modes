@@ -308,7 +308,11 @@ carries the column labels.
 
 RET or =mouse-2= anywhere on a row opens the resource's show
 buffer: list modes bind =openstack-show-command= to their
-resource's display command (e.g. =openstack-server-display=).  =c=
+resource's display command (e.g. =openstack-server-display=).  A
+row, an ID field line and a reference are text buttons of the type
+=openstack-object=, so a tooltip names the resource, =C-h .= describes
+the button and a single click follows a link in a show buffer.  In
+a list buffer the left click keeps the row selection.  =c=
 copies the ID of the row and =w= opens its dashboard page.  =n= and
 =p= move by row, and =q= buries the buffer: =openstack-pop= (=p=)
 stays a show-mode command.  The ID field line in show buffers works

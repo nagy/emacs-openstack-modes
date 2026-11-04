@@ -380,8 +380,10 @@ includes evil.
   so `n`/`p` move by line and `S` sorts; `openstack-pop` stays a
   show-mode command.  `RET` and `mouse-2` open the row's resource,
   `c` copies the row ID and `w` opens the row's dashboard page.
-  The printer adds `openstack-id` and `mouse-face` to the whole
-  row, not just the ID cell.  Both keymaps remap `dired-jump` and
+  The printer makes the whole row an `openstack-object` button that
+  carries `openstack-id`, so the button type supplies the mouse
+  face and the tooltip, not just on the ID cell.  Both keymaps
+  remap `dired-jump` and
   `dired-up-directory` to `openstack-go-to-parent`, and
   `openstack-evil.el` remaps the same two keys in its state maps.
 - Column widths depend on the window width, so
@@ -407,6 +409,19 @@ includes evil.
   stands above its own floor, so no column cuts its header.  A table
   too narrow even for the floors overflows the window, and
   `tabulated-list-print-col` then truncates the cells.
+- An ID in a display buffer is a text button of the type
+  `openstack-object`: `openstack--button-string` wraps a string and
+  `openstack--buttonize` a region, so `button.el` carries the mouse
+  face, the tooltip, the follow link rule and the action.  The type
+  keeps no keymap, because an inherited `button-map` would bind RET
+  and TAB and shadow the mode keymap.  `openstack--button-push` runs
+  `openstack-display-at-point`, and
+  `openstack--button-follow-mouse-1-p` answers nil in a collection
+  buffer, because there the left click selects a row.  A renderer
+  names no mouse face and no tooltip of its own.  The printer
+  buttonizes a row up to its newline and takes the tooltip from
+  `openstack-list--row-help`, which names the row by its name field
+  and ID.
 - Navigation: the renderers attach an `openstack-id` text
   property to ID field lines, to every ID of a
   `openstack-reference-fields` field and to whole list rows; RET

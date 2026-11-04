@@ -1062,6 +1062,67 @@ The fetcher receives nil as the ID; without the
       (search-backward "data-1")
       (should (null (get-text-property (point) 'openstack-id))))))
 
+(ert-deftest openstack-render-fields-id-is-a-button ()
+  "The header ID and the `id' field line are text buttons.
+The type carries the mouse face and the tooltip, so a renderer
+names neither and `push-button' reaches the same command as RET."
+  (let* ((data (with-temp-buffer
+                (insert "{\"id\": \"vol-1\", \"name\": \"data-1\", "
+                        "\"size\": 20}")
+                (goto-char (point-min))
+                (json-parse-buffer :object-type 'hash-table
+                                   :array-type 'list
+                                   :null-object nil
+                                   :false-object nil)))
+         (opened nil)
+         (openstack-show-command (lambda (id) (setq opened id))))
+    (with-temp-buffer
+      (openstack-render-fields "Volume" "vol-1" data '("name"))
+      (goto-char (point-min))
+      (search-forward "vol-1")
+      (let ((start (match-beginning 0)))
+        (should (get-text-property start 'button))
+        (should (eq (button-type start) 'openstack-object))
+        (should (eq (get-text-property start 'face) 'openstack-id))
+        (should (eq (get-text-property start 'mouse-face) 'highlight))
+        (should (equal (get-text-property start 'help-echo)
+                       "Open vol-1"))
+        (push-button start))
+      (should (equal opened "vol-1")))))
+
+(ert-deftest openstack-render-fields-reference-is-a-button ()
+  "A reference names its resource type in the tooltip.
+The button keeps the `openstack-ref-type' property, so the action
+opens the resource of that type."
+  (let ((data (with-temp-buffer
+                (insert "{\"name\": \"provider\", "
+                        "\"subnets\": [\"subnet-1\"]}")
+                (goto-char (point-min))
+                (json-parse-buffer :object-type 'hash-table
+                                   :array-type 'list
+                                   :null-object nil
+                                   :false-object nil)))
+        (openstack-reference-fields '(("subnets" . "subnet"))))
+    (with-temp-buffer
+      (openstack-render-fields "Network" "net-1" data '("name" "subnets"))
+      (goto-char (point-min))
+      (search-forward "subnet-1")
+      (let ((start (match-beginning 0)))
+        (should (get-text-property start 'button))
+        (should (equal (get-text-property start 'openstack-ref-type) "subnet"))
+        (should (equal (get-text-property start 'help-echo)
+                       "Open subnet subnet-1"))
+        (should (eq (get-text-property start 'face) 'openstack-id))))))
+
+(ert-deftest openstack-button-follows-one-click-in-a-show-buffer ()
+  "A show buffer follows one click; a list buffer keeps it for the row."
+  (with-temp-buffer
+    (openstack-mode)
+    (should (openstack--button-follow-mouse-1-p nil)))
+  (with-temp-buffer
+    (openstack-list-mode)
+    (should-not (openstack--button-follow-mouse-1-p nil))))
+
 (ert-deftest openstack-buffer-returns-without-selecting ()
   "`openstack-buffer' builds and refreshes the buffer, and stops.
 The caller keeps the current buffer, so a library consumer reads or
