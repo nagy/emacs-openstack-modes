@@ -526,7 +526,11 @@ the dashboard URL and the type registry cannot disagree.
 
 The optional keys of the form:
 
-- =:cli= -- client resource command, when it differs from the type
+- =:cli= -- client resource command, when it differs from the type;
+  a command of two words, such as =security group=, runs as two
+  arguments
+- =:title= -- title line of the show buffer and name of its mode
+  (default: the capitalized type)
 - =:url-suffix= -- trailing dashboard URL segments (e.g. =/detail=)
 - =:list-arguments= -- extra client arguments of =RESOURCE list=
   (e.g. =("--long")=)

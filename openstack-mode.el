@@ -1726,12 +1726,13 @@ mode of TYPE write the same text.  Signal
 `openstack-resource-error' for an unknown TYPE."
   (let* ((definition (openstack--definition-or-error type))
          (formatters (plist-get definition :value-formatters))
+         (title (or (plist-get definition :title) (capitalize type)))
          (id (or id
                  (openstack-resource-id data)
                  (openstack-resource-name data))))
     (let ((openstack-value-formatters formatters))
       (openstack-render-fields-to-string
-       (capitalize type) id data (openstack-resource-fields type)))))
+       title id data (openstack-resource-fields type)))))
 
 ;;; Sections
 
@@ -2896,7 +2897,10 @@ names, field orders and client arguments.
 PROPERTIES is a plist with these keys:
 
   :noun          plural resource name, default TYPE plus \"s\"
-  :cli           client resource command, default TYPE
+  :title         title of the show buffer, default TYPE capitalized
+  :cli           client resource command, default TYPE; a command of
+                 two words, such as \"security group\", runs as two
+                 arguments
   :id-prefix     leading dashboard URL segments, default :cli
   :url-suffix    trailing dashboard URL segments, default \"\"
   :fields        fields rendered first by the show mode
@@ -2934,7 +2938,8 @@ the Org links and the xref backend learn about the new type."
          (value-formatters (openstack-define-resource--value
                             properties :value-formatters))
          (parent (openstack-define-resource--value properties :parent))
-         (title (capitalize type))
+         (title (openstack-define-resource--value properties :title
+                                                   (capitalize type)))
          (plural (capitalize noun))
          (base (format "openstack-%s" type))
          (buffer-name (intern (format "%s-buffer-name" base)))
@@ -3125,6 +3130,7 @@ ID and the ID commands do not apply.  The %s are fetched with
         (list :type ,type
               :cli ,cli
               :noun ,noun
+              :title ,title
               :id-prefix ,id-prefix
               :url-suffix ,url-suffix
               :fields ',fields

@@ -118,8 +118,8 @@ always asks the client."
 (defvar openstack-resource-definitions nil
   "Alist of resource type to the definition plist of that type.
 `openstack-define-resource' fills it when a resource file loads.
-Each plist holds :type, :cli, :noun, :id-prefix, :url-suffix,
-:fields, :list-fields, :list-arguments,
+Each plist holds :type, :cli, :noun, :title, :id-prefix,
+:url-suffix, :fields, :list-fields, :list-arguments,
 :list-arguments-variable, :list-prefix-arguments, :parent, :mode,
 :display, :list-mode and :list-display.  The registry is the single
 source of truth for the resource names: `openstack-resource-types'
@@ -136,6 +136,14 @@ The type string is the command name, unless the definition sets a
 different :cli value."
   (declare (side-effect-free t))
   (or (plist-get (openstack-resource-definition type) :cli) type))
+
+(defun openstack--cli-arguments (type &optional action)
+  "Return the client command words of resource TYPE, then ACTION.
+A `:cli' value may name several words, as the `security group'
+command does, and the client takes one word per argument."
+  (declare (side-effect-free t))
+  (append (split-string (openstack-resource-cli-name type))
+          (and action (list action))))
 
 (defun openstack-resource-type (type)
   "Return the `openstack-resource-types' entry of resource TYPE."
@@ -192,7 +200,7 @@ a hash table with its field names.  Signal
 `openstack-cli-error' when the client fails or a timeout expires."
   (openstack--definition-or-error type)
   (openstack-cli-request
-   (list (openstack-resource-cli-name type) "show" id)))
+   (append (openstack--cli-arguments type "show") (list id))))
 
 (defun openstack-resource-show-async (type id success-fn error-fn)
   "Fetch the data of resource TYPE with ID asynchronously.
@@ -203,7 +211,7 @@ Return the client process; `delete-process' on it cancels the
 fetch, which then calls neither callback."
   (openstack--definition-or-error type)
   (openstack-cli-async-request
-   (list (openstack-resource-cli-name type) "show" id)
+   (append (openstack--cli-arguments type "show") (list id))
    :success-fn success-fn
    :error-fn error-fn))
 
@@ -315,7 +323,7 @@ client.  Signal `openstack-resource-error' for an unknown TYPE,
 and `openstack-cli-error' when the client fails."
   (openstack--definition-or-error type)
   (openstack-cli-request
-   (append (list (openstack-resource-cli-name type) "list")
+   (append (openstack--cli-arguments type "list")
            (openstack-resource-arguments type)
            extra)))
 
@@ -330,7 +338,7 @@ client process; `delete-process' on it cancels the fetch, which
 then calls neither callback."
   (openstack--definition-or-error type)
   (openstack-cli-async-request
-   (append (list (openstack-resource-cli-name type) "list")
+   (append (openstack--cli-arguments type "list")
            (openstack-resource-arguments type)
            extra)
    :success-fn success-fn

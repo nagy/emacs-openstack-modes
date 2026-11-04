@@ -377,7 +377,8 @@ FORMAT holds one `%s' for the type string."
 
 (defun openstack-resource-test--title (type)
   "Return the show table title of TYPE."
-  (capitalize type))
+  (or (plist-get (openstack-resource-definition type) :title)
+      (capitalize type)))
 
 (defun openstack-resource-test--show-buffer (type fixture)
   "Return the display buffer name of TYPE for FIXTURE."
@@ -387,8 +388,14 @@ FORMAT holds one `%s' for the type string."
           (plist-get fixture :show-id)))
 
 (defun openstack-resource-test--fixture-script (fixture)
-  "Return a client script answering FIXTURE's `show' and `list'."
-  (format "if [ \"$2\" = show ]; then echo '%s'\nelif [ \"$2\" = list ]; then echo '%s'\nfi\n"
+  "Return a client script answering FIXTURE's `show' and `list'.
+The script reads the action from the command words, so a resource
+whose client command takes two words, as the `security group'
+command does, answers too."
+  (format (concat "case \"$*\" in\n"
+                  "  *\" show\"*) echo '%s' ;;\n"
+                  "  *\" list\"*) echo '%s' ;;\n"
+                  "esac\n")
           (plist-get fixture :show-json)
           (plist-get fixture :list-json)))
 
@@ -463,7 +470,8 @@ FORMAT holds one `%s' for the type string."
                               :process-handle))))
       (should (eq (funcall fetch id (lambda (_data) nil) (lambda (_err) nil))
                   :process-handle))
-      (should (equal args-seen (list cli "show" id)))
+      (should (equal args-seen
+                     (append (split-string cli) (list "show" id))))
       (should (functionp success-seen))
       (should (functionp error-seen)))))
 
@@ -678,7 +686,8 @@ FORMAT holds one `%s' for the type string."
                            (lambda (_err) nil))
                   :process-handle))
       (should (equal args-seen
-                     (append (list (plist-get definition :cli) "list")
+                     (append (split-string (plist-get definition :cli))
+                             (list "list")
                              (plist-get definition :list-arguments))))
       (should (functionp success-seen))
       (should (functionp error-seen)))))

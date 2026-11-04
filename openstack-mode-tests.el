@@ -2017,6 +2017,17 @@ so a definition missing there stays invisible to them."
                            (plist-get definition :type))))
         (kill-buffer buf)))))
 
+(ert-deftest openstack-resource-render-uses-the-title ()
+  "A definition may name the title of its show buffer."
+  (let ((openstack-resource-definitions
+         (cons '("fake" :type "fake" :noun "fakes" :title "Fake Group"
+                       :fields nil :fields-variable nil)
+               openstack-resource-definitions)))
+    (should (string-prefix-p
+             "Fake Group: x"
+             (openstack-resource-render
+              "fake" (openstack-test--parse "{\"name\": \"x\"}"))))))
+
 (ert-deftest openstack-resource-cli-name-override ()
   "A definition may name a different client command."
   (let ((openstack-resource-definitions

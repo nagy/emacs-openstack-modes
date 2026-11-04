@@ -61,6 +61,17 @@
       (openstack-resource-show "fake" "res-1")
       (should (equal seen '("fake-client" "show" "res-1"))))))
 
+(ert-deftest openstack-data-show-splits-a-multi-word-command ()
+  "A client command of two words runs as two arguments.
+The `security group' command takes one argument per word."
+  (let ((seen nil)
+        (openstack-resource-definitions
+         '(("fake" :type "fake" :cli "security group"))))
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (args) (setq seen args) :data)))
+      (should (eq (openstack-resource-show "fake" "res-1") :data))
+      (should (equal seen '("security" "group" "show" "res-1"))))))
+
 (ert-deftest openstack-data-show-async-calls-async-request ()
   "The async show call passes both callbacks to the CLI layer."
   (let ((seen nil)

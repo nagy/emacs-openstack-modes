@@ -100,6 +100,12 @@ includes evil.
   generated defcustom while it is bound (`openstack-resource-arguments`,
   `openstack-resource-fields`) and falls back to the registry value for
   a hand-written definition.
+- CLI access goes through
+  `openstack-data.el`, which builds every command word with
+  `openstack--cli-arguments`: the `:cli` value of a definition may name
+  two words, as `security group` does, and the client takes one word
+  per argument.  Do not pass a command name with a space as one
+  argument, and do not hand-build `RESOURCE show` in a mode.
 - CLI access goes through `openstack-cli.el`: `openstack-cli-request`
   for synchronous calls (timing out after `openstack-cli-timeout`
   seconds with `openstack-cli-timeout`, a subclass of
@@ -154,6 +160,9 @@ includes evil.
   function) changes the display text of one show field, as the
   image `size` does through `openstack--format-size`; the list
   mode ignores it, so a numeric column keeps its typed sort.
+  `:title` names the title line of the show buffer and the mode
+  name; it defaults to the capitalized type, which leaves a
+  two-word type such as `security-group` with a hyphen.
 - A resource has at most one parent, and `:parent` names it: a
   plist with `:type` (the parent resource type), `:field` (the show
   field, or the list of show fields, that holds the parent ID) and
