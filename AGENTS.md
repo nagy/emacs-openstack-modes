@@ -476,6 +476,21 @@ includes evil.
   Errors keep the last good content and go to
   `openstack-error-display-function` (header line for show modes,
   mode line for list modes).
+- A render erases the buffer, so `openstack--refresh-done` records the
+  line of point before the erase and restores it afterwards
+  (`openstack--point-record`, `openstack--restore-point`).  The record
+  names the line, never its buffer position: the `openstack-field`
+  name, the `openstack-id` of a field value, or the text of a line
+  without an identity, each with its ordinal among the equal
+  identities above it, plus the distance in lines and the column.  So
+  a field that appears above point keeps the reader on the same field,
+  a reference line keeps its own ID, and a column past the end of a
+  shorter line clips to its end.  Every other window that shows the
+  buffer keeps the line of its own point through
+  `openstack--window-records` and `openstack--restore-window-points`,
+  because the erase takes the text that its point marker points into.
+  Only the show path needs this: a tabulated list renderer keeps its
+  own place and sets `openstack-render-manages-buffer`.
 - Display buffers are views, not edited files: the three render
   paths (`openstack--refresh-done`, `openstack-list-render`,
   `openstack-json--render`) end with

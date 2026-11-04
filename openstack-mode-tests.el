@@ -34,6 +34,11 @@ The buffer is put into `openstack-mode' with ID
       (openstack--refresh))
     buf))
 
+(defun openstack-test--line ()
+  "Return the text of the current line without its properties."
+  (buffer-substring-no-properties (line-beginning-position)
+                                  (line-end-position)))
+
 (define-derived-mode openstack-test-child-mode openstack-mode
   "OpenStack Test Child"
   "Minimal derived mode, used to test mode switches.")
@@ -357,6 +362,147 @@ returned; until then the old content stays."
             (funcall success-fn "other")
             (should (= renders 2))
             (should (equal (buffer-string) "other"))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-keeps-point-on-the-same-field ()
+  "A field that appears above point does not carry the reader away.
+The record names the line by its field, so a wider field name that
+changes the value column leaves point on the same field."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Server" id data nil)))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      "{\"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+            (goto-char (point-min))
+            (search-forward "ACTIVE")
+            (let ((column (current-column)))
+              (openstack--refresh)
+              (funcall success-fn
+                       (openstack-test--parse
+                        (concat "{\"availability_zone\": \"nova\", "
+                                "\"name\": \"web-1\", "
+                                "\"status\": \"ACTIVE\"}")))
+              (should (string-match-p "\\`status:" (openstack-test--line)))
+              (should (string-match-p "ACTIVE" (openstack-test--line)))
+              ;; The column follows the line, clipped at its end.
+              (should (<= column (current-column)))
+              ;; The new field sorts above the one that holds point.
+              (should (equal (car (car (openstack--imenu-index)))
+                             "availability_zone")))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-keeps-the-column-of-point ()
+  "A render keeps the column of point on a line that keeps its width."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Server" id data nil)))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      "{\"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+            (goto-char (point-min))
+            (search-forward "ACTIVE")
+            (let ((column (current-column)))
+              (openstack--refresh)
+              ;; A short field name keeps the column of the values.
+              (funcall success-fn
+                       (openstack-test--parse
+                        (concat "{\"az\": \"nova\", \"name\": \"web-1\", "
+                                "\"status\": \"ACTIVE\"}")))
+              (should (equal (openstack-test--line) "status: ACTIVE"))
+              (should (= (current-column) column)))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-keeps-point-on-a-reference ()
+  "A line of a reference list keeps its place by the ID it shows.
+The continuation lines of a field carry no field name, so the
+record names the resource ID of the line."
+  (let ((buf (openstack-test--make-resource-buffer))
+        (openstack-reference-fields '(("subnets" . "subnet"))))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Network" id data nil)))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      (concat "{\"name\": \"net-1\", \"subnets\": ["
+                              "\"subnet-1\", \"subnet-2\"]}")))
+            (goto-char (point-min))
+            (search-forward "subnet-2")
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      (concat "{\"description\": \"a network\", "
+                              "\"name\": \"net-1\", \"subnets\": ["
+                              "\"subnet-1\", \"subnet-2\"]}")))
+            (should (equal (string-trim (openstack-test--line)) "subnet-2"))
+            (should (equal (get-text-property (1- (point)) 'openstack-id)
+                           "subnet-2"))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-keeps-the-point-of-another-window ()
+  "A window that shows the buffer keeps the line of its own point.
+The render erases the text that the point marker of a window
+points into, so the pipeline restores every other window too."
+  (let ((buf (openstack-test--make-resource-buffer))
+        (main (selected-window))
+        (other nil))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Server" id data nil)))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      "{\"name\": \"web-1\", \"status\": \"ACTIVE\"}"))
+            (setq other (split-window))
+            (set-window-buffer other buf)
+            (with-selected-window other
+              (goto-char (point-min))
+              (search-forward "ACTIVE"))
+            ;; The point of the buffer stays at the top, so only the
+            ;; record of the window can keep the line of the window.
+            (select-window main)
+            (goto-char (point-min))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      (concat "{\"availability_zone\": \"nova\", "
+                              "\"name\": \"web-1\", "
+                              "\"status\": \"ACTIVE\"}")))
+            (should (equal (point) (point-min)))
+            (with-selected-window other
+              (should (string-match-p "\\`status:"
+                                      (openstack-test--line)))))
+      (when (window-live-p other)
+        (delete-window other)))
       (kill-buffer buf))))
 
 (ert-deftest openstack-mode-refresh-error-keeps-content ()

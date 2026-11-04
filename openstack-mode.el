@@ -969,6 +969,168 @@ refresh of this buffer redraws it."
     (setq-local openstack--json-buffer buffer)
     (pop-to-buffer buffer)))
 
+;;; Point keeping
+
+;; A render erases the buffer, so `openstack--refresh-done' records the
+;; line of point before the render and restores it after the render.
+;; The record names the line and not a buffer position: the field name,
+;; the resource ID of a field value or, for a line without an identity,
+;; the text of the line and its ordinal among the equal lines above it.
+;; So a refresh keeps the reader on the same field even when a field
+;; appears above it, and a second window that shows the buffer keeps its
+;; own place.
+
+(defun openstack--line-property (property)
+  "Return the first PROPERTY value of the current line, or nil."
+  (declare (side-effect-free t))
+  (let ((end (line-end-position))
+        (position (line-beginning-position))
+        (value nil))
+    (while (and (not value) (< position end))
+      (setq value (get-text-property position property))
+      (unless value
+        (setq position (next-single-property-change
+                        position property nil end))))
+    value))
+
+(defun openstack--line-identity ()
+  "Return the identity of the line of point, or nil.
+The identity is a cons of a kind and a value: `field' and the
+field name, `id' and the resource ID of a field value, or `text'
+and the text of the line.  A line of whitespace alone has no
+identity, because its text would match every blank line."
+  (declare (side-effect-free t))
+  (or (when-let* ((field (get-text-property (line-beginning-position)
+                                            'openstack-field)))
+        (cons 'field field))
+      (when-let* ((id (openstack--line-property 'openstack-id)))
+        (cons 'id id))
+      (let ((text (string-trim-right
+                   (buffer-substring-no-properties (line-beginning-position)
+                                                   (line-end-position)))))
+        (unless (string-empty-p text)
+          (cons 'text text)))))
+
+(defun openstack--identity-ordinal (identity)
+  "Return the number of lines above point that carry IDENTITY.
+The count is the ordinal of the line of point among the equal
+identities of the buffer, so two records that share a key name
+keep their own line."
+  (declare (side-effect-free t))
+  (let ((origin (line-beginning-position))
+        (count 0))
+    (save-excursion
+      (goto-char (point-min))
+      (while (< (point) origin)
+        (when (equal (openstack--line-identity) identity)
+          (setq count (1+ count)))
+        (forward-line 1)))
+    count))
+
+(defun openstack--point-record (&optional position)
+  "Return a record of the line at POSITION, or nil.
+POSITION defaults to point.  The record holds the identity of the
+line, its ordinal among the equal identities above, the number of
+lines from that line to the line of POSITION and the column of
+POSITION.  A line without an identity leans on the nearest line
+above that has one, so the record keeps the distance from that
+line.  Return nil when no line of the buffer has an identity,
+because then there is no place to keep."
+  (let ((offset 0)
+        column
+        identity)
+    (save-excursion
+      (goto-char (or position (point)))
+      (setq column (- (point) (line-beginning-position)))
+      (beginning-of-line)
+      (let ((done nil))
+        (while (not done)
+          (setq identity (openstack--line-identity))
+          (cond (identity (setq done t))
+                ((bobp) (setq done t))
+                (t
+                 (setq offset (1+ offset))
+                 (forward-line -1))))))
+    (when identity
+      (list :identity identity
+            :ordinal (openstack--identity-ordinal identity)
+            :offset offset
+            :column column))))
+
+(defun openstack--identity-position (identity ordinal)
+  "Return the start of the line that IDENTITY names at ORDINAL.
+ORDINAL counts from zero among the lines that carry IDENTITY, so
+two records that share a key name keep their own line.  Return
+nil when the buffer holds no such line.  When it holds fewer
+lines than ORDINAL, the last one answers, because a line can go
+away between two refreshes and the reader stays in the same part
+of the buffer."
+  (declare (side-effect-free t))
+  (let ((index 0)
+        (found nil)
+        (last nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (when (equal (openstack--line-identity) identity)
+          (setq last (line-beginning-position))
+          (unless (or found (< index ordinal))
+            (setq found last))
+          (setq index (1+ index)))
+        (forward-line 1)))
+    (or found last)))
+
+(defun openstack--record-position (record)
+  "Return the buffer position that RECORD names, or nil.
+The position is the start of the line that the identity of RECORD
+names, moved down by the recorded number of lines and set to the
+recorded column.  A shorter line clips the column to its end."
+  (when record
+    (save-excursion
+      (goto-char (point-min))
+      (when-let* ((start (openstack--identity-position
+                          (plist-get record :identity)
+                          (plist-get record :ordinal))))
+        (goto-char start)
+        (forward-line (plist-get record :offset))
+        (let ((column (plist-get record :column)))
+          (unless (zerop column)
+            (goto-char (min (+ (line-beginning-position) column)
+                            (line-end-position)))))
+        (point)))))
+
+(defun openstack--restore-point (record)
+  "Move point to the position that RECORD describes.
+A nil RECORD moves point to the start of the buffer, because no
+line carried an identity before the render."
+  (goto-char (or (openstack--record-position record) (point-min))))
+
+(defun openstack--window-records ()
+  "Return the point record of every other window that shows the buffer.
+Every window but the selected one contributes one cons of the
+window and its record.  The selected window needs no entry,
+because its point is the point of the buffer.  A window whose line
+has no identity contributes a nil record."
+  (let ((buffer (current-buffer))
+        (selected (selected-window))
+        records)
+    (dolist (window (get-buffer-window-list buffer nil t))
+      (unless (eq window selected)
+        (push (cons window (openstack--point-record (window-point window)))
+              records)))
+    records))
+
+(defun openstack--restore-window-points (records)
+  "Move the point of every window of RECORDS to its recorded line.
+A window whose line is gone shows the start of the buffer, and a
+dead window stays alone."
+  (dolist (record records)
+    (let ((window (car record)))
+      (when (window-live-p window)
+        (set-window-point window
+                          (or (openstack--record-position (cdr record))
+                              (point-min)))))))
+
 (defun openstack--refresh-done (buf marker id data err)
   "Complete the fetch of BUF marked MARKER for ID with DATA or ERR.
 Called by the callbacks of `openstack--refresh'.  ERR is the error
@@ -976,10 +1138,13 @@ condition of a failed fetch: the last good content stays in the
 buffer and the error goes to the buffer's status display (see
 `openstack-error-display-function').  Rendering is skipped when
 DATA has the same content as the previously rendered data,
-keeping point, marks and window start intact.  A refresh
-requested while this fetch ran is served now.  Do nothing when
-BUF is already dead or when MARKER is stale, i.e. when the fetch
-was superseded while it ran."
+keeping point, marks and window start intact.  A render records the
+line of point before it erases the buffer and restores that line
+afterwards, so a field that appeared above point does not carry
+the reader away; every other window that shows BUF keeps the line
+of its own point.  A refresh requested while this fetch ran is
+served now.  Do nothing when BUF is already dead or when MARKER
+is stale, i.e. when the fetch was superseded while it ran."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (when (eq marker openstack--fetch-marker)
@@ -999,14 +1164,16 @@ was superseded while it ran."
                 ;; The renderer prints the buffer itself and keeps the
                 ;; position by row identity: no erase, no point move.
                 (funcall openstack-render-function id data)
-              (let* ((window (get-buffer-window buf 0))
-                     (point (point))
+              (let* ((record (openstack--point-record))
+                     (windows (openstack--window-records))
+                     (window (get-buffer-window buf 0))
                      (start (and (window-live-p window)
                                  (window-start window))))
                 (let ((inhibit-read-only t))
                   (erase-buffer)
                   (funcall openstack-render-function id data))
-                (goto-char (min point (point-max)))
+                (openstack--restore-point record)
+                (openstack--restore-window-points windows)
                 (when (window-live-p window)
                   (set-window-start window (min start (point-max))))))
             (openstack--notify-state-changes data openstack--previous-data)
