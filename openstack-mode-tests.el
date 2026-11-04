@@ -117,7 +117,7 @@ and the package name matches it, so the archive lookup succeeds."
     (should (string-match-p
              "^;; Package-Requires: ((emacs \"30\\.1\"))$" source))
     (dolist (library '("openstack-data" "openstack-mode" "openstack-read"
-                       "openstack-resources"))
+                       "openstack-resources" "openstack-console"))
       (should (string-match-p
                (format "^(require '%s)$" (regexp-quote library))
                source)))

@@ -37,6 +37,8 @@
 ;;   `RESOURCE list' cache.
 ;; - `openstack-resources' (openstack-resources.el): the resource
 ;;   types and their generated show and list modes.
+;; - `openstack-console' (openstack-console.el): the console log view
+;;   of a server, which reads the plain text of the client.
 ;;
 ;; The optional layers keep their own libraries and stay opt-in:
 ;; `openstack-xref' (jump to the resource of an ID), `openstack-url'
@@ -53,6 +55,7 @@
 (require 'openstack-mode)
 (require 'openstack-read)
 (require 'openstack-resources)
+(require 'openstack-console)
 
 (provide 'openstack)
 ;;; openstack.el ends here

@@ -17,6 +17,7 @@ resource-specific modes can depend on it.
 | =openstack-error.el=         | The package-wide parent condition =openstack-error=     |
 | =openstack-mode.el=          | Display layer: base mode, collection base mode, the resource macro, the text renderer |
 | =openstack-resources.el=     | The resource types, one macro call each                  |
+| =openstack-console.el=       | Console log view of a server, over the text path         |
 | =openstack-evil.el=          | Optional evil bindings for show and list buffers       |
 | =openstack-cli.el=           | CLI layer: sync/async access to =openstack-program=      |
 | =openstack-read.el=          | ID completion, type and name lookups                   |
@@ -29,6 +30,7 @@ resource-specific modes can depend on it.
 | =openstack-data-tests.el=      | ERT test suite for the data layer and its cache        |
 | =openstack-resource-tests.el=  | ERT tests: the resource show and list modes             |
 | =openstack-list-mode-tests.el= | ERT test suite for the collection base mode            |
+| =openstack-console-tests.el=   | ERT test suite for the console log view                 |
 | =openstack-evil-tests.el=      | ERT test suite for the evil bindings                   |
 | =ol-openstack-tests.el=        | ERT test suite for the Org link type                   |
 | =openstack-read-tests.el=      | ERT test suite for the ID completion                   |
@@ -70,6 +72,8 @@ Commands:
   completes the cached resources of every type
 - =M-x openstack-read-refresh= -- refill the cached resource
   lists
+- =M-x openstack-console-log= -- display the console log of a
+  server
 - =M-x openstack-copy-id= (=c=) -- copy the resource ID to
   the kill ring; with a prefix argument, copy the
   =openstack:TYPE/ID= link instead
@@ -190,6 +194,8 @@ refresh pipeline and bookmark support:
 
 - =M-x openstack-server-display= -- display a server by ID in a
   dedicated buffer
+- =M-x openstack-console-log= -- display the console log of a
+  server (=openstack console log show=)
 
 Customization (=M-x customize-group openstack-server=):
 
@@ -197,6 +203,14 @@ Customization (=M-x customize-group openstack-server=):
   buffer name; the server ID is appended
 - =openstack-server-fields= -- fields shown first, in this
   order; all remaining fields follow, sorted by name
+
+The console log opens in its own buffer, =*OpenStack Console Log*
+<ID>=, through =openstack-console-log-mode=.  That mode derives from the
+base mode, so =gr= refetches the log, =p= pops back and a bookmark
+reopens it; =goto-address-mode= turns a URL of the log into a link.
+The client prints the log as plain text, so the buffer keeps no face
+and a copy of the log stays plain.  The console log is not a resource
+type: it has no list and no entry in the ID prompts.
 
 * Volumes and images
 

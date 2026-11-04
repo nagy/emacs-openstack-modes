@@ -21,6 +21,7 @@ name as the ID.
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
 | `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet, port, router, flavor, security-group.  The server, volume, image, network, router and security-group forms name a parent (a project, or a network for a subnet and a port); project, container and flavor name none |
+| `openstack-console.el` | The console log view of a server: `openstack-console-log-mode` over `openstack-mode`, the fetch of `console log show` through the text path of the CLI layer, `goto-address-mode` for the URLs of the log and the command `openstack-console-log` |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
@@ -36,6 +37,7 @@ name as the ID.
 | `openstack-read-tests.el` | ERT tests for the ID completion and the lookups |
 | `openstack-xref-tests.el` | ERT tests for the xref backend |
 | `openstack-url-tests.el` | ERT tests for the `openstack:` URL scheme |
+| `openstack-console-tests.el` | ERT tests for the console log view: the derived mode, the text fetch, the renderer and the buffer name |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt`. The builder takes the Emacs to build for and is exported as `lib.openstackPackage`, so a consumer substitutes its own Emacs (`lib.openstackPackage pkgs { emacs = pkgs.emacs31; }`) or calls `.override { emacs = pkgs.emacs31; }` on the package, and `evil` then comes from that Emacs' package set |
 | `README.org` | Project README |
@@ -76,6 +78,7 @@ emacs --batch -L . -l openstack-mode-tests.el \
   -l openstack-data-tests.el \
   -l openstack-resource-tests.el \
   -l openstack-list-mode-tests.el \
+  -l openstack-console-tests.el \
   -l openstack-evil-tests.el \
   -l ol-openstack-tests.el -l openstack-read-tests.el \
   -l openstack-xref-tests.el \
@@ -122,7 +125,12 @@ includes evil.
   exit or unparseable output signals `openstack-cli-error` (sync) or
   calls `error-fn` (async).  `openstack-cli-async-request` requires
   both callbacks and signals `user-error' if either is missing or
-  is not a function.
+  is not a function.  A command that prints plain text, such as
+  `console log show`, goes through `openstack-cli-request-text` or
+  the `:text` keyword of `openstack-cli-async-request`: those add no
+  formatter and parse nothing, so the callback receives the raw
+  output as a string.  Never parse the text of such a command as
+  JSON, and never build a text view over the JSON entry points.
 - CLI tests mock at the process level with `cl-letf` on
   `openstack-cli--run` (sync) and `make-process`/
   `set-process-sentinel` (async); they never hit a real OpenStack.
@@ -241,12 +249,15 @@ includes evil.
   not require `openstack.el` from another package file (that
   creates a load cycle through `openstack-resources`).
 - The entry library loads the display path only: `openstack-mode`,
-  `openstack-read` and `openstack-resources`.  The optional layers
+  `openstack-read`, `openstack-resources` and `openstack-console`.
+  The optional layers
   keep their own libraries (`openstack-xref`, `openstack-url`,
   `ol-openstack`, `openstack-evil`), because they change global
   state (xref hooks, `browse-url` handlers) or add a dependency
-  (evil).  `openstack-mode` stays a valid feature, so requiring it
-  loads the base mode without the resource types.
+  (evil).  The console log view belongs to the display path: it
+  reads server text, changes no global state and adds only the
+  built-in `goto-addr`.  `openstack-mode` stays a valid feature, so
+  requiring it loads the base mode without the resource types.
   `openstack-mode.el` keeps its
   `;;;###autoload (require 'openstack-resources)` form, so the
   generated autoloads fill the registry at startup even for a user
@@ -570,6 +581,14 @@ includes evil.
   tree or a language server of the buffer it was opened from.  A
   mode that creates a buffer outside those two paths calls the
   function itself.
+- The console log view lives in `openstack-console.el` and derives
+  from `openstack-mode`, so the refresh pipeline, the ID handling,
+  `openstack-pop` and the bookmark record come from the base mode.
+  Its fetcher takes the text path of the CLI layer, its renderer
+  inserts the text unchanged, and `goto-address-mode` links the URLs
+  of the log.  It is not a resource type: it has no registry entry and
+  no list, so it reaches no ID prompt, no type lookup and no table.
+  A log line takes no face, so a copy of the log stays plain.
 - The JSON view is a read-only second buffer over the last fetch:
   `openstack-json-view` (=J= in both mode maps) pretty prints
   `openstack--last-data` through `openstack-json-mode`, which

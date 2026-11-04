@@ -45,7 +45,7 @@ fixture is deleted afterwards."
   "Run BODY with `openstack-cli--run' mocked to return STATUS/STDOUT.
 STATUS is the mock exit code, STDOUT the mock stderr text."
   `(cl-letf (((symbol-function 'openstack-cli--run)
-              (lambda (args)
+              (lambda (args &optional _text)
                 (openstack-cli-test--mock-run args ,status ,stdout))))
      ,@body))
 
@@ -179,7 +179,7 @@ callers catching the general error also catch the timeout."
 (cl-defstruct openstack-cli-test--fake-process
   status exit-status buffer plist)
 
-(defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr)
+(defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr text)
   "Run ARGS through `openstack-cli-async-request' with a fake process.
 Simulate a process exiting with EXIT-STATUS, writing OUTPUT to its
 stdout buffer and STDERR to the shared stderr buffer.  SUCCESS-FN and
@@ -223,7 +223,8 @@ assert that the sentinel kills the process buffers."
           (openstack-cli-async-request
            args
            :success-fn (or success-fn (lambda (_r) nil))
-           :error-fn (or error-fn (lambda (_e) nil))))
+           :error-fn (or error-fn (lambda (_e) nil))
+           :text text))
       (when (buffer-live-p proc-buffer)
         (kill-buffer proc-buffer)))))
 
@@ -311,11 +312,47 @@ clobber each other's stderr, and no buffer survives the run."
                   (insert-file-contents
                    (expand-file-name "openstack-cli.el"))
                   (buffer-string))))
-    (dolist (entry '("openstack-cli-request" "openstack-cli-async-request"))
+    (dolist (entry '("openstack-cli-request" "openstack-cli-request-text"
+                     "openstack-cli-async-request"))
       (should (string-match-p
                (format "^;;;###autoload\n(\\(?:defun\\|cl-defun\\) %s\\b"
                        (regexp-quote entry))
                source)))))
+
+(ert-deftest openstack-cli-request-text-keeps-the-output ()
+  "A text request returns the client output unchanged."
+  (openstack-cli-test--with-mock-run 0 "log line 1\nlog line 2\n"
+    (should (equal (openstack-cli-request-text
+                    '("console" "log" "show" "srv-1"))
+                   "log line 1\nlog line 2\n"))))
+
+(ert-deftest openstack-cli-request-text-reports-an-error ()
+  "A failing text request signals `openstack-cli-error'."
+  (openstack-cli-test--with-mock-run 1 "boom"
+    (should-error (openstack-cli-request-text
+                   '("console" "log" "show" "srv-1"))
+                  :type 'openstack-cli-error)))
+
+(ert-deftest openstack-cli-text-command-adds-no-formatter ()
+  "A text command asks for no `--format'; a JSON one does."
+  (should (equal (openstack-cli--command
+                  '("console" "log" "show" "srv-1") t)
+                 (list openstack-program "console" "log" "show" "srv-1")))
+  (should (equal (openstack-cli--command '("server" "show" "srv-1"))
+                 (list openstack-program "server" "show" "srv-1"
+                       openstack-cli-json-format openstack-cli-json-value))))
+
+(ert-deftest openstack-cli-async-request-text ()
+  "The `:text' keyword delivers the plain output."
+  (let ((result nil)
+        (called nil))
+    (openstack-cli-test--run-async
+     '("console" "log" "show" "srv-1") 0 "log line\n"
+     (lambda (r) (setq called t result r))
+     (lambda (_e) nil)
+     nil t)
+    (should called)
+    (should (equal result "log line\n"))))
 
 (provide 'openstack-cli-tests)
 ;;; openstack-cli-tests.el ends here

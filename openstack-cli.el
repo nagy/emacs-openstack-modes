@@ -39,9 +39,11 @@
 ;; The OpenStack client supports `--format json' on essentially every
 ;; command that produces output: `show', `list', `create', `set' and
 ;; `delete' (some `delete' variants return no output and therefore
-;; have no formatter; those are not JSON commands).  Action commands
-;; like `server reboot' or `image save' similarly produce no JSON
-;; output, so they are used with `openstack-cli-run' instead.
+;; have no formatter; those are not JSON commands).  A command that
+;; prints plain text, such as `console log show', goes through
+;; `openstack-cli-request-text' or the `:text' keyword of
+;; `openstack-cli-async-request', which add no formatter and parse
+;; nothing.
 ;;
 ;; Synchronous usage:
 ;;
@@ -144,22 +146,24 @@ Both callbacks are mandatory: the sentinel would otherwise fail with
 
 ;;; Process helpers
 
-(defun openstack-cli--command (args)
+(defun openstack-cli--command (args &optional text)
   "Return the full command line for OpenStack client ARGS.
-The command is `openstack-program' followed by ARGS with
-`--format json' inserted at the end (unless ARGS already
-contains `--format' or `-f')."
+The command is `openstack-program' followed by ARGS.  Unless TEXT,
+`--format json' goes at the end unless ARGS already holds
+`--format' or `-f'.  A command that prints plain text, such as
+`console log show', asks for no formatter."
   (declare (side-effect-free t))
   (let ((prog openstack-program)
         (has-format (seq-some (lambda (a) (member a '("--format" "-f")))
                               args)))
-    (if has-format
+    (if (or text has-format)
         (cons prog args)
       (append (list prog) args
               (list openstack-cli-json-format openstack-cli-json-value)))))
 
-(defun openstack-cli--run (args)
+(defun openstack-cli--run (args &optional text)
   "Run `openstack-program' with ARGS synchronously.
+TEXT reaches `openstack-cli--command'.
 Return (STATUS . OUTPUT) where STATUS is the process exit code.
 On success OUTPUT is the process stdout; on a non-zero exit it is
 the process stderr instead, because the caller reports that text
@@ -168,7 +172,7 @@ untrustworthy anyway.  Wait at most `openstack-cli-timeout'
 seconds; on timeout, kill the process and signal
 `openstack-cli-timeout'.  Each call starts from fresh stdout and
 stderr buffers, so repeated calls never see earlier output."
-  (let* ((cmd (openstack-cli--command args))
+  (let* ((cmd (openstack-cli--command args text))
          (stdout-buffer (generate-new-buffer " *openstack-cli*"))
          (stderr-buffer (generate-new-buffer " *openstack-cli-stderr*"))
          (deadline (+ (float-time) openstack-cli-timeout))
@@ -231,35 +235,48 @@ client's error text, if any) and `:args'."
   (openstack-cli--check-args args)
   (openstack-cli--sync-start args))
 
-(defun openstack-cli--sync-start (args)
+(defun openstack-cli--sync-start (args &optional text)
   "Run the OpenStack client with ARGS synchronously, return parsed JSON.
+With TEXT the function returns the plain output text instead.
 Signal `openstack-cli-error' on a non-zero exit or unparseable
 output, as described in `openstack-cli-request'."
-  (let* ((result (openstack-cli--run args)))
+  (let* ((result (openstack-cli--run args text)))
     (if (zerop (car result))
         (let ((output (cdr result)))
-          (if (or (null output) (string-empty-p (string-trim output)))
-              nil
-            (condition-case err
-                (with-temp-buffer
-                  (insert output)
-                  (goto-char (point-min))
-                  (json-parse-buffer
-                   :object-type 'hash-table
-                   :array-type 'list
-                   :null-object nil
-                   :false-object nil))
-              (error
-               (signal 'openstack-cli-error
-                       (list :args args :stderr nil :reason err))))))
+          (cond (text output)
+                ((or (null output) (string-empty-p (string-trim output)))
+                 nil)
+                (t
+                 (condition-case err
+                     (with-temp-buffer
+                       (insert output)
+                       (goto-char (point-min))
+                       (json-parse-buffer
+                        :object-type 'hash-table
+                        :array-type 'list
+                        :null-object nil
+                        :false-object nil))
+                   (error
+                    (signal 'openstack-cli-error
+                            (list :args args :stderr nil :reason err)))))))
       (signal 'openstack-cli-error
               (list :args args :exit-code (car result)
                     :stderr (cdr result))))))
 
+;;;###autoload
+(defun openstack-cli-request-text (args)
+  "Run the OpenStack client synchronously with ARGS, return its text.
+Unlike `openstack-cli-request', the call adds no formatter and
+parses nothing, for a command that prints plain text, such as
+`console log show'.  Signal `openstack-cli-error' on a non-zero
+exit, with the client's stderr in the condition data."
+  (openstack-cli--check-args args)
+  (openstack-cli--sync-start args t))
+
 ;;; Asynchronous API
 
 ;;;###autoload
-(cl-defun openstack-cli-async-request (args &key success-fn error-fn)
+(cl-defun openstack-cli-async-request (args &key success-fn error-fn text)
   "Run the OpenStack client asynchronously with ARGS.
 ARGS is a list of command line arguments, as in
 `openstack-cli-request'.
@@ -267,7 +284,8 @@ ARGS is a list of command line arguments, as in
 On success, call SUCCESS-FN with the parsed JSON result (a hash
 table or vector).  On failure, call ERROR-FN with an
 `openstack-cli-error' condition.  Both callbacks are required and
-must be functions.
+must be functions.  With TEXT, the client adds no formatter and
+SUCCESS-FN receives the plain output as a string instead.
 
 If the process cannot be started at all, or a callback is missing,
 signal `user-error'.
@@ -276,14 +294,15 @@ the process runs in the background and the appropriate callback is
 invoked when it finishes."
   (openstack-cli--check-args args)
   (openstack-cli--check-callbacks success-fn error-fn)
-  (openstack-cli--async-start args success-fn error-fn))
+  (openstack-cli--async-start args success-fn error-fn text))
 
-(defun openstack-cli--async-start (args success-fn error-fn)
+(defun openstack-cli--async-start (args success-fn error-fn &optional text)
   "Run the OpenStack client with ARGS in one background process.
 Call SUCCESS-FN with the parsed JSON output, or ERROR-FN with an
-`openstack-cli-error' condition, when the process exits.  Return
+`openstack-cli-error' condition, when the process exits; with
+TEXT, SUCCESS-FN receives the plain output as a string.  Return
 the client process."
-  (let* ((cmd (openstack-cli--command args))
+  (let* ((cmd (openstack-cli--command args text))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
          ;; Each request gets its own stderr buffer, killed by the
@@ -333,7 +352,9 @@ the client process."
                (if (zerop code)
                  (condition-case err
                      (funcall success-fn
-                              (openstack-cli--parse-json output))
+                              (if text
+                                  output
+                                (openstack-cli--parse-json output)))
                    (error
                     (funcall error-fn
                              (cons 'openstack-cli-error
