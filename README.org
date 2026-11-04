@@ -83,6 +83,9 @@ Commands:
   resource of the same collection
 - =M-x openstack-previous-sibling= (=C-c C-p=) -- open the
   previous resource of the same collection
+- =M-x openstack-toggle-section= (=TAB=) -- fold or unfold the
+  block around point: the title and field table, the
+  =properties= block or a =locations= block
 
 Customization (=M-x customize-group openstack=):
 
@@ -213,6 +216,13 @@ network do.  The
 image =size= and =virtual_size= print human readable through
 =file-size-human-readable=, for example =224M=, while the list
 column keeps the raw byte count for sorting.
+
+A show buffer folds its blocks.  The title and the field table form
+one block, the =properties= block another and a =locations= block a
+third, so =TAB= folds the block around point and the =C-c @= prefix
+of =outline-minor-mode= serves the rest.  A refresh keeps a folded
+block closed.  With evil, =TAB= folds as well, and =zc=, =zo= and =za=
+reach the blocks through =evil-fold-list=.
 
 Each has its own =openstack-volume-buffer-name= /
 =openstack-image-buffer-name= and =-fields= defcustoms.

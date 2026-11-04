@@ -129,6 +129,7 @@
 (require 'cl-lib)
 (require 'js)
 (require 'json)
+(require 'outline)
 (require 'tabulated-list)
 (require 'thingatpt)
 (require 'openstack-data)
@@ -488,6 +489,7 @@ mode switch back to a single-resource view must clear it.")
     (define-key map (kbd "c") #'openstack-copy-id)
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "J") #'openstack-json-view)
+    (define-key map (kbd "TAB") #'openstack-toggle-section)
     (define-key map (kbd "p") #'openstack-pop)
     (define-key map (kbd "C-c C-n") #'openstack-next-sibling)
     (define-key map (kbd "C-c C-p") #'openstack-previous-sibling)
@@ -1167,12 +1169,14 @@ is stale, i.e. when the fetch was superseded while it ran."
                 (funcall openstack-render-function id data)
               (let* ((record (openstack--point-record))
                      (windows (openstack--window-records))
+                     (sections (openstack--collapsed-sections))
                      (window (get-buffer-window buf 0))
                      (start (and (window-live-p window)
                                  (window-start window))))
                 (let ((inhibit-read-only t))
                   (erase-buffer)
                   (funcall openstack-render-function id data))
+                (openstack--restore-sections sections)
                 (openstack--restore-point record)
                 (openstack--restore-window-points windows)
                 (when (window-live-p window)
@@ -1497,10 +1501,13 @@ The block starts with a `properties' line and closes the field
 table.  Every key follows on its own indented line, sorted by
 name, with its value aligned one column past the longest key.
 The client flattens the Glance `locations' attribute into this
-hash table, so a list of record values prints as a nested block."
-  (insert (propertize "properties" 'face 'openstack-field-name
-                      'openstack-field "properties")
-          ":\n")
+hash table, so a list of record values prints as a nested block.
+The block is a foldable section."
+  (insert (propertize "properties:"
+                      'face 'openstack-field-name
+                      'openstack-field "properties"
+                      'openstack-section "properties")
+          "\n")
   (let ((keys nil))
     (maphash (lambda (key _value) (push key keys)) properties)
     (setq keys (sort keys #'string<))
@@ -1521,12 +1528,19 @@ hash table, so a list of record values prints as a nested block."
 INDENT, the number of leading spaces, defaults to 0.  Every key of
 every record follows on its own line, sorted by name, with a `- '
 marker before the first key of each record and the values aligned
-past the longest key."
+past the longest key.  A block at the start of a line is a
+foldable section; a nested block stays inside the section of its
+field."
   (setq indent (or indent 0))
-  (insert (make-string indent ?\s)
-          (propertize field 'face 'openstack-field-name
-                      'openstack-field field)
-          ":\n")
+  (let ((heading (concat field ":"))
+        (properties (list 'face 'openstack-field-name
+                          'openstack-field field)))
+    (when (zerop indent)
+      (setq properties (append properties
+                               (list 'openstack-section field))))
+    (insert (make-string indent ?\s)
+            (apply #'propertize heading properties)
+            "\n"))
   (let ((keys nil))
     (dolist (record records)
       (maphash (lambda (key _value) (cl-pushnew key keys :test #'equal))
@@ -1578,9 +1592,10 @@ one referenced ID per line.  The text carries the same faces and
 `openstack-id' properties as the buffer view, because
 `openstack-render-fields' inserts this string."
   (with-temp-buffer
-    (insert (format "%s: %s\n" title
-                    (or (and (hash-table-p data) (gethash "name" data))
-                        id)))
+    (let ((heading (format "%s: %s" title
+                           (or (and (hash-table-p data) (gethash "name" data))
+                               id))))
+      (insert (propertize heading 'openstack-section heading) "\n"))
     (when id
       (insert (propertize "ID" 'face 'openstack-field-name)
               ": " (openstack--button-string
@@ -1658,19 +1673,122 @@ mode of TYPE write the same text.  Signal
       (openstack-render-fields-to-string
        (capitalize type) id data (openstack-resource-fields type)))))
 
+;;; Sections
+
+;; A display buffer folds its blocks through `outline-minor-mode'.  A
+;; heading is a line that carries the text property `openstack-section'
+;; with the name of the block, and `outline-search-function' finds it,
+;; so no heading needs a special character in its text.  Every block is
+;; a top level block, so `outline-level' answers one for each of them.
+
+(defun openstack--outline-search (&optional bound move backward looking-at)
+  "Search for the next text property `openstack-section'.
+BOUND, MOVE, BACKWARD and LOOKING-AT have the meaning that
+`outline-search-function' documents."
+  (outline-search-text-property 'openstack-section nil bound move backward
+                                looking-at))
+
+(defun openstack--section-headings ()
+  "Return the start of every section heading of the current buffer.
+The positions come in buffer order."
+  (let (headings
+        (position (point-min)))
+    (save-excursion
+      (while (< position (point-max))
+        (when (get-text-property position 'openstack-section)
+          (push position headings))
+        (setq position (or (next-single-property-change
+                            position 'openstack-section nil (point-max))
+                           (point-max)))))
+    (nreverse headings)))
+
+(defun openstack--collapsed-sections ()
+  "Return the names of the folded sections of the current buffer.
+`openstack--refresh-done' reads this before it erases the buffer, so
+a refresh keeps the fold of a reader."
+  (when (bound-and-true-p outline-minor-mode)
+    (let (names)
+      (dolist (heading (openstack--section-headings))
+        (save-excursion
+          (goto-char heading)
+          (when (outline-invisible-p (line-end-position))
+            (push (get-text-property heading 'openstack-section) names))))
+      names)))
+
+(defun openstack--keep-final-newline-visible ()
+  "Stop every fold of the current buffer from hiding the last newline.
+`outline-hide-subtree' folds up to `point-max' for a section that
+ends the buffer, and Emacs drops the line break of an invisible
+newline, so the next block would draw on the row of the folded
+heading."
+  (when (eq (char-before (point-max)) ?\n)
+    (dolist (overlay (overlays-in (point-min) (point-max)))
+      (when (and (eq (overlay-get overlay 'invisible) 'outline)
+                 (= (overlay-end overlay) (point-max)))
+        (move-overlay overlay (overlay-start overlay)
+                      (1- (point-max)))))))
+
+(defun openstack--hide-section (name)
+  "Fold the section NAME of the current buffer when it is present."
+  (when-let* ((heading (seq-find
+                        (lambda (position)
+                          (equal (get-text-property
+                                  position 'openstack-section)
+                                 name))
+                        (openstack--section-headings)))
+              (inhibit-read-only t))
+    (save-excursion
+      (goto-char heading)
+      (outline-hide-subtree)
+      (openstack--keep-final-newline-visible))))
+
+(defun openstack--restore-sections (names)
+  "Fold the sections of NAMES in the current buffer."
+  (dolist (name names)
+    (openstack--hide-section name)))
+
+(defun openstack--enclosing-section ()
+  "Return the start of the heading of the section around point.
+Return nil when point sits above the first section."
+  (save-excursion
+    (beginning-of-line)
+    (if (get-text-property (point) 'openstack-section)
+        (point)
+      (when (outline-previous-heading)
+        (point)))))
+
+(defun openstack-toggle-section ()
+  "Fold or unfold the OpenStack block around point.
+A block is the title and the field table, the `properties' block or
+a `locations' block.  The command works on every line of a block,
+so a reader folds a long block from the middle of it."
+  (interactive nil openstack-mode)
+  (let ((heading (openstack--enclosing-section)))
+    (unless heading
+      (user-error "No OpenStack section at point"))
+    (save-excursion
+      (goto-char heading)
+      (outline-toggle-children)
+      (openstack--keep-final-newline-visible))))
+
 ;;; Imenu
 
 (defun openstack--imenu-index ()
-  "Return an imenu index of the field lines of the current buffer.
-Every `Field: value' line that the renderers write becomes an
-entry, so `imenu' jumps to a field and `which-function-mode'
-names the field at point."
+  "Return an imenu index of the sections and field lines of the buffer.
+Every heading and every `Field: value' line that the renderers
+write becomes an entry, so `imenu' jumps to a field or a block and
+`which-function-mode' names it at point."
   (let (index)
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
-        (when-let* ((field (get-text-property (point) 'openstack-field)))
-          (push (cons field (point)) index))
+        (cond
+         ((get-text-property (point) 'openstack-section)
+          (push (cons (get-text-property (point) 'openstack-section) (point))
+                index))
+         ((get-text-property (point) 'openstack-field)
+          (push (cons (get-text-property (point) 'openstack-field) (point))
+                index)))
         (forward-line 1)))
     (nreverse index)))
 
@@ -1743,6 +1861,15 @@ opens the resource with the buffer-local `openstack-show-command';
   ;; starts from a clean slate.
   (openstack--init-display-buffer)
   (setq-local imenu-create-index-function #'openstack--imenu-index)
+  ;; A heading carries `openstack-section', so the outline search finds
+  ;; it and no heading needs a special character in its text.  Every
+  ;; block is a top level block, so the level answers one.  The
+  ;; renderers keep their own faces, so the outline highlight stays
+  ;; off.
+  (setq-local outline-search-function #'openstack--outline-search)
+  (setq-local outline-level (lambda () 1))
+  (setq-local outline-minor-mode-highlight nil)
+  (outline-minor-mode 1)
   ;; A resource buffer bookmarks its ID; a collection buffer has none.
   (setq-local bookmark-make-record-function
               #'openstack--bookmark-make-record))

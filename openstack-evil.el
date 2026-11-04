@@ -41,10 +41,11 @@
 ;;
 ;; Show buffers keep the command keys of the mode: RET opens the
 ;; resource at point, q quits the window, gr refreshes, p pops back
-;; to the origin buffer, c copies the resource ID and w opens the
-;; dashboard page.  Evil operators on those keys do nothing in a
-;; read-only buffer, so the commands win.  The `dired-jump' and
-;; `dired-up-directory' remaps climb one resource level up.
+;; to the origin buffer, c copies the resource ID, w opens the
+;; dashboard page and TAB folds the block around point.  Evil
+;; operators on those keys do nothing in a read-only buffer, so the
+;; commands win.  The `dired-jump' and `dired-up-directory' remaps
+;; climb one resource level up.
 ;;
 ;; List buffers treat a row as the unit: RET opens the row, c or Y
 ;; copies its ID, w opens its dashboard page, q quits the window, gr
@@ -68,6 +69,10 @@
     ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)
+    ;; TAB is C-i, the jump of the evil jump list, in the normal state.
+    ;; A show buffer folds a block instead, and p returns to the buffer
+    ;; that opened it.
+    ("TAB" . openstack-toggle-section)
     ("p" . openstack-pop)
     ("c" . openstack-copy-id)
     ("w" . openstack-open-web)

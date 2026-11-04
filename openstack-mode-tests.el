@@ -77,6 +77,7 @@ commands of an OpenStack buffer and `M-x' can hide them elsewhere."
                    (openstack-set-id openstack-mode)
                    (openstack-next-sibling openstack-mode)
                    (openstack-previous-sibling openstack-mode)
+                   (openstack-toggle-section openstack-mode)
                    (openstack-json-view openstack-mode openstack-list-mode)
                    (openstack-display-at-point
                     openstack-mode openstack-list-mode)
@@ -396,7 +397,7 @@ changes the value column leaves point on the same field."
               ;; The column follows the line, clipped at its end.
               (should (<= column (current-column)))
               ;; The new field sorts above the one that holds point.
-              (should (equal (car (car (openstack--imenu-index)))
+              (should (equal (nth 1 (mapcar #'car (openstack--imenu-index)))
                              "availability_zone")))))
       (kill-buffer buf))))
 
@@ -1368,7 +1369,9 @@ the full ID from the property."
 ;;; Imenu
 
 (ert-deftest openstack-imenu-index-lists-fields ()
-  "Field lines become imenu entries at their own positions."
+  "Field lines become imenu entries at their own positions.
+The title line is the heading of the first section, so it names
+the block instead of repeating a field."
   (with-temp-buffer
     (openstack-mode)
     (let ((inhibit-read-only t)
@@ -1377,8 +1380,11 @@ the full ID from the property."
                  :object-type 'hash-table :array-type 'list)))
       (openstack-render-fields "Server" "srv-1" data '("name"))
       (let ((index (openstack--imenu-index)))
-        (should (equal (mapcar #'car index) '("name" "id" "status")))
-        (dolist (entry index)
+        (should (equal (mapcar #'car index)
+                       '("Server: web-1" "name" "id" "status")))
+        (should (equal (get-text-property (cdr (car index)) 'openstack-section)
+                       "Server: web-1"))
+        (dolist (entry (cdr index))
           (goto-char (cdr entry))
           (should (equal (get-text-property (point) 'openstack-field)
                          (car entry)))
@@ -1402,6 +1408,127 @@ the full ID from the property."
         (dolist (entry index)
           (goto-char (cdr entry))
           (should (get-text-property (point) 'openstack-id)))))))
+
+;;; Sections
+
+(defun openstack-test--properties-data ()
+  "Return image data with a `properties' hash table."
+  (openstack-test--parse
+   (concat "{\"name\": \"ubuntu\", \"status\": \"active\", "
+           "\"properties\": {\"os_hash_algo\": \"sha512\", "
+           "\"architecture\": \"x86_64\"}}")))
+
+(defun openstack-test--invisible-body-p (heading)
+  "Return non-nil when the body of the block of HEADING is folded."
+  (save-excursion
+    (goto-char heading)
+    (outline-invisible-p (line-end-position))))
+
+(defun openstack-test--fold-keeps-final-newline-p ()
+  "Return non-nil when no fold of the buffer reaches `point-max'."
+  (not (seq-some (lambda (overlay)
+                   (and (eq (overlay-get overlay 'invisible) 'outline)
+                        (= (overlay-end overlay) (point-max))))
+                 (overlays-in (point-min) (point-max)))))
+
+(ert-deftest openstack-mode-sections ()
+  "A show buffer folds its blocks through `outline-minor-mode'.
+A heading line carries `openstack-section', so no heading needs a
+special character, and every block sits at the same level."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t))
+      (openstack-render-fields "Image" "img-1"
+                               (openstack-test--properties-data)
+                               '("name")))
+    (should outline-minor-mode)
+    (should (eq outline-search-function #'openstack--outline-search))
+    (should (equal (mapcar (lambda (position)
+                             (get-text-property position 'openstack-section))
+                           (openstack--section-headings))
+                   '("Image: ubuntu" "properties")))
+    (goto-char (point-min))
+    (should (outline-on-heading-p))
+    ;; The outline machinery calls the variable, not the function.
+    (should (= 1 (funcall outline-level)))))
+
+(ert-deftest openstack-mode-toggle-section ()
+  "TAB folds the block around point and TAB folds it open again."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t))
+      (openstack-render-fields "Image" "img-1"
+                               (openstack-test--properties-data)
+                               '("name")))
+    (let ((title (nth 0 (openstack--section-headings)))
+          (properties (nth 1 (openstack--section-headings))))
+      (goto-char properties)
+      (forward-line 1)
+      (openstack-toggle-section)
+      (should (equal (openstack--collapsed-sections) '("properties")))
+      (should (openstack-test--invisible-body-p properties))
+      (should-not (openstack-test--invisible-body-p title))
+      (openstack-toggle-section)
+      (should-not (openstack--collapsed-sections)))))
+
+(ert-deftest openstack-mode-section-without-block ()
+  "A buffer without a block at point signals a `user-error'."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t))
+      (insert "plain text\n"))
+    (goto-char (point-min))
+    (should-error (openstack-toggle-section) :type 'user-error)))
+
+(ert-deftest openstack-mode-section-key ()
+  "TAB folds a block in a show buffer and stays a table key in a list."
+  (with-temp-buffer
+    (openstack-server-mode)
+    (should (eq (key-binding (kbd "TAB")) #'openstack-toggle-section)))
+  (with-temp-buffer
+    (openstack-list-mode)
+    (should-not (eq (key-binding (kbd "TAB")) #'openstack-toggle-section))))
+
+(ert-deftest openstack-mode-fold-keeps-the-final-newline ()
+  "A fold that ends the buffer keeps the last line break visible.
+Emacs drops the line break of an invisible newline, so the next
+block would draw on the row of the folded heading."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((inhibit-read-only t))
+      (openstack-render-fields "Image" "img-1"
+                               (openstack-test--properties-data)
+                               '("name")))
+    (goto-char (car (last (openstack--section-headings))))
+    (openstack-toggle-section)
+    (should (equal (openstack--collapsed-sections) '("properties")))
+    (should (openstack-test--fold-keeps-final-newline-p))))
+
+(ert-deftest openstack-mode-refresh-keeps-a-fold ()
+  "A refresh keeps a folded block closed."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Image" id data '("name"))))
+            (openstack--refresh)
+            (funcall success-fn (openstack-test--properties-data))
+            (goto-char (car (last (openstack--section-headings))))
+            (openstack-toggle-section)
+            (should (equal (openstack--collapsed-sections) '("properties")))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      (concat "{\"name\": \"ubuntu\", "
+                              "\"status\": \"active\", "
+                              "\"properties\": {\"os_hash_algo\": \"sha512\"}}")))
+            (should (equal (openstack--collapsed-sections) '("properties")))))
+      (kill-buffer buf))))
 
 ;;; Status faces, changes and notifications
 

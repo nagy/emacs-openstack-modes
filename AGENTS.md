@@ -14,7 +14,7 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers, foldable blocks), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), the block fold (`openstack-toggle-section`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
 | `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the parent getters `openstack-resource-parent`, `openstack-resource-parent-type`, `openstack-resource-parent-field`, `openstack-resource-parent-id` and `openstack-resource-parent-arguments`, the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
@@ -452,12 +452,14 @@ includes evil.
 - `imenu` reads the renderers, not the modes own bookkeeping:
   `openstack--insert-field` adds an `openstack-field` text property
   to every field name, and `openstack--imenu-index` collects those
-  lines.  `openstack-list--imenu-index` collects the rows from
-  their `openstack-id` property and names each row by its name
-  field and ID.  Both modes set `imenu-create-index-function`, so
-  `consult-imenu` and `which-function-mode` work without further
-  wiring.  Do not key the show index on the `face` property:
-  font-lock may replace it.
+  lines plus the section headings that carry `openstack-section`.
+  A heading wins over a field name on the same line, so
+  `properties` appears once.  `openstack-list--imenu-index`
+  collects the rows from their `openstack-id` property and names
+  each row by its name field and ID.  Both modes set
+  `imenu-create-index-function`, so `consult-imenu` and
+  `which-function-mode` work without further wiring.  Do not key
+  the show index on the `face` property: font-lock may replace it.
 - `openstack-read-id` passes `openstack-read--choices-table` to
   `completing-read`, not the raw alist: the table answers the
   `metadata` action with an `annotation-function` built by
@@ -590,11 +592,35 @@ includes evil.
   `openstack-evil-list-keys`,
   `openstack-evil-list-visual-keys`).  Keep the evil motions
   untouched: show buffers keep `RET`, `<mouse-2>`, `q`, `gr`,
-  `p`, `c` and `w` because the operators do nothing in a
+  `p`, `c`, `w` and `TAB` because the operators do nothing in a
   read-only buffer; list buffers treat a row as the unit
   (`<mouse-2>` opens, `c` or `Y` copies, `S` sorts, `j`/`k`
   move, `n`/`N` repeat the search, visual `y` copies the IDs of
   the selected rows and leaves visual state).
+- A show buffer folds its blocks through `outline-minor-mode`.  A
+  heading is a line that carries the text property
+  `openstack-section` with the name of the block, and
+  `outline-search-function` finds it, so no heading needs a special
+  character in its text.  `outline-level` answers one for every
+  buffer, because the blocks are flat, and
+  `outline-minor-mode-highlight` stays nil, because the renderers
+  carry their own faces.  The title line and its field table form
+  one block, the `properties:` line another and a top level
+  `locations:` line a third; the `openstack--insert-records` block
+  of a nested property sets no section, so it folds with its
+  field.  `openstack-toggle-section` on `TAB` folds the block
+  around point, and the evil layer binds the same key, which yields
+  the `evil-jump-forward` of `C-i` in a show buffer alone.
+  `openstack--collapsed-sections` reads the folded names before
+  `openstack--refresh-done` erases the buffer and
+  `openstack--restore-sections` folds them again, so an automatic
+  refresh never opens a fold under the reader.  A fold that ends
+  the buffer hides the newline of its last line, and Emacs drops
+  the line break of an invisible newline, so the next block would
+  draw on the row of the folded heading:
+  `openstack--keep-final-newline-visible` moves the end of such an
+  overlay back by one after every fold.  `openstack--imenu-index`
+  names the blocks as well as the fields.
 - Tests use `unwind-protect` around temporary buffers.
 - The Org link type lives in `ol-openstack.el` and is opt-in:
   users add `(require 'ol-openstack)` to their init.  Link paths
