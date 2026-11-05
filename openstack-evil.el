@@ -93,9 +93,9 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
     ("S" . tabulated-list-sort)
     ("%" . openstack-list-narrow)
     ("W" . openstack-list-widen)
-    ("c" . openstack-list-copy-id)
-    ("Y" . openstack-list-copy-id)
-    ("w" . openstack-list-open-web)
+    ("c" . openstack-copy-id)
+    ("Y" . openstack-copy-id)
+    ("w" . openstack-open-web)
     ("<remap> <dired-jump>" . openstack-go-to-parent)
     ("<remap> <dired-up-directory>" . openstack-go-to-parent))
   "Keys that `openstack-evil-mode' binds in list buffers.

@@ -14,7 +14,7 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers, foldable blocks), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), the block fold (`openstack-toggle-section`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
+| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers, foldable blocks), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the resource-at-point resolver (`openstack--object-at-point` over the text property, the display buffer and a URL), the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), the block fold (`openstack-toggle-section`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
 | `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the parent getters `openstack-resource-parent`, `openstack-resource-parent-type`, `openstack-resource-parent-field`, `openstack-resource-parent-id` and `openstack-resource-parent-arguments`, the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
@@ -349,7 +349,8 @@ includes evil.
 - Collection buffers (lists) have no resource ID:
   `openstack-list-mode` sets the buffer-local `openstack-collection`
   flag, so `openstack--refresh` runs and the fetcher receives nil as
-  the ID.  The ID commands user-error on collection buffers.
+  the ID.  A command that acts on one resource reads the row of the
+  table at point, so it applies in a collection buffer too.
 - A show buffer bookmarks its ID and its mode
   (`openstack--bookmark-make-record`,
   `openstack-bookmark-jump`), so a jump comes back in the same
@@ -479,8 +480,49 @@ includes evil.
   the `openstack-define-resource` form of the `subnet` type; do not
   bind `openstack-show-command` for it, and a reference of a type
   without a definition stays a `user-error`.
-  `openstack-display-at-point` reads the
-  `openstack-id` property only: a bare UUID in a log line stays `M-.` territory.
+  `openstack-display-at-point` reads the resource at point and never
+  a bare UUID: a UUID in a log line stays `M-.` territory.
+- A command that acts on one resource takes its target from
+  `openstack--object-at-point`, a list of TYPE, ID and SOURCE.
+  SOURCE is `property`, `buffer` or `url`.  The precedence is the
+  `openstack-id` text property at point, the identity of the display
+  buffer (`openstack--id` plus `openstack-resource-type-for-mode`),
+  and a URL at point, so one command serves a detail buffer, a row of
+  a collection table and a link in any buffer.  The property carries
+  the resource type in `openstack-ref-type`, a table row reads from
+  the beginning of its line, and a URL comes from
+  `openstack--url-at-point`, which reads an `openstack:TYPE/ID` link
+  or a dashboard page as plain text.  `openstack--object-at-point`
+  takes an optional wanted TYPE and signals a `user-error` for a
+  target of another type, because a silent fallback would act on a
+  different resource than point names.  Commands that belong to a
+  view stay buffer-bound: the JSON view and the export need the raw
+  buffer, and `openstack-pop`, `openstack-set-id`,
+  `openstack-toggle-section`, `openstack-go-to-parent`, the two
+  sibling walks and the narrow commands walk a view.  A command that
+  takes this route names no mode, because it works in any buffer
+  that shows a property or a URL: `openstack-copy-id`,
+  `openstack-open-web` and `openstack-display-at-point`.  There is
+  one command per job, so no list mode keeps a row twin of a show
+  command.
+- When a write command arrives, it names its target through the same
+  helper and binds the resolved context around the asynchronous
+  request, so a write from a table row or from a link reaches the
+  right cloud.  A write outside the detail buffer of the same
+  resource asks for confirmation first, because the reader does not
+  see that resource, and it refreshes a live detail buffer of the
+  resource instead of a foreign buffer.  Do not write from a second
+  resolver.
+- `openstack-dashboard-url-of` builds the URL of a resource TYPE from
+  the `:id-prefix' and `:url-suffix' of its definition, so a command
+  that reads a reference builds the page of that reference rather
+  than the page of the buffer.  A buffer that already displays TYPE
+  keeps its buffer-local `openstack-id-prefix' and
+  `openstack-url-suffix', because a deployment may override them in a
+  mode hook.  `openstack--dashboard-object` inverts the path: it reads
+  the longest `:id-prefix` of `openstack-resource-types` and answers
+  nil for a URL of another base, for an unknown path and for a path
+  that two types share, so a URL never guesses a type.
 - `openstack-mode` also registers the `openstack-id` thing:
   `openstack-id-thing` (property first, then a UUID under point)
   and `openstack-id-bounds` (the property run, or the UUID bounds)
@@ -606,11 +648,14 @@ includes evil.
   `js-json-mode` and `json-ts-mode` to `openstack-json-view`, because
   Emacs 30 ships two JSON major modes and a key or a menu that runs
   either one would replace the display buffer.
-- `openstack-copy-id` and `openstack-list-copy-id` copy the bare ID,
-  and a prefix argument copies the `openstack:TYPE/ID` form that
-  `ol-openstack.el` and `openstack-url.el` read.  The type comes from
-  `openstack-resource-type-for-mode`, so a base mode buffer without a
-  type keeps the bare ID.
+- `openstack-copy-id` copies the bare ID of the resource at point and
+  `openstack-open-web` opens its dashboard page, so no list mode
+  carries a row twin.  A prefix argument copies the
+  `openstack:TYPE/ID` form that `ol-openstack.el` and
+  `openstack-url.el` read.  The type comes from the text property,
+  from `openstack-resource-type-for-mode` or from the URL, so a
+  command in a base mode buffer without a type copies the bare ID and
+  in a buffer of another type still copies the right link.
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode
   cancels any in-flight fetch via `openstack--kill-pending`);
@@ -639,9 +684,13 @@ includes evil.
   buffer from any context stays untagged: `openstack-display',
   `openstack-open-id', `openstack-read-refresh' and the generated
   `openstack-TYPE-display' / `openstack-TYPE-list-display' entry
-  points.  `openstack-mode-tests.el' holds the list in
-  `openstack-mode-command-modes'; add a command there when adding
-  it to the source.
+  points.  A command that takes its target from
+  `openstack--object-at-point' names no mode either, because it works
+  in any buffer that shows a property or a URL:
+  `openstack-copy-id', `openstack-open-web' and
+  `openstack-display-at-point'.  `openstack-mode-tests.el' holds the
+  list in `openstack-mode-command-modes'; add a command there when
+  adding it to the source.
 - The evil layer is optional and lives in `openstack-evil.el`:
   the file requires evil 1.14 or later, but `Package-Requires`
   does not name it, so users without evil install nothing.

@@ -72,9 +72,7 @@ an explicit `require'."
 `execute-extended-command-for-buffer' (`M-S-x') then offers the
 commands of an OpenStack buffer and `M-x' can hide them elsewhere."
   (require 'openstack-read)
-  (dolist (entry '((openstack-copy-id openstack-mode)
-                   (openstack-open-web openstack-mode)
-                   (openstack-pop openstack-mode)
+  (dolist (entry '((openstack-pop openstack-mode)
                    (openstack-set-id openstack-mode)
                    (openstack-next-sibling openstack-mode)
                    (openstack-previous-sibling openstack-mode)
@@ -85,12 +83,11 @@ commands of an OpenStack buffer and `M-x' can hide them elsewhere."
                    (openstack-mouse-display-at-point
                     openstack-mode openstack-list-mode)
                    (openstack-go-to-parent
-                    openstack-mode openstack-list-mode)
-                   (openstack-list-copy-id openstack-list-mode)
-                   (openstack-list-open-web openstack-list-mode)))
+                    openstack-mode openstack-list-mode)))
     (should (equal (command-modes (car entry)) (cdr entry))))
   (dolist (command '(openstack-display openstack-read-refresh
-                     openstack-open-id))
+                     openstack-open-id openstack-copy-id
+                     openstack-open-web))
     (should-not (command-modes command))))
 
 (ert-deftest openstack-mode-resource-autoloads ()
@@ -205,6 +202,107 @@ project and no version-controlled tree."
       (setq-local openstack--id "res-1")
       (openstack-copy-id '(4))
       (should (equal (car kill-ring) "res-1")))))
+
+;;; Resource at point
+
+(ert-deftest openstack-mode-object-at-point ()
+  "The object at point comes from the property, the buffer or a URL."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (with-temp-buffer
+      (insert "openstack:server/srv-9")
+      (goto-char (point-min))
+      (should (equal '("server" "srv-9" url)
+                     (openstack--object-at-point))))
+    (with-temp-buffer
+      (insert "https://horizon.example.org/project/networks/net-1/detail")
+      (goto-char (point-min))
+      (should (equal '("network" "net-1" url)
+                     (openstack--object-at-point))))
+    (with-temp-buffer
+      (insert "no OpenStack resource here")
+      (should-not (openstack--object-at-point)))
+    (with-temp-buffer
+      (insert (propertize "sub-1" 'openstack-id "sub-1"
+                                    'openstack-ref-type "subnet"))
+      (goto-char (point-min))
+      (should (equal '("subnet" "sub-1" property)
+                     (openstack--object-at-point)))
+      (should-error (openstack--object-at-point "server") :type 'user-error))
+    (with-temp-buffer
+      (openstack-server-mode)
+      (setq-local openstack--id "srv-7")
+      (should (equal '("server" "srv-7" buffer)
+                     (openstack--object-at-point))))
+    (with-temp-buffer
+      (insert (propertize "sub-1" 'openstack-id "sub-1"
+                                    'openstack-ref-type "subnet"))
+      (openstack-server-mode)
+      (setq-local openstack--id "srv-7")
+      (goto-char (point-min))
+      (should (equal '("subnet" "sub-1" property)
+                     (openstack--object-at-point))))))
+
+(ert-deftest openstack-mode-object-reference-keeps-its-type ()
+  "A reference picks the dashboard path of its own resource type."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (with-temp-buffer
+      (insert (propertize "sub-1" 'openstack-id "sub-1"
+                                    'openstack-ref-type "subnet"))
+      (openstack-network-mode)
+      (setq-local openstack--id "net-1")
+      (goto-char (point-min))
+      (should (equal '("subnet" "sub-1" property)
+                     (openstack--object-at-point)))
+      (let ((object (openstack--object-at-point)))
+        (should (equal
+                 "https://horizon.example.org/project/networks/subnets/sub-1/detail"
+                 (openstack--dashboard-url-of (nth 0 object)
+                                              (nth 1 object))))))))
+
+(ert-deftest openstack-mode-copy-id-at-point ()
+  "Copy-id reads the resource at point in any buffer."
+  (let ((kill-ring nil)
+        (kill-ring-yank-pointer nil))
+    (with-temp-buffer
+      (insert "See openstack:volume/vol-3 now")
+      (goto-char (point-min))
+      (search-forward "volume")
+      (openstack-copy-id)
+      (should (equal "vol-3" (car kill-ring)))
+      (openstack-copy-id '(4))
+      (should (equal "openstack:volume/vol-3" (car kill-ring))))
+    (with-temp-buffer
+      (insert "no resource")
+      (should-error (openstack-copy-id) :type 'user-error)
+      (should-error (openstack-open-web) :type 'user-error))))
+
+(ert-deftest openstack-mode-dashboard-url-keeps-a-local-prefix ()
+  "A buffer that shows the type keeps its buffer-local path."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (with-temp-buffer
+      (openstack-server-mode)
+      (setq-local openstack-id-prefix "custom")
+      (should (equal "https://horizon.example.org/custom/srv-1"
+                     (openstack--dashboard-url-of "server" "srv-1")))
+      (should (equal "https://horizon.example.org/project/networks/net-1/detail"
+                     (openstack--dashboard-url-of "network" "net-1"))))))
+
+(ert-deftest openstack-mode-dashboard-object-parsing ()
+  "A dashboard URL names its resource, and the longest prefix wins."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (should (equal '("network" . "net-1")
+                   (openstack--dashboard-object
+                    "https://horizon.example.org/project/networks/net-1/detail")))
+    (should (equal '("subnet" . "sub-1")
+                   (openstack--dashboard-object
+                    "https://horizon.example.org/project/networks/subnets/sub-1/detail")))
+    (should (equal '("server" . "srv-1")
+                   (openstack--dashboard-object
+                    "https://horizon.example.org/compute/srv-1")))
+    (should-not (openstack--dashboard-object
+                 "https://horizon.example.org/compute/srv-1/extra"))
+    (should-not (openstack--dashboard-object
+                 "https://other.example.org/compute/srv-1"))))
 
 (ert-deftest openstack-mode-pop ()
   "`openstack-pop' returns to the origin buffer."

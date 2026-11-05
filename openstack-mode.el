@@ -74,9 +74,15 @@
 ;;
 ;;   M-x openstack-mode RET  - start the mode (interactively)
 ;;   openstack-display       - display a resource by ID
-;;   openstack-copy-id       - copy the ID to the kill ring
-;;   openstack-open-web      - open the dashboard URL
+;;   openstack-copy-id       - copy the ID of the resource at point
+;;   openstack-open-web      - open the dashboard URL of the resource
 ;;   openstack-pop           - pop back to the origin buffer
+;;
+;; A command that acts on one resource reads the target at point:
+;; the `openstack-id' text property wins, then the identity of the
+;; display buffer, then a URL at point.  One command therefore serves
+;; a detail buffer, a row of a collection table and a link in any
+;; buffer.
 ;;
 ;; The file registers the `openstack-id' thing with `thingatpt', so
 ;; `(thing-at-point \='openstack-id)' yields the ID at point in any
@@ -485,10 +491,11 @@ before the call nor move point after it.")
 (defvar-local openstack-collection nil
   "Non-nil when the buffer displays a collection of resources.
 Collections (e.g. a server list) have no single resource ID:
-`openstack--id' stays nil, `openstack-fetch-function' receives
-nil as the ID, and the ID commands (`openstack-copy-id' and
-friends) do not apply.  Deliberately not `permanent-local': a
-mode switch back to a single-resource view must clear it.")
+`openstack--id' stays nil, and `openstack-fetch-function' receives
+nil as the ID.  The commands that act on one resource read the row
+of the table through the `openstack-id' property, so they apply
+here as well.  Deliberately not `permanent-local': a mode switch
+back to a single-resource view must clear it.")
 
 (defvar openstack-mode-map
   (let ((map (make-sparse-keymap)))
@@ -650,6 +657,172 @@ the property the bounds are those of the UUID under point."
 
 (put 'openstack-id 'thing-at-point #'openstack-id-thing)
 (put 'openstack-id 'bounds-of-thing-at-point #'openstack-id-bounds)
+
+;;; Resource at point
+
+(defconst openstack--link-regexp "\\`openstack:/*"
+  "Regexp that matches the scheme of an `openstack:TYPE/ID' link.
+The pattern repeats the scheme of `openstack-url-regexp', because
+the optional URL layer requires this file and must not be a load
+dependency of it.")
+
+(defconst openstack--url-regexp "\\(?:openstack:\\|https?://\\)[^ \t\n\"'<>()]+"
+  "Regexp that matches a URL that a reader placed as plain text.
+The two families are the `openstack:TYPE/ID' link and the dashboard
+page that `openstack-dashboard-url' builds.")
+
+(defun openstack--dashboard-prefix (type)
+  "Return the dashboard path prefix of resource TYPE.
+The value comes from the `:id-prefix' of the definition of TYPE,
+with the slashes trimmed."
+  (declare (side-effect-free t))
+  (string-trim (or (plist-get (openstack-resource-definition type)
+                              :id-prefix)
+                   "")
+               "/" "/"))
+
+(defun openstack--dashboard-suffix (type)
+  "Return the dashboard path suffix of resource TYPE.
+The value comes from the `:url-suffix' of the definition of TYPE."
+  (declare (side-effect-free t))
+  (or (plist-get (openstack-resource-definition type) :url-suffix) ""))
+
+(defun openstack--dashboard-url-of (type id)
+  "Return the dashboard URL of the TYPE resource with ID.
+Read `:id-prefix' and `:url-suffix' from the definition of TYPE, so
+a reference builds the URL of its own type.  A buffer that already
+displays TYPE keeps its buffer-local settings, because a deployment
+may override them there.  Without TYPE, use the buffer-local
+settings alone through `openstack-dashboard-url'.  An unknown TYPE
+signals a `user-error'."
+  (declare (side-effect-free t))
+  (if (or (null type)
+          (equal type (openstack-resource-type-for-mode major-mode)))
+      (openstack-dashboard-url id)
+    (unless (openstack-resource-definition type)
+      (user-error "Unknown OpenStack resource type: %s" type))
+    (let ((openstack-id-prefix (openstack--dashboard-prefix type))
+          (openstack-url-suffix (openstack--dashboard-suffix type)))
+      (openstack-dashboard-url id))))
+
+(defun openstack--dashboard-object (url)
+  "Return the (TYPE . ID) pair that dashboard URL names, or nil.
+Read the record only: no client call.  The longest `:id-prefix' of
+`openstack-resource-types' wins, so the subnets of a network beat
+the network itself.  Return nil for a URL outside
+`openstack-web-base-url' and for a path that two types share."
+  (declare (side-effect-free t))
+  (let ((base (string-trim-right openstack-web-base-url "/")))
+    (when (and (stringp url)
+               (string-prefix-p (concat base "/") url))
+      (let* ((path (string-trim-left (substring url (length base)) "/"))
+             (best nil)
+             (best-length -1)
+             (ambiguous nil))
+        (dolist (type (mapcar #'car openstack-resource-types))
+          (let* ((prefix (openstack--dashboard-prefix type))
+                 (head (if (string-empty-p prefix) "" (concat prefix "/")))
+                 (rest (and (string-prefix-p head path)
+                            (substring path (length head))))
+                 (suffix (openstack--dashboard-suffix type)))
+            (when (and rest
+                       (not (string-empty-p rest))
+                       (string-suffix-p suffix rest)
+                       (not (string-search
+                             "/" (substring rest 0 (- (length rest)
+                                                      (length suffix))))))
+              (cond ((> (length head) best-length)
+                     (setq best (cons type rest)
+                           best-length (length head)
+                           ambiguous nil))
+                    ((= (length head) best-length)
+                     (setq ambiguous t))))))
+        (when (and best (not ambiguous))
+          (let ((id (cdr best))
+                (suffix (openstack--dashboard-suffix (car best))))
+            (cons (car best)
+                  (substring id 0 (- (length id) (length suffix))))))))))
+
+(defun openstack--link-object (url)
+  "Return the (TYPE . ID) pair that the `openstack:' URL URL names.
+A URL with the ID alone yields a nil TYPE, which
+`openstack-open-id' resolves through the cache."
+  (declare (pure t) (side-effect-free t))
+  (save-match-data
+    (when (and (stringp url) (string-match openstack--link-regexp url))
+      (let* ((path (substring url (match-end 0)))
+             (slash (string-search "/" path)))
+        (if slash
+            (cons (substring path 0 slash) (substring path (1+ slash)))
+          (cons nil path))))))
+
+(defun openstack--url-object (url)
+  "Return the (TYPE . ID) pair that URL names, or nil.
+URL is an `openstack:TYPE/ID' link or a dashboard page that
+`openstack-dashboard-url' builds."
+  (declare (side-effect-free t))
+  (or (openstack--link-object url)
+      (openstack--dashboard-object url)))
+
+(defun openstack--url-at-point ()
+  "Return the URL text at point, or nil.
+Read a URL that a reader placed as plain text in any buffer, such
+as an `openstack:TYPE/ID' link in a message or a dashboard page in
+a log line.  Return nil when point stands outside the URL."
+  (declare (side-effect-free t))
+  (save-excursion
+    (save-match-data
+      (let ((origin (point))
+            (end (line-end-position))
+            found)
+        (goto-char (line-beginning-position))
+        (while (and (not found)
+                    (re-search-forward openstack--url-regexp end t))
+          (when (<= (match-beginning 0) origin (match-end 0))
+            (setq found (replace-regexp-in-string
+                         "[.,;:!?]+\\'" ""
+                         (buffer-substring-no-properties
+                          (match-beginning 0) (match-end 0))))))
+        found))))
+
+(defun openstack--property-object ()
+  "Return (TYPE ID property) from the text properties at point, or nil.
+A collection buffer reads the row from the beginning of the line,
+so the whole row acts as one target."
+  (let* ((line (and openstack-collection (line-beginning-position)))
+         (id (or (openstack--id-property-at-point)
+                 (and line (get-text-property line 'openstack-id)))))
+    (when id
+      (list (or (get-char-property (point) 'openstack-ref-type)
+                (and line (get-text-property line 'openstack-ref-type)))
+            id
+            'property))))
+
+(defun openstack--point-object ()
+  "Return (TYPE ID SOURCE) of the OpenStack resource at point, or nil.
+SOURCE is `property' for a text property, `buffer' for the display
+buffer and `url' for a URL.  The text property wins, because it
+names the resource that the reader sees, and the identity of the
+display buffer serves next."
+  (let ((property (openstack--property-object))
+        (buffer-type (openstack-resource-type-for-mode major-mode)))
+    (cond
+     ((and property (car property)) property)
+     (property (list buffer-type (nth 1 property) 'property))
+     (openstack--id (list buffer-type openstack--id 'buffer))
+     ((when-let* ((url (openstack--url-at-point)))
+        (when-let* ((object (openstack--url-object url)))
+          (list (car object) (cdr object) 'url)))))))
+
+(defun openstack--object-at-point (&optional type)
+  "Return (TYPE ID SOURCE) of the OpenStack resource at point, or nil.
+TYPE, when non-nil, names the wanted resource type.  A target of
+another type signals a `user-error', because a silent fallback
+would act on a different resource than point names."
+  (when-let* ((object (openstack--point-object)))
+    (when (and type (car object) (not (equal (car object) type)))
+      (user-error "Point names a %s, not a %s" (car object) type))
+    object))
 
 ;;; Commands
 
@@ -1301,25 +1474,40 @@ and keeps it up to date in MODE; this command pops it into a window."
 
 ;;;###autoload
 (defun openstack-copy-id (&optional link)
-  "Copy the ID of the current OpenStack resource to the kill ring.
-With LINK, copy the `openstack:TYPE/ID' form that the Org link type
-and the `openstack:' URL scheme read instead."
-  (interactive "P" openstack-mode)
-  (let ((id (openstack--resource-id t))
-        (type (openstack-resource-type-for-mode major-mode)))
-    (if (and link type)
-        (let ((text (format "openstack:%s/%s" type id)))
-          (kill-new text)
-          (message "Copied OpenStack link: %s" text))
-      (kill-new id)
-      (message "Copied OpenStack resource ID: %s" id))))
+  "Copy the ID of the OpenStack resource at point to the kill ring.
+Point names the resource through the `openstack-id' text property,
+the identity of the display buffer, or an `openstack:TYPE/ID' link
+or dashboard URL, so the command serves a detail buffer, a row of a
+collection table and a link in any buffer.  With LINK, copy the
+`openstack:TYPE/ID' form that the Org link type and the
+`openstack:' URL scheme read instead."
+  (interactive "P")
+  (let ((object (openstack--object-at-point)))
+    (unless object
+      (user-error "No OpenStack resource at point"))
+    (let ((id (nth 1 object))
+          (type (nth 0 object)))
+      (if (and link type)
+          (let ((text (format "openstack:%s/%s" type id)))
+            (kill-new text)
+            (message "Copied OpenStack link: %s" text))
+        (kill-new id)
+        (message "Copied OpenStack resource ID: %s" id)))))
 
 ;;;###autoload
 (defun openstack-open-web ()
-  "Open the dashboard page for the current OpenStack resource."
-  (interactive nil openstack-mode)
-  (browse-url (openstack-dashboard-url
-               (openstack--resource-id t))))
+  "Open the dashboard page of the OpenStack resource at point.
+Point names the resource through the `openstack-id' text property,
+the identity of the display buffer, or an `openstack:TYPE/ID' link
+or dashboard URL, so the command serves a detail buffer, a row of a
+collection table and a link in any buffer.  A reference opens the
+page of its own resource type, so the subnets of a network reach
+the subnet page."
+  (interactive)
+  (let ((object (openstack--object-at-point)))
+    (unless object
+      (user-error "No OpenStack resource at point"))
+    (browse-url (openstack--dashboard-url-of (nth 0 object) (nth 1 object)))))
 
 ;;;###autoload
 (defun openstack-pop ()
@@ -1340,27 +1528,31 @@ and the `openstack:' URL scheme read instead."
 
 ;;;###autoload
 (defun openstack-display-at-point ()
-  "Display the OpenStack resource whose ID is at point.
-The ID is read from the `openstack-id' text property, which the
-generic renderers attach to the ID field line, to the IDs of a
-`openstack-reference-fields' field and to the rows of collection
-buffers.  A reference carries its resource type in the
+  "Display the OpenStack resource at point.
+Point names the resource through the `openstack-id' text property,
+the identity of the display buffer, or an `openstack:TYPE/ID' link
+or dashboard URL, so the command opens a resource from a detail
+buffer, from a row of a collection table and from a link in any
+buffer.  The renderers attach the property to the ID field line, to
+the IDs of a `openstack-reference-fields' field and to the rows of
+collection buffers.  A reference carries its resource type in the
 `openstack-ref-type' property: when `openstack-resource-types'
 holds a display command for that type, this command runs it, so
-a subnet opens in a subnet buffer once its mode exists.  Every
-other ID opens with the buffer-local `openstack-show-command',
-which a collection mode binds to its resource's display command,
-defaulting to `openstack-display'."
+a subnet opens in a subnet buffer.  Every other target opens with
+the buffer-local `openstack-show-command', which a collection mode
+binds to its resource's display command, defaulting to
+`openstack-display'."
   (interactive nil openstack-mode openstack-list-mode)
-  (let* ((id (openstack--id-property-at-point))
-         (type (and id (get-char-property (point) 'openstack-ref-type)))
-         (entry (and type (openstack-resource-type type))))
-    (unless id
-      (user-error "No OpenStack resource ID at point"))
-    (cond ((null type) (funcall openstack-show-command id))
-          (entry (funcall (nth 2 entry) id))
-          (t (user-error "No display command for resource type %s"
-                         type)))))
+  (let ((object (openstack--object-at-point)))
+    (unless object
+      (user-error "No OpenStack resource at point"))
+    (let* ((id (nth 1 object))
+           (type (nth 0 object))
+           (entry (and type (openstack-resource-type type))))
+      (cond ((null type) (funcall openstack-show-command id))
+            (entry (funcall (nth 2 entry) id))
+            (t (user-error "No display command for resource type %s"
+                           type))))))
 
 ;;;###autoload
 (defun openstack-mouse-display-at-point (event)
@@ -2836,30 +3028,6 @@ filter makes no client call."
   (setq-local openstack-list--filter nil)
   (openstack-list--redraw))
 
-(defun openstack-list-copy-id (&optional link)
-  "Copy the ID of the resource on the current row to the kill ring.
-With LINK, copy the `openstack:TYPE/ID' form of the row instead."
-  (interactive "P" openstack-list-mode)
-  (let ((id (openstack-list--id-at-point))
-        (type (openstack-resource-type-for-mode major-mode)))
-    (unless id
-      (user-error "No OpenStack resource on this line"))
-    (if (and link type)
-        (let ((text (format "openstack:%s/%s" type id)))
-          (kill-new text)
-          (message "Copied OpenStack link: %s" text))
-      (kill-new id)
-      (message "Copied OpenStack resource ID: %s" id))))
-
-;;;###autoload
-(defun openstack-list-open-web ()
-  "Open the dashboard page of the resource on the current row."
-  (interactive nil openstack-list-mode)
-  (let ((id (openstack-list--id-at-point)))
-    (unless id
-      (user-error "No OpenStack resource on this line"))
-    (browse-url (openstack-dashboard-url id))))
-
 ;;; Imenu
 
 (defun openstack-list--imenu-index ()
@@ -2921,11 +3089,11 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   :parent tabulated-list-mode-map
   "RET" #'openstack-display-at-point
   "<mouse-2>" #'openstack-mouse-display-at-point
-  "c" #'openstack-list-copy-id
+  "c" #'openstack-copy-id
   "%" #'openstack-list-narrow
   "W" #'openstack-list-widen
   "J" #'openstack-json-view
-  "w" #'openstack-list-open-web)
+  "w" #'openstack-open-web)
 
 (keymap-set openstack-list-mode-map "<remap> <js-json-mode>"
             #'openstack-json-view)

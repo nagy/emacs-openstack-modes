@@ -74,11 +74,11 @@ Commands:
   lists
 - =M-x openstack-console-log= -- display the console log of a
   server
-- =M-x openstack-copy-id= (=c=) -- copy the resource ID to
-  the kill ring; with a prefix argument, copy the
+- =M-x openstack-copy-id= (=c=) -- copy the ID of the resource
+  at point to the kill ring; with a prefix argument, copy the
   =openstack:TYPE/ID= link instead
-- =M-x openstack-open-web= (=w=) -- open the dashboard page
-  for the resource
+- =M-x openstack-open-web= (=w=) -- open the dashboard page of
+  the resource at point
 - =M-x openstack-pop= (=p=) -- pop back to the buffer the
   resource was displayed from
 - =M-x openstack-go-to-parent= (=dired-jump=,
@@ -164,6 +164,16 @@ reads the ID at point with =(thing-at-point 'openstack-id)= and
 the bounds with =bounds-of-thing-at-point=.  Display buffers also
 answer the =uuid= thing from the property, so a table column
 truncated to the window width still yields the full ID.
+
+Every command that acts on one resource reads the resource at
+point, so one command serves a detail buffer, a row of a
+collection table and a link in any buffer.  The =openstack-id=
+text property wins, then the identity of the display buffer, then
+a URL at point: an =openstack:TYPE/ID= link or a dashboard page.
+The property carries the resource type, so =RET= on the subnets
+of a network opens a subnet buffer and =w= opens the subnet page.
+This rule covers =openstack-copy-id=, =openstack-open-web= and
+=openstack-display-at-point=.
 
 =M-?= lists the resources that a cached list row mentions in one of
 its fields, so a server leads to its image or its network.

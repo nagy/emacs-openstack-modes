@@ -62,9 +62,9 @@ The columns come from `openstack-list-test--fields'."
   "RET, `mouse-2', `c', `J', `w', `%' and `W' act on the table."
   (dolist (binding (list (cons (kbd "RET") #'openstack-display-at-point)
                          (cons [mouse-2] #'openstack-mouse-display-at-point)
-                         (cons (kbd "c") #'openstack-list-copy-id)
+                         (cons (kbd "c") #'openstack-copy-id)
                          (cons (kbd "J") #'openstack-json-view)
-                         (cons (kbd "w") #'openstack-list-open-web)
+                         (cons (kbd "w") #'openstack-open-web)
                          (cons (kbd "%") #'openstack-list-narrow)
                          (cons (kbd "W") #'openstack-list-widen)))
     (should (eq (lookup-key openstack-list-mode-map (car binding))
@@ -428,12 +428,12 @@ row stop before its newline and the runs of two rows never join."
 ;;; Row commands
 
 (ert-deftest openstack-list-copy-id-of-a-row ()
-  "`openstack-list-copy-id' copies the ID of the row at point."
+  "`openstack-copy-id' copies the ID of the row at point."
   (with-temp-buffer
     (openstack-list-mode)
     (openstack-list-test--render
      (openstack-list-test--rows '(("ID" . "id-7") ("Name" . "web-7"))))
-    (openstack-list-copy-id)
+    (openstack-copy-id)
     (should (equal (car kill-ring) "id-7"))))
 
 (ert-deftest openstack-list-copy-id-with-a-prefix-copies-a-link ()
@@ -444,7 +444,7 @@ row stop before its newline and the runs of two rows never join."
       (openstack-server-list-mode)
       (openstack-list-test--render
        (openstack-list-test--rows '(("ID" . "id-7") ("Name" . "web-7"))))
-      (openstack-list-copy-id '(4))
+      (openstack-copy-id '(4))
       (should (equal (car kill-ring) "openstack:server/id-7")))))
 
 (ert-deftest openstack-list-copy-id-needs-a-row ()
@@ -453,8 +453,8 @@ row stop before its newline and the runs of two rows never join."
     (openstack-list-mode)
     (openstack-list-test--render nil)
     (goto-char (point-min))
-    (should-error (openstack-list-copy-id) :type 'user-error)
-    (should-error (openstack-list-open-web) :type 'user-error)))
+    (should-error (openstack-copy-id) :type 'user-error)
+    (should-error (openstack-open-web) :type 'user-error)))
 
 (provide 'openstack-list-mode-tests)
 ;;; openstack-list-mode-tests.el ends here
