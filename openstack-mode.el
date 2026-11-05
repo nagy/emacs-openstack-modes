@@ -192,7 +192,7 @@ should set this to their own fetcher, typically wrapping
   :group 'openstack)
 
 (defcustom openstack-auto-revert t
-  "Whether resource buffers refresh themselves with `auto-revert-mode'.
+  "Non-nil if resource buffers refresh themselves with `auto-revert-mode'.
 When non-nil, `openstack-mode' enables `auto-revert-mode', which
 re-fetches the resource through `openstack-fetch-function' and
 re-renders the buffer when the data changed.  The fetch is
@@ -229,7 +229,7 @@ with such a status refreshes every
   :group 'openstack)
 
 (defcustom openstack-refresh-visible-only t
-  "Whether automatic refreshes skip buffers no window displays.
+  "Non-nil if automatic refreshes skip buffers no window displays.
 When non-nil (the default), `auto-revert-mode' re-fetches a
 resource buffer only while it is visible somewhere; buried
 buffers cost no API calls and refresh when next displayed.  A
@@ -516,7 +516,6 @@ back to a single-resource view must clear it.")
     (define-key map [mouse-2] #'openstack-mouse-display-at-point)
     map)
   "Keymap for `openstack-mode'.
-
 This keymap is used as the parent of the keymap installed by
 `openstack-mode', which itself is a parent for derived
 resource modes.  `q' and `g' are inherited from `special-mode'.
@@ -1511,7 +1510,7 @@ the subnet page."
 
 ;;;###autoload
 (defun openstack-pop ()
-  "Pop back to the buffer the resource was displayed from."
+  "Pop back to the buffer that displayed the resource."
   (interactive nil openstack-mode)
   (let ((origin openstack--origin-buffer))
     (cond ((buffer-live-p origin)
@@ -2189,7 +2188,7 @@ the buffer updates when `openstack-fetch-function' delivers data."
 ;;; Collection buffers
 
 (defgroup openstack-list nil
-  "Display OpenStack resource collections as tables."
+  "Collection buffers of OpenStack resources."
   :prefix "openstack-list-"
   :group 'openstack)
 

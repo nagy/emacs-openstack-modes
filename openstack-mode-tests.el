@@ -135,7 +135,7 @@ and the package name matches it, so the archive lookup succeeds."
       (kill-buffer buf))))
 
 (ert-deftest openstack-buffers-drop-the-project-directory ()
-  "Every OpenStack buffer starts in `temporary-file-directory'.
+  "The variable `temporary-file-directory' holds the directory of every OpenStack buffer.
 The data comes from a cloud, not a file, so the buffer joins no
 project and no version-controlled tree."
   (let ((temporary-file-directory "/tmp/"))
@@ -2520,7 +2520,7 @@ opened buffer in `openstack-test--shown-buffer'."
     (should (eq (key-binding [mouse-8]) #'openstack-previous-sibling))))
 
 (ert-deftest openstack-go-to-parent-remaps-dired-jump ()
-  "Show and list buffers remap the two dired climb commands."
+  "Show and list buffers remap the two Dired climb commands."
   (with-temp-buffer
     (openstack-server-mode)
     (dolist (command '(dired-jump dired-up-directory))

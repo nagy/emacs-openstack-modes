@@ -44,7 +44,7 @@
 (require 'openstack-mode)
 
 (defgroup openstack-console nil
-  "Display the console log of an OpenStack server."
+  "Console log view of an OpenStack server."
   :prefix "openstack-console-"
   :group 'openstack)
 

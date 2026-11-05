@@ -50,7 +50,7 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
      ,@body))
 
 (defun openstack-cli-test--wait-until (pred)
-  "Wait until PREDFN returns non-nil, at most 5 seconds.
+  "Wait until PRED returns non-nil, at most 5 seconds.
 Accepts process output while waiting, so background client
 processes can finish."
   (let ((deadline (+ (float-time) 5)))
@@ -177,6 +177,7 @@ callers catching the general error also catch the timeout."
                       "abc"))))))
 
 (cl-defstruct openstack-cli-test--fake-process
+  "Stand-in process record that the CLI sentinel reads."
   status exit-status buffer plist)
 
 (defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr text)

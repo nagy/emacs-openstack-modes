@@ -79,7 +79,6 @@
 
 (defcustom openstack-program "openstack"
   "Path to the OpenStack command line client executable.
-
 This is the python-openstackclient program, normally installed
 via Nix as the =openstackclient-full= package.  The Nix build
 substitutes this default with the store path of that package."
