@@ -131,6 +131,15 @@ includes evil.
   formatter and parse nothing, so the callback receives the raw
   output as a string.  Never parse the text of such a command as
   JSON, and never build a text view over the JSON entry points.
+- `make-process` reads the client's stderr in a process of its own, so
+  the pump can hold the last error bytes when the client exits.  Both
+  the sync poll loop and the async sentinel call
+  `openstack-cli--drain` on that pump before they read the stderr
+  buffer; without the wait the error text arrives empty on a loaded
+  machine.  Keep the read of `:stderr` behind the drain.  The pump can
+  already have exited when the reader looks it up, and
+  `get-buffer-process` then answers nil, so the two drain tests count
+  the calls and never demand a live process.
 - CLI tests mock at the process level with `cl-letf` on
   `openstack-cli--run` (sync) and `make-process`/
   `set-process-sentinel` (async); they never hit a real OpenStack.

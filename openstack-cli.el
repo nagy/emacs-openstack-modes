@@ -160,6 +160,19 @@ The command is `openstack-program' followed by ARGS.  Unless TEXT,
       (append (list prog) args
               (list openstack-cli-json-format openstack-cli-json-value)))))
 
+(defun openstack-cli--drain (proc)
+  "Wait for PROC to exit, reading the output that is still in flight.
+`make-process' starts the stderr pump as a process of its own, so the
+client process can exit before the pump has read the client's last
+error bytes.  A reader that stops at the exit of the client would then
+see an empty stderr buffer.  Wait for PROC until it exits, at most
+`openstack-cli-timeout' seconds, and do nothing when PROC is nil or
+already dead."
+  (when (process-live-p proc)
+    (let ((deadline (+ (float-time) openstack-cli-timeout)))
+      (while (and (process-live-p proc) (< (float-time) deadline))
+        (accept-process-output proc 0.05)))))
+
 (defun openstack-cli--run (args &optional text)
   "Run `openstack-program' with ARGS synchronously.
 TEXT reaches `openstack-cli--command'.
@@ -175,7 +188,8 @@ stderr buffers, so repeated calls never see earlier output."
          (stdout-buffer (generate-new-buffer " *openstack-cli*"))
          (stderr-buffer (generate-new-buffer " *openstack-cli-stderr*"))
          (deadline (+ (float-time) openstack-cli-timeout))
-         proc)
+         proc
+         stderr-proc)
     (unwind-protect
         (progn
           (setq proc (make-process
@@ -191,9 +205,9 @@ stderr buffers, so repeated calls never see earlier output."
           ;; message in the echo area.  Polling drives this function,
           ;; so both sentinels do nothing.
           (set-process-sentinel proc #'ignore)
-          (let ((stderr-proc (get-buffer-process stderr-buffer)))
-            (when stderr-proc
-              (set-process-sentinel stderr-proc #'ignore)))
+          (setq stderr-proc (get-buffer-process stderr-buffer))
+          (when stderr-proc
+            (set-process-sentinel stderr-proc #'ignore))
           (while (and (process-live-p proc)
                       (< (float-time) deadline))
             (accept-process-output proc 0.25))
@@ -203,6 +217,9 @@ stderr buffers, so repeated calls never see earlier output."
             (signal 'openstack-cli-timeout
                     (list :args args :timeout openstack-cli-timeout)))
            (t
+            ;; The stderr pump can still hold the last error bytes when
+            ;; the client exits; read them before the buffers are read.
+            (openstack-cli--drain stderr-proc)
             (let ((status (process-exit-status proc))
                   (output (with-current-buffer stdout-buffer
                             (buffer-string)))
@@ -335,6 +352,7 @@ the client process."
            ;; invoked again for a later status change.
            (unless (process-get proc 'openstack-cli--handled)
              (process-put proc 'openstack-cli--handled t)
+             (openstack-cli--drain (get-buffer-process stderr-buffer))
              (let* ((code (process-exit-status proc))
                     (stderr (with-current-buffer stderr-buffer
                               (let ((s (buffer-string)))

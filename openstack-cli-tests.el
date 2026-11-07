@@ -147,6 +147,60 @@ code reported stdout as the error's `:stderr'."
             (should (equal (plist-get data :args)
                            '("server" "show" "abc"))))))))))
 
+(ert-deftest openstack-cli-request-waits-for-stderr-pump ()
+  "The sync call drains the stderr pump before it reads its buffer.
+`make-process' reads the client's stderr in a process of its own, so
+the pump can still hold the last error bytes when the client exits.
+The spy fails when the call reads the buffer without waiting for the
+pump, which drops the error text.  The pump can already have exited,
+and `get-buffer-process' then answers nil, so the spy counts the calls
+and never demands a live process."
+  (openstack-cli-test--with-fixture-program
+   "echo \"real error text\" >&2\nexit 1\n"
+   (lambda (program)
+     (let* ((openstack-program program)
+            (drains 0)
+            (drain (symbol-function 'openstack-cli--drain)))
+       (cl-letf (((symbol-function 'openstack-cli--drain)
+                  (lambda (proc)
+                    (cl-incf drains)
+                    (funcall drain proc))))
+         (let ((data (cdr (should-error (openstack-cli-request '("server" "show" "abc"))
+                                        :type 'openstack-cli-error))))
+           (should (= drains 1))
+           (should (equal (plist-get data :exit-code) 1))
+           (should (equal (plist-get data :stderr)
+                          "real error text\n"))))))))
+
+(ert-deftest openstack-cli-async-request-waits-for-stderr-pump ()
+  "The async callback drains the stderr pump before it reads its buffer.
+The sentinel of the client runs at its exit, which can precede the last
+error bytes of the pump.  The pump can already have exited, and
+`get-buffer-process' then answers nil, so the spy counts the calls and
+never demands a live process."
+  (openstack-cli-test--with-fixture-program
+   "echo \"real error text\" >&2\nexit 1\n"
+   (lambda (program)
+     (let* ((openstack-program program)
+            (drains 0)
+            (seen nil)
+            (drain (symbol-function 'openstack-cli--drain)))
+       (cl-letf (((symbol-function 'openstack-cli--drain)
+                  (lambda (proc)
+                    (cl-incf drains)
+                    (funcall drain proc))))
+         (openstack-cli-async-request
+          '("server" "show" "abc")
+          :success-fn (lambda (_data) (setq seen :success))
+          :error-fn (lambda (err) (setq seen err)))
+         (openstack-cli-test--wait-until (lambda () seen)))
+       (should (= drains 1))
+       (should (consp seen))
+       (should (eq (car seen) 'openstack-cli-error))
+       (should (equal (plist-get (cdr seen) :exit-code) 1))
+       (should (equal (plist-get (cdr seen) :stderr)
+                      "real error text\n"))))))
+
 (ert-deftest openstack-cli-request-timeout-signals ()
   "A hung client gets killed and signals `openstack-cli-timeout'.
 `openstack-cli-timeout' subclasses `openstack-cli-error', so
