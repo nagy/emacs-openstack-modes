@@ -664,7 +664,10 @@ includes evil.
   `openstack--fetch-marker` deliberately are not, so a new mode's
   renderer draws its own view.
 - `checkdoc` and `package-lint` must pass via `checks.checkdoc` and
-  `checks.package-lint`; docstrings follow the imperative style.
+  `checks.package-lint`; docstrings follow the imperative style.  Both
+  checks take `pkgs.writableTmpDirAsHomeHook` in `nativeBuildInputs`,
+  because Emacs writes its user directory under `HOME` and the Nix build
+  sandbox provides no writable home.
 - Interactive entry points carry `;;;###autoload` cookies;
   `openstack-mode-autoloads` / `openstack-cli-autoloads` assert they
   exist.  Add new commands to those tests when adding them to the

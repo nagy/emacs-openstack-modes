@@ -201,7 +201,6 @@
           # Elisp sources into the build directory.  Test files carry the
           # `-tests.el' suffix and stay out.
           lintFiles = ''
-            export HOME=$TMPDIR
             mode_files=()
             for file in "$src"/*.el; do
               case "$file" in
@@ -238,6 +237,7 @@
             pkgs.runCommandLocal "openstack-mode-package-lint"
               {
                 nativeBuildInputs = [
+                  pkgs.writableTmpDirAsHomeHook
                   (pkgs.emacsPackages.emacsWithPackages (p: [ p.package-lint ]))
                 ];
                 src = ./.;
@@ -265,7 +265,12 @@
           checks.checkdoc =
             pkgs.runCommandLocal "openstack-mode-checkdoc"
               {
-                nativeBuildInputs = [ pkgs.emacs ];
+                # Emacs writes its user directory under HOME during the
+                # run, so HOME must point at a temporary, writable place.
+                nativeBuildInputs = [
+                  pkgs.writableTmpDirAsHomeHook
+                  pkgs.emacs
+                ];
                 src = ./.;
               }
               ''
