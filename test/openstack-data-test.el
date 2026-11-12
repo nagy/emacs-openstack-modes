@@ -1,4 +1,4 @@
-;;; openstack-data-tests.el --- Tests for openstack-data -*- lexical-binding: t; -*-
+;;; openstack-data-test.el --- Tests for openstack-data -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'openstack-test-helper)
 (require 'cl-lib)
 (require 'openstack-api)
 (require 'openstack-data)
@@ -359,7 +360,7 @@ A consumer loads the data entry points alone and pays nothing for
 buffers, faces or keymaps."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-data.el"))
+                   (openstack-test--source "openstack-data.el"))
                   (buffer-string))))
     (dolist (library '("openstack-mode" "openstack-read"
                        "openstack-resources"))
@@ -413,5 +414,5 @@ buffers, faces or keymaps."
   (should (null (openstack-resource-parent-id
                  "server" (openstack-data-test--row "id" "srv-1")))))
 
-(provide 'openstack-data-tests)
-;;; openstack-data-tests.el ends here
+(provide 'openstack-data-test)
+;;; openstack-data-test.el ends here

@@ -1,4 +1,4 @@
-;;; openstack-list-mode-tests.el --- Tests for openstack-list-mode -*- lexical-binding: t; -*-
+;;; openstack-list-mode-test.el --- Tests for openstack-list-mode -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -456,5 +456,5 @@ row stop before its newline and the runs of two rows never join."
     (should-error (openstack-copy-id) :type 'user-error)
     (should-error (openstack-open-web) :type 'user-error)))
 
-(provide 'openstack-list-mode-tests)
-;;; openstack-list-mode-tests.el ends here
+(provide 'openstack-list-mode-test)
+;;; openstack-list-mode-test.el ends here

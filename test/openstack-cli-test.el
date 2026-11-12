@@ -1,4 +1,4 @@
-;;; openstack-cli-tests.el --- Tests for openstack-cli -*- lexical-binding: t -*-
+;;; openstack-cli-test.el --- Tests for openstack-cli -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -18,6 +18,7 @@
 
 (require 'ert)
 (require 'openstack-cli)
+(require 'openstack-test-helper)
 
 ;;; Helpers
 
@@ -28,19 +29,6 @@ list of strings.  Returns (STATUS . OUTPUT) for the caller."
   (openstack-cli--check-args args)
   (cons status stdout))
 
-(defun openstack-cli-test--with-fixture-program (script fn)
-  "Run FN with a fixture executable running SCRIPT as the client.
-SCRIPT is the shell body of a fake `openstack-program'; the script
-is made executable and passed to FN as its only argument.  The
-fixture is deleted afterwards."
-  (let* ((program (make-temp-file "openstack-cli-fixture-" nil nil
-                                  (concat "#!/bin/sh\n" script))))
-    (unwind-protect
-        (progn
-          (set-file-modes program #o755)
-          (funcall fn program))
-      (delete-file program))))
-
 (defmacro openstack-cli-test--with-mock-run (status stdout &rest body)
   "Run BODY with `openstack-cli--run' mocked to return STATUS/STDOUT.
 STATUS is the mock exit code, STDOUT the mock stderr text."
@@ -48,14 +36,6 @@ STATUS is the mock exit code, STDOUT the mock stderr text."
               (lambda (args &optional _text)
                 (openstack-cli-test--mock-run args ,status ,stdout))))
      ,@body))
-
-(defun openstack-cli-test--wait-until (pred)
-  "Wait until PRED returns non-nil, at most 5 seconds.
-Accepts process output while waiting, so background client
-processes can finish."
-  (let ((deadline (+ (float-time) 5)))
-    (while (and (not (funcall pred)) (< (float-time) deadline))
-      (accept-process-output nil 0.05))))
 
 ;;; Tests
 
@@ -114,7 +94,7 @@ processes can finish."
 Regression test for the shared stdout buffer: before the fix,
 output accumulated across calls, so a no-output command (delete)
 returned the previous command's object instead of nil."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "if [ \"$2\" = delete ]; then :; else echo '{\"id\": \"abc\"}'; fi\n"
    (lambda (program)
      (let ((openstack-program program))
@@ -133,7 +113,7 @@ returned the previous command's object instead of nil."
 Regression test for the stderr loss: the destination list form of
 `call-process' without a stderr file discarded stderr and the old
 code reported stdout as the error's `:stderr'."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "echo '{\"id\": \"abc\"}'\necho \"real error text\" >&2\nexit 1\n"
    (lambda (program)
      (let ((openstack-program program))
@@ -155,7 +135,7 @@ The spy fails when the call reads the buffer without waiting for the
 pump, which drops the error text.  The pump can already have exited,
 and `get-buffer-process' then answers nil, so the spy counts the calls
 and never demands a live process."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "echo \"real error text\" >&2\nexit 1\n"
    (lambda (program)
      (let* ((openstack-program program)
@@ -178,7 +158,7 @@ The sentinel of the client runs at its exit, which can precede the last
 error bytes of the pump.  The pump can already have exited, and
 `get-buffer-process' then answers nil, so the spy counts the calls and
 never demands a live process."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "echo \"real error text\" >&2\nexit 1\n"
    (lambda (program)
      (let* ((openstack-program program)
@@ -193,7 +173,7 @@ never demands a live process."
           '("server" "show" "abc")
           :success-fn (lambda (_data) (setq seen :success))
           :error-fn (lambda (err) (setq seen err)))
-         (openstack-cli-test--wait-until (lambda () seen)))
+         (openstack-test--wait-until (lambda () seen)))
        (should (= drains 1))
        (should (consp seen))
        (should (eq (car seen) 'openstack-cli-error))
@@ -205,7 +185,7 @@ never demands a live process."
   "A hung client gets killed and signals `openstack-cli-timeout'.
 `openstack-cli-timeout' subclasses `openstack-cli-error', so
 callers catching the general error also catch the timeout."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "exec sleep 5\n"
    (lambda (program)
      (let ((openstack-program program)
@@ -221,7 +201,7 @@ callers catching the general error also catch the timeout."
 
 (ert-deftest openstack-cli-request-timeout-slow-but-fitting-ok ()
   "A client finishing before the deadline still returns its output."
-  (openstack-cli-test--with-fixture-program
+  (openstack-test--with-fixture-program
    "sleep 0.3\necho '{\"id\": \"abc\"}'\n"
    (lambda (program)
      (let ((openstack-program program)
@@ -365,7 +345,7 @@ clobber each other's stderr, and no buffer survives the run."
   "Both request entry points carry an autoload cookie."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-cli.el"))
+                   (openstack-test--source "openstack-cli.el"))
                   (buffer-string))))
     (dolist (entry '("openstack-cli-request" "openstack-cli-request-text"
                      "openstack-cli-async-request"))
@@ -409,5 +389,5 @@ clobber each other's stderr, and no buffer survives the run."
     (should called)
     (should (equal result "log line\n"))))
 
-(provide 'openstack-cli-tests)
-;;; openstack-cli-tests.el ends here
+(provide 'openstack-cli-test)
+;;; openstack-cli-test.el ends here

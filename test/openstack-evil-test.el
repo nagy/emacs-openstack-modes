@@ -1,4 +1,4 @@
-;;; openstack-evil-tests.el --- Tests for openstack-evil -*- lexical-binding: t; -*-
+;;; openstack-evil-test.el --- Tests for openstack-evil -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -17,6 +17,7 @@
 ;; <https://www.gnu.org/licenses/>.
 
 (require 'ert)
+(require 'openstack-test-helper)
 (require 'evil)
 (require 'openstack-evil)
 
@@ -197,7 +198,7 @@ A fresh install must reach `openstack-evil-mode' without a
 `require'."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-evil.el"))
+                   (openstack-test--source "openstack-evil.el"))
                   (buffer-string))))
     (should (string-match-p
              "^;;;###autoload\n(define-minor-mode openstack-evil-mode\\b"
@@ -219,5 +220,5 @@ reaches the two commands without a state binding."
     (should (eq (key-binding [mouse-9]) #'openstack-next-sibling))
     (should (eq (key-binding [mouse-8]) #'openstack-previous-sibling))))
 
-(provide 'openstack-evil-tests)
-;;; openstack-evil-tests.el ends here
+(provide 'openstack-evil-test)
+;;; openstack-evil-test.el ends here

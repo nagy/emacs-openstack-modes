@@ -1,4 +1,4 @@
-;;; openstack-resource-tests.el --- Tests for openstack-resources -*- lexical-binding: t; -*-
+;;; openstack-resource-test.el --- Tests for openstack-resources -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -28,7 +28,7 @@
 ;;; Code:
 
 (require 'ert)
-(require 'openstack-cli-tests)
+(require 'openstack-test-helper)
 (require 'openstack-resources)
 
 (eval-and-compile
@@ -434,7 +434,7 @@ command does, answers too."
 
 (defun openstack-resource-test--wait-rendered (buffer)
   "Wait until BUFFER finishes its fetch and renders data."
-  (openstack-cli-test--wait-until
+  (openstack-test--wait-until
    (lambda ()
      (and (buffer-live-p buffer)
           (with-current-buffer buffer
@@ -442,7 +442,7 @@ command does, answers too."
 
 (defun openstack-resource-test--wait-idle (buffer)
   "Wait until BUFFER has no fetch in flight."
-  (openstack-cli-test--wait-until
+  (openstack-test--wait-until
    (lambda ()
      (and (buffer-live-p buffer)
           (with-current-buffer buffer (not openstack--pending))))))
@@ -636,7 +636,7 @@ command does, answers too."
   (let ((display (openstack-resource-test--name type "openstack-%s-display"))
         (mode (openstack-resource-test--name type "openstack-%s-mode"))
         (id (plist-get fixture :show-id)))
-    (openstack-cli-test--with-fixture-program
+    (openstack-test--with-fixture-program
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
@@ -662,7 +662,7 @@ command does, answers too."
 (openstack-resource-test--def-type-tests display-reports-client-error
   (let ((display (openstack-resource-test--name type "openstack-%s-display"))
         (id (plist-get fixture :show-id)))
-    (openstack-cli-test--with-fixture-program
+    (openstack-test--with-fixture-program
      "printf '%s' 'not json'\n"
      (lambda (program)
        (let ((openstack-program program)
@@ -792,7 +792,7 @@ defcustom, and a call without a prefix drops them again."
          (openstack-resource-test--name type "openstack-%s-list-display"))
         (list-buffer (openstack-resource-test--name
                       type "openstack-%s-list-buffer-name")))
-    (openstack-cli-test--with-fixture-program
+    (openstack-test--with-fixture-program
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
@@ -820,14 +820,14 @@ defcustom, and a call without a prefix drops them again."
         (list-buffer (openstack-resource-test--name
                       type "openstack-%s-list-buffer-name"))
         (first-id (plist-get fixture :list-first-id))
-        (show-buffer
+        (show-buffer-name
          (openstack-resource-test--name type "openstack-%s-buffer-name")))
-    (openstack-cli-test--with-fixture-program
+    (openstack-test--with-fixture-program
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
              (openstack-cli-timeout 5)
-             (expected (format "%s <%s>" (symbol-value show-buffer)
+             (expected (format "%s <%s>" (symbol-value show-buffer-name)
                                first-id)))
          (unwind-protect
              (progn
@@ -853,5 +853,5 @@ defcustom, and a call without a prefix drops them again."
   (should (equal (mapcar #'car openstack-resource-test--fixtures)
                  (mapcar #'car openstack-resource-definitions))))
 
-(provide 'openstack-resource-tests)
-;;; openstack-resource-tests.el ends here
+(provide 'openstack-resource-test)
+;;; openstack-resource-test.el ends here

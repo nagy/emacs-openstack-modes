@@ -1,4 +1,4 @@
-;;; openstack-mode-tests.el --- Tests for openstack-mode -*- lexical-binding: t -*-
+;;; openstack-mode-test.el --- Tests for openstack-mode -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -17,6 +17,7 @@
 ;; <https://www.gnu.org/licenses/>.
 
 (require 'ert)
+(require 'openstack-test-helper)
 (require 'openstack-mode)
 (require 'openstack-resources)
 
@@ -51,7 +52,7 @@ A fresh install must reach `openstack-display' and friends without
 an explicit `require'."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-mode.el"))
+                   (openstack-test--source "openstack-mode.el"))
                   (buffer-string))))
     (dolist (entry '("openstack-buffer" "openstack-display" "openstack-copy-id"
                      "openstack-open-web" "openstack-pop"
@@ -96,7 +97,7 @@ The macro writes the commands, so no cookie can precede them in the
 source; one autoloaded require loads the definitions instead."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-mode.el"))
+                   (openstack-test--source "openstack-mode.el"))
                   (buffer-string))))
     (should (string-match-p
              "^;;;###autoload (require 'openstack-resources)$"
@@ -108,7 +109,7 @@ source; one autoloaded require loads the definitions instead."
 and the package name matches it, so the archive lookup succeeds."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack.el"))
+                   (openstack-test--source "openstack.el"))
                   (buffer-string))))
     (should (string-match-p "^;;; openstack\\.el --- " source))
     (should (string-match-p
@@ -2540,5 +2541,5 @@ opened buffer in `openstack-test--shown-buffer'."
     (should (equal (openstack-list--mode-line)
                    " [2 servers] [project proj-1]"))))
 
-(provide 'openstack-mode-tests)
-;;; openstack-mode-tests.el ends here
+(provide 'openstack-mode-test)
+;;; openstack-mode-test.el ends here

@@ -1,4 +1,4 @@
-;;; openstack-api-tests.el --- Tests for openstack-api -*- lexical-binding: t -*-
+;;; openstack-api-test.el --- Tests for openstack-api -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -339,5 +339,5 @@ Wait for the request to settle, then return the two results."
     (should-error (openstack-api-fetch (openstack-api-test--url "/missing"))
                   :type 'openstack-api-error)))
 
-(provide 'openstack-api-tests)
-;;; openstack-api-tests.el ends here
+(provide 'openstack-api-test)
+;;; openstack-api-test.el ends here

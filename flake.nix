@@ -94,13 +94,18 @@
             '';
 
             doCheck = true;
-            # No file lists here: the phase globs the tree, and
-            # package-build derives the packaged files from the same
-            # sources.  Test files carry the `-tests.el' suffix, which
-            # package-build excludes from the tarball and the lint gate
-            # excludes from the ELPA policy checks.
+            # The test tree lives in `test/': one file per source unit, named
+            # `*-test.el'.  The phase globs that directory, so a new test file
+            # needs no flake edit.  `openstack-test-helper.el' holds the shared
+            # fixtures and does not match the glob, which keeps the loader a
+            # test-only list.  package-build excludes `*-test.el' from the
+            # tarball, so the tests never ship.
             checkPhase = ''
               runHook preCheck
+
+              # melpaBuild stages the root-level `*.el' files only, so the test
+              # tree comes back from the store before the loader reads it.
+              cp -r ${./test} ./test
 
               # openstack-evil.el is optional and the package declares no
               # dependency on evil, but the gate must still compile and test
@@ -109,16 +114,23 @@
                 -mindepth 1 -maxdepth 1 -type d -name 'evil-*' -print -quit)
 
               echo '=== byte-compile ==='
-              for file in *.el; do
-                emacs --batch -L . -L "$evil_load_path" \
+              for file in *.el test/*.el; do
+                emacs --batch -L . -L test -L "$evil_load_path" \
                   --eval '(setq byte-compile-error-on-warn t)' \
                   -f batch-byte-compile "$file"
               done
 
               echo '=== ERT tests ==='
-              test_args=()
-              for file in *-tests.el; do test_args+=(-l "$file"); done
-              emacs --batch -L . -L "$evil_load_path" "''${test_args[@]}" \
+              # printf repeats "-l %s" per match.  failglob makes an empty glob
+              # a shell error, so the || guard fires even without `set -e'.
+              # Restore the default right after: later commands must keep
+              # default glob semantics.  The unquoted $test_args is intentional:
+              # the words must split into -l <file> pairs, which is safe because
+              # test file names never contain spaces.
+              shopt -s failglob
+              test_args=$(printf -- "-l %s " test/*-test.el) || { echo 'no tests matched test/*-test.el' >&2; exit 1; }
+              shopt -u failglob
+              emacs --batch -L . -L test -L "$evil_load_path" $test_args \
                 -f ert-run-tests-batch-and-exit
 
               runHook postCheck

@@ -1,4 +1,4 @@
-;;; openstack-read-tests.el --- Tests for openstack-read -*- lexical-binding: t; -*-
+;;; openstack-read-test.el --- Tests for openstack-read -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -393,5 +393,5 @@ lookup per candidate would scan every type."
       ;; An unknown ID has no referencing row.
       (should (null (openstack-read-references "nope"))))))
 
-(provide 'openstack-read-tests)
-;;; openstack-read-tests.el ends here
+(provide 'openstack-read-test)
+;;; openstack-read-test.el ends here

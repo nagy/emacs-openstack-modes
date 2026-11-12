@@ -1,4 +1,4 @@
-;;; openstack-console-tests.el --- Tests for openstack-console -*- lexical-binding: t; -*-
+;;; openstack-console-test.el --- Tests for openstack-console -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -96,5 +96,5 @@ record, and it turns the URLs of the log into links."
         (let ((buf (get-buffer "*OpenStack Console Log test* <srv-1>")))
           (when buf (kill-buffer buf)))))))
 
-(provide 'openstack-console-tests)
-;;; openstack-console-tests.el ends here
+(provide 'openstack-console-test)
+;;; openstack-console-test.el ends here

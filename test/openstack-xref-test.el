@@ -1,4 +1,4 @@
-;;; openstack-xref-tests.el --- Tests for openstack-xref -*- lexical-binding: t; -*-
+;;; openstack-xref-test.el --- Tests for openstack-xref -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -167,5 +167,5 @@
     (should (null (xref-backend-references
                    'openstack "00000000-0000-4000-8000-00000000dead")))))
 
-(provide 'openstack-xref-tests)
-;;; openstack-xref-tests.el ends here
+(provide 'openstack-xref-test)
+;;; openstack-xref-test.el ends here

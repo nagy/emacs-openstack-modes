@@ -1,4 +1,4 @@
-;;; ol-openstack-tests.el --- Tests for ol-openstack -*- lexical-binding: t; -*-
+;;; ol-openstack-test.el --- Tests for ol-openstack -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -165,5 +165,5 @@
             ((symbol-function 'read-string) (lambda (_prompt) "net-1")))
     (should (equal (openstack-org-complete) "openstack:network/net-1"))))
 
-(provide 'ol-openstack-tests)
-;;; ol-openstack-tests.el ends here
+(provide 'ol-openstack-test)
+;;; ol-openstack-test.el ends here

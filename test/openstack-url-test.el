@@ -1,4 +1,4 @@
-;;; openstack-url-tests.el --- Tests for openstack-url -*- lexical-binding: t; -*-
+;;; openstack-url-test.el --- Tests for openstack-url -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026  Daniel Nagy
 
@@ -17,6 +17,7 @@
 ;; <https://www.gnu.org/licenses/>.
 
 (require 'ert)
+(require 'openstack-test-helper)
 (require 'openstack-url)
 
 ;;; Tests
@@ -31,7 +32,7 @@ Without a cookie on the defconst, the copied registration form
 would reference a void variable when the autoloads load."
   (let ((source (with-temp-buffer
                   (insert-file-contents
-                   (expand-file-name "openstack-url.el"))
+                   (openstack-test--source "openstack-url.el"))
                   (buffer-string))))
     (should (string-match-p
              "^;;;###autoload\n(defconst openstack-url-regexp\\b" source))))
@@ -63,4 +64,5 @@ would reference a void variable when the autoloads load."
       (openstack-url-browse "openstack:srv-1")
       (should (equal seen '("srv-1" nil))))))
 
-;;; openstack-url-tests.el ends here
+(provide 'openstack-url-test)
+;;; openstack-url-test.el ends here
