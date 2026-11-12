@@ -16,6 +16,8 @@
 ;; License along with this file.  If not, see
 ;; <https://www.gnu.org/licenses/>.
 
+;;; Code:
+
 (require 'ert)
 (require 'openstack-test-helper)
 (require 'openstack-mode)
@@ -426,7 +428,7 @@ returned; until then the old content stays."
             (should-not openstack--pending)))
       (kill-buffer buf))))
 
-(ert-deftest openstack-mode-render-clears-modified-flag ()
+(ert-deftest openstack-mode-render-keeps-buffer-unmodified ()
   "A read-only display buffer stays unmodified after a render."
   (let ((buf (openstack-test--make-resource-buffer)))
     (unwind-protect
@@ -746,11 +748,11 @@ the session."
         (with-current-buffer buf
           (setq-local openstack-fetch-function
                       (lambda (_id _success _error)
-                        (user-error "bad fetch args")))
+                        (user-error "Bad fetch args")))
           (openstack--refresh)
           (should-not openstack--pending)
           (should openstack--last-error)
-          (should (string-match-p "bad fetch args" header-line-format))
+          (should (string-match-p "Bad fetch args" header-line-format))
           ;; The buffer keeps accepting refreshes.
           (setq-local openstack-fetch-function
                       (lambda (_id success _error)
@@ -1224,7 +1226,7 @@ The fetcher receives nil as the ID; without the
       (should (equal (get-text-property (match-beginning 0) 'openstack-id)
                      "id-2")))))
 
-(ert-deftest openstack-list-render-clears-modified-flag ()
+(ert-deftest openstack-list-render-keeps-buffer-unmodified ()
   "A rendered table stays unmodified, with rows and without them."
   (dolist (data (list nil
                        (openstack-test--parse
@@ -1433,9 +1435,10 @@ once a subnet mode exists."
 ;;; JSON view
 
 (defmacro openstack-test--with-json-source (data &rest body)
-  "Run BODY with an OpenStack buffer holding DATA and a JSON view.
+  "Show DATA in an OpenStack buffer and open its JSON view.
 Binds `source' to the display buffer and `json' to the buffer
-that `openstack-json-view' opened.  Kill both buffers afterwards."
+that `openstack-json-view' opened, then runs BODY there.  Kill
+both buffers afterwards."
   (declare (indent 1) (debug (form body)))
   `(let ((source (generate-new-buffer " *openstack-json-source*"))
          (json nil))
@@ -1931,7 +1934,7 @@ block would draw on the row of the folded heading."
 
 (ert-deftest openstack-render-error-uses-error-face ()
   "The buffer and header line show a fetch error in `openstack-error'."
-  (let ((err '(openstack-cli-error "failed" :stderr "auth failed")))
+  (let ((err '(openstack-cli-error "Failed" :stderr "Auth failed")))
     (with-temp-buffer
       (let ((inhibit-read-only t))
         (openstack--render-error err))
@@ -2220,7 +2223,7 @@ so a definition missing there stays invisible to them."
 ;;; Parent relations
 
 (defmacro openstack-test--with-parent-stub (variables &rest body)
-  "Run BODY with the list fetcher stubbed, binding VARIABLES.
+  "Bind VARIABLES around a stubbed list fetcher, then run BODY.
 VARIABLES is a list of let bindings; the stub records the extra
 client arguments in `openstack-test--parent-arguments'."
   (declare (indent 1) (debug (sexp body)))
@@ -2370,7 +2373,7 @@ opened buffer in `openstack-test--shown-buffer'."
        ,@body)))
 
 (defmacro openstack-test--with-sibling-buffers (bindings &rest body)
-  "Run BODY with BINDINGS, then kill the buffers that BODY made."
+  "Bind BINDINGS, run BODY, then kill the buffers that BODY made."
   (declare (indent 1) (debug (sexp body)))
   `(let* (,@bindings)
      (unwind-protect

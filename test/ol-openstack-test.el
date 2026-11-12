@@ -16,6 +16,8 @@
 ;; License along with this file.  If not, see
 ;; <https://www.gnu.org/licenses/>.
 
+;;; Code:
+
 (require 'ert)
 (require 'ol-openstack)
 (require 'openstack-resources)

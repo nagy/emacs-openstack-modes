@@ -16,6 +16,8 @@
 ;; License along with this file.  If not, see
 ;; <https://www.gnu.org/licenses/>.
 
+;;; Code:
+
 (require 'ert)
 (require 'openstack-read)
 (require 'openstack-resources)
@@ -34,7 +36,7 @@
     row))
 
 (defmacro openstack-read-test--with-client (calls &rest body)
-  "Run BODY with a stubbed CLI client recording calls in CALLS."
+  "Record the CLI client calls in CALLS through a stub, then run BODY."
   (declare (indent 1))
   `(let ((,calls nil))
      (cl-letf (((symbol-function 'openstack-cli-request)
@@ -138,7 +140,7 @@ A Swift container has a name and no UUID."
   "A failing client falls back to a plain prompt."
   (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
-               (lambda (_args) (error "no cloud")))
+               (lambda (_args) (error "No cloud")))
               ((symbol-function 'completing-read)
                (lambda (_prompt collection &rest _)
                  (should (functionp collection))
@@ -167,7 +169,7 @@ A Swift container has a name and no UUID."
   "A failing client yields nil from the type lookup."
   (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
-               (lambda (_args) (error "no cloud"))))
+               (lambda (_args) (error "No cloud"))))
       (should (null (openstack-read-type-of-id "srv-1"))))))
 
 (ert-deftest openstack-read-name-and-ids ()
@@ -209,7 +211,7 @@ A Swift container has a name and no UUID."
   (let ((openstack-resource--list-cache nil)
         (seen nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
-               (lambda (_args) (error "the client must not run")))
+               (lambda (_args) (error "The client must not run")))
               ((symbol-function 'openstack-volume-display)
                (lambda (id) (setq seen id) :buffer)))
       (should (eq (openstack-open-id "vol-1" "volume") :buffer))

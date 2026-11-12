@@ -16,6 +16,8 @@
 ;; License along with this file.  If not, see
 ;; <https://www.gnu.org/licenses/>.
 
+;;; Code:
+
 (require 'ert)
 (require 'openstack-cli)
 (require 'openstack-test-helper)
@@ -23,15 +25,16 @@
 ;;; Helpers
 
 (defun openstack-cli-test--mock-run (args status stdout)
-  "Mock `openstack-cli--run' to return STATUS and STDERR.
-ARGS is the argument list; it is validated to be a non-empty
-list of strings.  Returns (STATUS . OUTPUT) for the caller."
+  "Check ARGS, then answer STATUS and STDOUT for a mocked run.
+STATUS is the mock exit code, STDOUT the mock standard output.
+Returns (STATUS . OUTPUT) for the caller."
   (openstack-cli--check-args args)
   (cons status stdout))
 
 (defmacro openstack-cli-test--with-mock-run (status stdout &rest body)
-  "Run BODY with `openstack-cli--run' mocked to return STATUS/STDOUT.
-STATUS is the mock exit code, STDOUT the mock stderr text."
+  "Bind a mocked `openstack-cli--run' for STATUS and STDOUT.
+STATUS is the mock exit code, STDOUT the mock standard output,
+and BODY runs with that binding in place."
   `(cl-letf (((symbol-function 'openstack-cli--run)
               (lambda (args &optional _text)
                 (openstack-cli-test--mock-run args ,status ,stdout))))
@@ -217,8 +220,8 @@ callers catching the general error also catch the timeout."
 (defun openstack-cli-test--run-async (args exit-status output &optional success-fn error-fn stderr text)
   "Run ARGS through `openstack-cli-async-request' with a fake process.
 Simulate a process exiting with EXIT-STATUS, writing OUTPUT to its
-stdout buffer and STDERR to the shared stderr buffer.  SUCCESS-FN and
-ERROR-FN are passed through.
+stdout buffer.  SUCCESS-FN and ERROR-FN are passed through, STDERR
+goes to the shared stderr buffer and TEXT selects the text path.
 
 The fake process honors the real :buffer argument, so tests can
 assert that the sentinel kills the process buffers."

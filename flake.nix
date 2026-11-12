@@ -210,17 +210,19 @@
           package = openstackPackage pkgs { };
 
           # Shell snippet for the ELPA policy checks: copy the packaged
-          # Elisp sources into the build directory.  Test files carry the
-          # `-tests.el' suffix and stay out.
+          # Elisp sources and the test tree into the build directory.  Two
+          # lists, because package-lint needs one invocation for the files of
+          # the package and one for the secondary files under `test/'.
           lintFiles = ''
-            mode_files=()
+            package_files=()
             for file in "$src"/*.el; do
-              case "$file" in
-                *-tests.el) continue ;;
-              esac
               cp "$file" .
-              mode_files+=("$(basename "$file")")
+              package_files+=("$(basename "$file")")
             done
+            # `src' may be pre-filtered and melpaBuild stages no test tree, so
+            # copy it explicitly instead of relying on what the build kept.
+            cp -r "$src"/test .
+            test_files=(test/*.el)
           '';
         in
         {
@@ -267,7 +269,21 @@
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
-                  "''${mode_files[@]}"
+                  "''${package_files[@]}"
+
+                # The test tree joins the gate as secondary files of the main
+                # file.  `package-lint-main-file' stops package-lint from
+                # treating each test file as its own package and demanding a
+                # `Package-Requires' header; the test file names and their
+                # test names instead follow the file they exercise, so the
+                # prefix rule needs the `ol-openstack-' prefix of the Org link
+                # tests as well.  The helper keeps a `provide' form like every
+                # other secondary file, so the loader can require it.
+                emacs --batch -l package-lint \
+                  --eval '(setq package-lint-main-file "openstack.el")' \
+                  --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-\\|\\`ol-openstack-"))' \
+                  -f package-lint-batch-and-exit \
+                  "''${test_files[@]}"
 
                 touch $out
               '';
@@ -292,7 +308,7 @@
                 lint_log=$(emacs --batch -l checkdoc \
                   --eval '(setq checkdoc-arguments-in-order-flag t)' \
                   --eval "(mapc #'checkdoc-file command-line-args-left)" \
-                  "''${mode_files[@]}" 2>&1)
+                  "''${package_files[@]}" "''${test_files[@]}" 2>&1)
                 if [ -n "$lint_log" ]; then printf '%s\n' "$lint_log"; exit 1; fi
                 touch $out
               '';

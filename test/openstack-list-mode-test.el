@@ -16,6 +16,8 @@
 ;; License along with this file.  If not, see
 ;; <https://www.gnu.org/licenses/>.
 
+;;; Code:
+
 (require 'ert)
 (require 'openstack-mode)
 (require 'openstack-resources)
@@ -416,11 +418,11 @@ row stop before its newline and the runs of two rows never join."
     (let ((header header-line-format))
       ;; `openstack--refresh-done' sets the error and then calls the
       ;; display function.
-      (setq openstack--last-error '(error "the client failed"))
+      (setq openstack--last-error '(error "The client failed"))
       (funcall openstack-error-display-function openstack--last-error)
       (should (eq header header-line-format))
       (let ((line (openstack-list--mode-line)))
-        (should (string-match "the client failed" line))
+        (should (string-match "The client failed" line))
         ;; The error segment takes the package error face.
         (should (eq (get-text-property (match-beginning 0) 'face line)
                     'openstack-error))))))

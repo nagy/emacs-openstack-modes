@@ -64,7 +64,7 @@ response leaves, default 0).")
   (nth 1 (split-string (car (split-string head "\r?\n")) " ")))
 
 (defun openstack-api-test--respond (proc head)
-  "Send the canned response for request HEAD on PROC."
+  "Send on PROC the canned response for request HEAD."
   (let* ((route (cdr (assoc (openstack-api-test--request-path head)
                             openstack-api-test--routes)))
          (status (or (plist-get route :status) 200))
@@ -110,7 +110,7 @@ CHUNK is the new process output."
     (process-put proc 'buf buffer)))
 
 (defun openstack-api-test--log (_server proc message)
-  "Count the connections that MESSAGE reports for PROC."
+  "Count on PROC the connections that MESSAGE reports."
   (when (string-match-p "accept" message)
     (setq openstack-api-test--accepts (1+ openstack-api-test--accepts))
     (ignore proc)))
@@ -138,7 +138,7 @@ CHUNK is the new process output."
   (setq openstack-api-test--server nil))
 
 (defmacro openstack-api-test--with-server (routes &rest body)
-  "Run BODY against a fake cloud serving ROUTES.
+  "Serve ROUTES from a fake cloud, then run BODY against it.
 Bind `openstack-api-test--port' to the port of the fake cloud."
   (declare (indent 1))
   `(let ((openstack-api-test--port (openstack-api-test--start ,routes)))
