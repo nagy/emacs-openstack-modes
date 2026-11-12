@@ -10,35 +10,36 @@ resource-specific modes can depend on it.
 
 * Files
 
-| File                         | Purpose                                                                                  |
-|------------------------------+------------------------------------------------------------------------------------------|
-| =openstack.el=                 | Entry library: loads the data layer, the base mode, the cache and the resource types     |
-| =openstack-data.el=            | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
-| =openstack-error.el=           | The package-wide parent condition =openstack-error=                                        |
-| =openstack-mode.el=            | Display layer: base mode, collection base mode, the resource macro, the text renderer    |
-| =openstack-resources.el=       | The resource types, one macro call each                                                  |
-| =openstack-console.el=         | Console log view of a server, over the text path                                         |
-| =openstack-evil.el=            | Optional evil bindings for show and list buffers                                         |
-| =openstack-cli.el=             | CLI layer: sync/async access to =openstack-program=                                        |
-| =openstack-read.el=            | ID completion, type and name lookups                                                     |
-| =openstack-xref.el=            | xref backend: =M-.= on a resource ID                                                       |
-| =openstack-url.el=             | =openstack:= URL scheme for =browse-url=                                                     |
-| =ol-openstack.el=              | Org link type =openstack:= for resources                                                   |
-| =openstack-mode-tests.el=      | ERT tests: base mode, collections, resource registry                                     |
-| =openstack-cli-tests.el=       | ERT test suite for the CLI layer (mocked)                                                |
-| =openstack-api-tests.el=       | ERT test suite for the native API layer                                                  |
-| =openstack-data-tests.el=      | ERT test suite for the data layer and its cache                                          |
-| =openstack-resource-tests.el=  | ERT tests: the resource show and list modes                                              |
-| =openstack-list-mode-tests.el= | ERT test suite for the collection base mode                                              |
-| =openstack-console-tests.el=   | ERT test suite for the console log view                                                  |
-| =openstack-evil-tests.el=      | ERT test suite for the evil bindings                                                     |
-| =ol-openstack-tests.el=        | ERT test suite for the Org link type                                                     |
-| =openstack-read-tests.el=      | ERT test suite for the ID completion                                                     |
-| =openstack-xref-tests.el=      | ERT test suite for the xref backend                                                      |
-| =openstack-url-tests.el=       | ERT test suite for the URL scheme                                                        |
-| =flake.nix=                    | Nix flake with =melpaBuild=, runs ERT tests and checkdoc                                   |
-| =flake.lock=                   | Pinned flake inputs                                                                      |
-| =LICENSE=                      | AGPLv3                                                                                   |
+| File                               | Purpose                                                                                  |
+|------------------------------------+------------------------------------------------------------------------------------------|
+| =LICENSE=                          | AGPLv3                                                                                   |
+| =flake.lock=                       | Pinned flake inputs                                                                      |
+| =flake.nix=                        | Nix flake with =melpaBuild=, runs ERT tests and checkdoc                                 |
+| =ol-openstack.el=                  | Org link type =openstack:= for resources                                                 |
+| =openstack-cli.el=                 | CLI layer: sync/async access to =openstack-program=                                      |
+| =openstack-console.el=             | Console log view of a server, over the text path                                         |
+| =openstack-data.el=                | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
+| =openstack-error.el=               | The package-wide parent condition =openstack-error=                                      |
+| =openstack-evil.el=                | Optional evil bindings for show and list buffers                                         |
+| =openstack-mode.el=                | Display layer: base mode, collection base mode, the resource macro, the text renderer    |
+| =openstack-read.el=                | ID completion, type and name lookups                                                     |
+| =openstack-resources.el=           | The resource types, one macro call each                                                  |
+| =openstack-url.el=                 | =openstack:= URL scheme for =browse-url=                                                 |
+| =openstack-xref.el=                | xref backend: =M-.= on a resource ID                                                     |
+| =openstack.el=                     | Entry library: loads the data layer, the base mode, the cache and the resource types     |
+| =test/ol-openstack-test.el=        | ERT test suite for the Org link type                                                     |
+| =test/openstack-api-test.el=       | ERT test suite for the native API layer                                                  |
+| =test/openstack-cli-test.el=       | ERT test suite for the CLI layer (mocked)                                                |
+| =test/openstack-console-test.el=   | ERT test suite for the console log view                                                  |
+| =test/openstack-data-test.el=      | ERT test suite for the data layer and its cache                                          |
+| =test/openstack-evil-test.el=      | ERT test suite for the evil bindings                                                     |
+| =test/openstack-list-mode-test.el= | ERT test suite for the collection base mode                                              |
+| =test/openstack-mode-test.el=      | ERT tests: base mode, collections, resource registry                                     |
+| =test/openstack-read-test.el=      | ERT test suite for the ID completion                                                     |
+| =test/openstack-resource-test.el=  | ERT tests: the resource show and list modes                                              |
+| =test/openstack-test-helper.el=    | Shared test helpers: source lookup, fixture client program, process wait                 |
+| =test/openstack-url-test.el=       | ERT test suite for the URL scheme                                                        |
+| =test/openstack-xref-test.el=      | ERT test suite for the xref backend                                                      |
 
 * Usage
 
@@ -946,10 +947,14 @@ nix flake check    # ERT + lint + formatting
 nix fmt            # nixfmt via treefmt
 #+end_src
 
-The build byte-compiles with warnings as errors and runs the ERT
-test suite.  =nix flake check= builds the package derivation itself
-(so the tests run there too) plus =checks.package-lint=,
-=checks.checkdoc= and the treefmt formatting check.
+The build byte-compiles the sources and the =test/= tree with
+warnings as errors, then runs the ERT suite over the
+=test/*-test.el= glob.  Tests live in =test/=, one file per source
+unit, and =test/openstack-test-helper.el= holds the shared helpers.
+=nix flake check= builds the package derivation itself (so the tests
+run there too) plus =checks.package-lint=, =checks.checkdoc= and the
+treefmt formatting check; both policy checks lint the test tree as
+well.
 `postPatch` rewrites `openstack-program` to the store path of the
 nixpkgs `openstackclient-full` binary.  The version follows
 =0-unstable-YYYY-MM-DD= from the last source commit.

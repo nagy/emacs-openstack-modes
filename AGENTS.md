@@ -25,19 +25,20 @@ name as the ID.
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
-| `openstack-mode-tests.el` | ERT tests for the base mode, the collection base mode and the macro/registry (`openstack-mode-tests.el` holds the collection tests and the consistency test) |
-| `openstack-cli-tests.el` | ERT tests for the CLI layer (mocked) |
-| `openstack-api-tests.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
-| `openstack-data-tests.el` | ERT tests for the data layer: the sync and async entry points, definition and defcustom arguments, cancellation, accessors, condition hierarchy; no buffer, no mode |
-| `openstack-resource-tests.el` | ERT tests for the resource show and list modes, one table of fixtures and one test body per check |
-| `openstack-list-mode-tests.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
-| `openstack-evil-tests.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
+| `test/openstack-mode-test.el` | ERT tests for the base mode and the macro/registry, plus the consistency test that walks `openstack-resource-types` |
+| `test/openstack-cli-test.el` | ERT tests for the CLI layer (mocked) |
+| `test/openstack-api-test.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
+| `test/openstack-data-test.el` | ERT tests for the data layer: the sync and async entry points, definition and defcustom arguments, cancellation, accessors, condition hierarchy; no buffer, no mode |
+| `test/openstack-resource-test.el` | ERT tests for the resource show and list modes, one table of fixtures and one test body per check |
+| `test/openstack-list-mode-test.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
+| `test/openstack-evil-test.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
-| `ol-openstack-tests.el` | ERT tests for the Org link type |
-| `openstack-read-tests.el` | ERT tests for the ID completion and the lookups |
-| `openstack-xref-tests.el` | ERT tests for the xref backend |
-| `openstack-url-tests.el` | ERT tests for the `openstack:` URL scheme |
-| `openstack-console-tests.el` | ERT tests for the console log view: the derived mode, the text fetch, the renderer and the buffer name |
+| `test/ol-openstack-test.el` | ERT tests for the Org link type |
+| `test/openstack-read-test.el` | ERT tests for the ID completion and the lookups |
+| `test/openstack-xref-test.el` | ERT tests for the xref backend |
+| `test/openstack-url-test.el` | ERT tests for the `openstack:` URL scheme |
+| `test/openstack-console-test.el` | ERT tests for the console log view: the derived mode, the text fetch, the renderer and the buffer name |
+| `test/openstack-test-helper.el` | Shared test helpers: the source tree lookup (`openstack-test--source`), the fixture client program and the process wait.  The name does not match `*-test.el`, so the loader leaves it out and each test file requires it |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
 | `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt`. The builder takes the Emacs to build for and is exported as `lib.openstackPackage`, so a consumer substitutes its own Emacs (`lib.openstackPackage pkgs { emacs = pkgs.emacs31; }`) or calls `.override { emacs = pkgs.emacs31; }` on the package, and `evil` then comes from that Emacs' package set |
 | `README.org` | Project README |
@@ -53,10 +54,14 @@ nix fmt            # nixfmt via treefmt
 nix develop        # emacs + evil + openstackclient-full
 ```
 
-The `checkPhase` byte-compiles every `.el` file in the tree with
-warnings as errors and runs the ERT suite (all `*-tests.el` files).
-No file lists to maintain: the phase globs the source tree, and
-`package-build` excludes `*-tests.el` from the package itself.
+The `checkPhase` copies the `test/` tree back from the store (the
+`melpaBuild` staging step keeps root-level files only), byte-compiles
+the root `.el` files and every `test/*.el` file with warnings as
+errors, and runs the ERT suite over the `test/*-test.el` glob.  The
+glob runs under `failglob` with a `||` guard, so an empty match fails
+the build instead of passing with zero tests.  No file lists to
+maintain: `package-build` excludes `*-test.el` from the package
+itself.
 The phase adds the nixpkgs `evil` elisp directory to the load path,
 so `openstack-evil.el` compiles and its tests run; the package
 itself does not declare an evil dependency.
@@ -72,26 +77,18 @@ works out of the box.
 Without Nix:
 
 ```sh
-emacs --batch -L . -l openstack-mode-tests.el \
-  -l openstack-cli-tests.el \
-  -l openstack-api-tests.el \
-  -l openstack-data-tests.el \
-  -l openstack-resource-tests.el \
-  -l openstack-list-mode-tests.el \
-  -l openstack-console-tests.el \
-  -l openstack-evil-tests.el \
-  -l ol-openstack-tests.el -l openstack-read-tests.el \
-  -l openstack-xref-tests.el \
+emacs --batch -L . -L test \
+  $(printf -- "-l %s " test/*-test.el) \
   -f ert-run-tests-batch-and-exit
 ```
 
-`openstack-evil-tests.el` needs evil on the load path.  Add its
+`test/openstack-evil-test.el` needs evil on the load path.  Add its
 elisp directory with `-L`, or start Emacs from a wrapper that
 includes evil.
 
 ## Conventions
 
-- The package has four layers, and dependencies point down only: transport (`openstack-cli.el`, `openstack-api.el`), data (`openstack-data.el`), presentation (`openstack-render-fields`, `openstack-list-render`) and interaction (the modes). The data layer never writes or opens a buffer, reads no buffer-local variable and loads no mode library; `openstack-data-tests.el` asserts the load rule. A consumer requiring `openstack-data` alone gets the registry and the data entry points.
+- The package has four layers, and dependencies point down only: transport (`openstack-cli.el`, `openstack-api.el`), data (`openstack-data.el`), presentation (`openstack-render-fields`, `openstack-list-render`) and interaction (the modes). The data layer never writes or opens a buffer, reads no buffer-local variable and loads no mode library; `test/openstack-data-test.el` asserts the load rule. A consumer requiring `openstack-data` alone gets the registry and the data entry points.
 - Resource data goes through the type-keyed entry points of `openstack-data.el`: `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list` and `openstack-resource-list-async`, with `openstack-resource-cancel` for the process that an async call returns. They resolve the client command and the list arguments through the definition, so a `:cli` override or a `:list-arguments` default cannot drift. Do not build a client command from a type string by hand, and do not call `RESOURCE show` directly from a mode. The modes wrap these functions through `openstack-show-fetch` / `openstack-list-fetch`.
 - The generated `openstack-TYPE-list-arguments` defcustom stays the runtime source of the list arguments: `openstack-resource-arguments` reads the variable that `:list-arguments-variable` of the definition names, and falls back to the `:list-arguments` value for a hand-written definition. A nil defcustom means no extra arguments, so never merge the definition value back in.
 - Read resource hash tables with `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`; they compare keys without case, because `RESOURCE show` prints lower case fields and `RESOURCE list` prints title case columns. `openstack--hash-field` is their private base. The raw hash table stays the wire shape: pass it on; do not normalize the keys.
@@ -155,7 +152,7 @@ includes evil.
   `openstack-api-error` condition (`openstack-api-timeout` as its
   subclass).  Cancelling closes the socket, because a half-read
   response cannot stay usable; the next request reconnects.
-  `openstack-api-tests.el` runs against a loopback fake cloud, so
+  `test/openstack-api-test.el` runs against a loopback fake cloud, so
   the tests stay offline and count accepted connections to check
   the keep-alive promise.  The modes still read through the CLI;
   do not rewire a fetcher until a parity test compares its buffer
@@ -219,7 +216,7 @@ includes evil.
   table instead of the neighbour.  The keys are `C-c C-n`, `C-c C-p`,
   `[mouse-9]` and `[mouse-8]` on `openstack-mode-map`.  Evil binds
   neither `C-c` nor a side button, so the major mode map wins and no
-  evil key list needs the commands; `openstack-evil-tests.el` keeps
+  evil key list needs the commands; `test/openstack-evil-test.el` keeps
   that assumption checked.  A collection buffer has no siblings, so
   neither `openstack-list-mode-map` nor the generated list modes
   bind the two commands.
@@ -233,7 +230,7 @@ includes evil.
   generator copies that form into the package autoloads and the
   installed package fills the registry at startup.  The macro writes
   its commands, so no cookie can precede them in the source;
-  `openstack-mode-tests.el` asserts the autoloaded require instead,
+  `test/openstack-mode-test.el` asserts the autoloaded require instead,
   and its registry tests check that every definition, its generated
   symbols and its table entry agree.
 - The repo ships one Emacs package: `packages.openstack`
@@ -243,10 +240,28 @@ includes evil.
   packages every `*.el` file in the source and no mode carries its
   own version.  Do not add a `melpaBuild` per mode.  The check phase
   and the lint gate glob the tree, so a new mode needs no
-  `flake.nix` edit.  Name test files `*-tests.el`: `package-build`
-  then leaves them out of the package, and the lint gate skips
-  them.  Flakes copy only git-tracked files, so `git add` new files
-  before `nix build`.
+  `flake.nix` edit.  Name test files `test/*-test.el`: `package-build`
+  then leaves them out of the package.  Flakes copy only git-tracked
+  files, so `git add` new files before `nix build`.
+- Tests live in `test/`, one file per source unit, named
+  `<unit>-test.el`: `test/openstack-cli-test.el` exercises
+  `openstack-cli.el`, and `test/ol-openstack-test.el` exercises
+  `ol-openstack.el`.  Two files carry no source twin, because they
+  cover a derived view rather than one library:
+  `test/openstack-list-mode-test.el` (the collection base mode over
+  `tabulated-list-mode`) and `test/openstack-resource-test.el` (the
+  show and list modes that the macro generates).  Shared helpers go
+  into `test/openstack-test-helper.el`, whose name does not match the
+  `test/*-test.el` glob, so the loader stays a test-only list and each
+  test file requires it.  An `ert-deftest` name carries the package
+  prefix (`openstack-` or `ol-openstack-`), because the lint gate lints
+  the test files through `package-lint-main-file`.
+- A test reads a source file through
+  `(openstack-test--source "openstack-mode.el")`, never through a bare
+  `expand-file-name`: the check phase and an interactive run may start
+  in any directory, so the helper resolves the path against the package
+  tree that holds `test/`.  Use it for a source-reading test such as
+  the autoload-cookie check.
 - The package name matches its entry library: `pname = "openstack"`
   in the flake, `openstack.el` in the source.  `use-package SYMBOL`
   expands to `(require SYMBOL)`, and `:ensure t` looks up the
@@ -271,7 +286,7 @@ includes evil.
   `;;;###autoload (require 'openstack-resources)` form, so the
   generated autoloads fill the registry at startup even for a user
   who never requires the entry library.
-  `openstack-mode-tests.el` checks the entry library through
+  `test/openstack-mode-test.el` checks the entry library through
   `openstack-entry-library`.
 - Byte-compilation runs with warnings as errors.  When file A calls
   a function defined in file B without requiring B, declare it:
@@ -294,7 +309,7 @@ includes evil.
   function that runs a process, writes a buffer, changes a cache or
   runs a hook.
 - The resource show and list tests live in one table, not one file
-  per resource: `openstack-resource-tests.el` holds
+  per resource: `test/openstack-resource-test.el` holds
   `openstack-resource-test--fixtures` (the client answers and the
   expected texts of each type) and defines every check once through
   `openstack-resource-test--def-type-tests`, which expands one
@@ -700,7 +715,7 @@ includes evil.
   `openstack--object-at-point' names no mode either, because it works
   in any buffer that shows a property or a URL:
   `openstack-copy-id', `openstack-open-web' and
-  `openstack-display-at-point'.  `openstack-mode-tests.el' holds the
+  `openstack-display-at-point'.  `test/openstack-mode-test.el' holds the
   list in `openstack-mode-command-modes'; add a command there when
   adding it to the source.
 - The evil layer is optional and lives in `openstack-evil.el`:
