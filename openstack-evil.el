@@ -42,7 +42,9 @@
 ;; Show buffers keep the command keys of the mode: RET opens the
 ;; resource at point, q quits the window, gr refreshes, p pops back
 ;; to the origin buffer, c copies the resource ID, w opens the
-;; dashboard page and TAB folds the block around point.  Evil
+;; dashboard page and TAB folds the section at point.  The fold
+;; commands of evil, za, zo and zc, reach the sections through the
+;; `evil-fold-list' entry of `openstack-evil-show-mode'.  Evil
 ;; operators on those keys do nothing in a read-only buffer, so the
 ;; commands win.  The `dired-jump' and `dired-up-directory' remaps
 ;; climb one resource level up.
@@ -71,9 +73,9 @@
     ("q" . quit-window)
     ("gr" . revert-buffer)
     ;; TAB is C-i, the jump of the evil jump list, in the normal state.
-    ;; A show buffer folds a block instead, and p returns to the buffer
-    ;; that opened it.
-    ("TAB" . openstack-toggle-section)
+    ;; A show buffer folds the section at point instead, and p returns
+    ;; to the buffer that opened it.
+    ("TAB" . magit-section-toggle)
     ("p" . openstack-pop)
     ("c" . openstack-copy-id)
     ("w" . openstack-open-web)
@@ -139,6 +141,34 @@ KEYS is a list of key descriptions and commands."
                       openstack-evil-list-keys)
 (openstack-evil--bind 'visual 'openstack-evil-list-mode
                       openstack-evil-list-visual-keys)
+
+;; evil matches a fold handler by the major mode name or by a minor
+;; mode variable, and every resource show mode is a major mode of its
+;; own.  The show minor mode of this file is the one symbol that every
+;; OpenStack show buffer shares, so the handler names it instead of
+;; each generated mode.
+(add-to-list 'evil-fold-list
+             `((openstack-evil-show-mode)
+               :open-all   (lambda ()
+                             ;; `magit-section-show' applies the
+                             ;; visibility state, so clear the state of
+                             ;; every section before the walk.
+                             (when magit-root-section
+                               (let ((magit-section-cache-visibility nil))
+                                 (magit-map-sections
+                                  (lambda (section)
+                                    (oset section hidden nil)))
+                                 (magit-section-show magit-root-section))))
+               :close-all  magit-section-show-level-1-all
+               :toggle     (lambda ()
+                             (magit-section-toggle (magit-current-section)))
+               :open       (lambda ()
+                             (magit-section-show (magit-current-section)))
+               :open-rec   (lambda ()
+                             (magit-section-show-children
+                              (magit-current-section)))
+               :close      (lambda ()
+                             (magit-section-hide (magit-current-section)))))
 
 ;;; Selection
 

@@ -21,7 +21,7 @@ resource-specific modes can depend on it.
 | =openstack-data.el=                | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
 | =openstack-error.el=               | The package-wide parent condition =openstack-error=                                      |
 | =openstack-evil.el=                | Optional evil bindings for show and list buffers                                         |
-| =openstack-mode.el=                | Display layer: base mode, collection base mode, the resource macro, the text renderer    |
+| =openstack-mode.el=                | Display layer: section-based base mode, collection base mode, the resource macro        |
 | =openstack-read.el=                | ID completion, type and name lookups                                                     |
 | =openstack-resources.el=           | The resource types, one macro call each                                                  |
 | =openstack-url.el=                 | =openstack:= URL scheme for =browse-url=                                                 |
@@ -34,7 +34,7 @@ resource-specific modes can depend on it.
 | =test/openstack-data-test.el=      | ERT test suite for the data layer and its cache                                          |
 | =test/openstack-evil-test.el=      | ERT test suite for the evil bindings                                                     |
 | =test/openstack-list-mode-test.el= | ERT test suite for the collection base mode                                              |
-| =test/openstack-mode-test.el=      | ERT tests: base mode, collections, resource registry                                     |
+| =test/openstack-mode-test.el=      | ERT tests: base mode, section tree, collections, resource registry                      |
 | =test/openstack-read-test.el=      | ERT test suite for the ID completion                                                     |
 | =test/openstack-resource-test.el=  | ERT tests: the resource show and list modes                                              |
 | =test/openstack-test-helper.el=    | Shared test helpers: source lookup, fixture client program, process wait                 |
@@ -89,9 +89,12 @@ Commands:
   resource of the same collection
 - =M-x openstack-previous-sibling= (=C-c C-p=) -- open the
   previous resource of the same collection
-- =M-x openstack-toggle-section= (=TAB=) -- fold or unfold the
-  block around point: the title and field table, the
-  =properties= block or a =locations= block
+- =TAB= -- fold or unfold the section at point: the title and
+  field table, a field, the =properties= block, an =addresses=
+  block or a record
+- =n=, =M-n= and =M-p= -- move between the sections of a show
+  buffer; =^= goes to the parent section and =1= to =4= show that
+  many levels of the tree.  =p= keeps =openstack-pop=.
 - =M-x openstack-export-json= -- write the last fetch to a JSON
   file
 
@@ -254,12 +257,17 @@ image =size= and =virtual_size= print human readable through
 =file-size-human-readable=, for example =224M=, while the list
 column keeps the raw byte count for sorting.
 
-A show buffer folds its blocks.  The title and the field table form
-one block, the =properties= block another and a =locations= block a
-third, so =TAB= folds the block around point and the =C-c @= prefix
-of =outline-minor-mode= serves the rest.  A refresh keeps a folded
-block closed.  With evil, =TAB= folds as well, and =zc=, =zo= and =za=
-reach the blocks through =evil-fold-list=.
+A show buffer is a tree of sections.  The title holds the field
+table, every field line is a section of its own, a =properties=,
+=addresses= or record block is a group and every record of a list is
+a section, so =TAB= folds the section at point, =n= and =M-n= move
+between sections (=M-p= walks back, =p= still pops), =^= goes to the
+parent section and =1= to =4= show that many levels.  The buffer wraps long values, so a description
+stays readable.  A refresh keeps both the fold and the point of
+every section: the folds are stored per section identity, so new
+data never opens a folded block under the reader.  With evil, =TAB=
+folds as well, and =za=, =zo= and =zc= reach the sections through
+=evil-fold-list=.
 
 Each has its own =openstack-volume-buffer-name= /
 =openstack-image-buffer-name= and =-fields= defcustoms.

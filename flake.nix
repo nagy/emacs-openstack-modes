@@ -55,6 +55,16 @@
             # test, but the package must not depend on it.  Supply the elisp
             # directory to the build only, never through packageRequires.
             evil = emacsPackages.evil;
+
+            # magit-section is a real dependency of openstack-mode.el, but
+            # melpaBuild keeps packageRequires off the load path of its own
+            # build and its `-Q' compiles.  A wrapper Emacs on PATH carries
+            # every dependency in its EMACSLOADPATH, so the build and the
+            # test phase see them.  evil rides along for the optional layer.
+            emacsWithDeps = emacsPackages.emacsWithPackages (p: [
+              p.magit-section
+              p.evil
+            ]);
           in
           emacsPackages.melpaBuild {
             # The package name matches its entry library, openstack.el, so
@@ -80,6 +90,19 @@
               substituteInPlace openstack-cli.el \
                 --replace-fail 'openstack-program "openstack"' 'openstack-program "${lib.getExe' openstackclient "openstack"}"'
             '';
+
+            # The section library and the optional evil layer reach the
+            # build only through this wrapper: melpaBuild ignores
+            # packageRequires for its own load path and runs `emacs -Q'.
+            preBuild = ''
+              export PATH="${emacsWithDeps}/bin:$PATH"
+            '';
+
+            # One real dependency, declared for the consumer and for the
+            # native-compilation pass of the builder.  evil stays out: it is
+            # optional, and a hard dependency would install it for users who
+            # never enable the evil layer.
+            packageRequires = [ emacsPackages.magit-section ];
 
             turnCompilationWarningToError = true;
 
@@ -252,7 +275,10 @@
               {
                 nativeBuildInputs = [
                   pkgs.writableTmpDirAsHomeHook
-                  (pkgs.emacsPackages.emacsWithPackages (p: [ p.package-lint ]))
+                  (pkgs.emacsPackages.emacsWithPackages (p: [
+                    p.package-lint
+                    p.magit-section
+                  ]))
                 ];
                 src = ./.;
               }
@@ -262,10 +288,9 @@
                 # package-lint assumes online ELPA and wants symbols to carry
                 # the file-name prefix (`openstack-mode-', `openstack-cli-'),
                 # but the package shares the shorter `openstack-' prefix across
-                # both files.  Whitelist it.  No dependency stubs needed:
-                # Package-Requires only names emacs itself, which package-lint
-                # special-cases; extra deps would need an `:after' advice on
-                # `package-initialize' (it nils `package-alist' on every call).
+                # both files.  Whitelist it.  The pack above carries
+                # magit-section, so package-lint finds the one real dependency
+                # installed; emacs itself is special-cased.
                 emacs --batch -l package-lint \
                   --eval '(setq package-lint--sane-prefixes (concat package-lint--sane-prefixes "\\|\\`openstack-"))' \
                   -f package-lint-batch-and-exit \
@@ -319,7 +344,10 @@
             # Evil comes along for the optional openstack-evil.el layer.
             packages = [
               pkgs.openstackclient-full
-              (pkgs.emacsPackages.emacsWithPackages (p: [ p.evil ]))
+              (pkgs.emacsPackages.emacsWithPackages (p: [
+                p.evil
+                p.magit-section
+              ]))
             ];
           };
         };

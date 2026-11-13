@@ -4,7 +4,7 @@
 
 ;; Author: Daniel Nagy
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1"))
+;; Package-Requires: ((emacs "30.1") (magit-section "3.0.0"))
 ;; Keywords: tools, convenience
 ;; URL: https://github.com/nagy/emacs-openstack-modes
 
@@ -33,18 +33,24 @@
 ;; open the resource in the web dashboard, and jump back to the
 ;; resource in a previous buffer.
 ;;
-;; The mode derives from `special-mode' (read-only display buffers)
-;; and is itself intended as a parent for resource-specific modes
-;; (servers, volumes, images, networks, ...):
+;; The mode derives from `magit-section-mode' (a read-only display
+;; buffer whose content is a tree of sections) and is itself intended
+;; as a parent for resource-specific modes (servers, volumes, images,
+;; networks, ...):
 ;;
 ;;   (define-derived-mode openstack-server-mode
 ;;     openstack-mode "OpenStack Server"
 ;;     "Render server-specific fields.")
 ;;
-;; Derived modes inherit the ID handling, the keymap, and the
-;; bookmark support; they only need to fetch and render their data
+;; Derived modes inherit the ID handling, the keymap, the sections and
+;; the bookmark support; they only need to fetch and render their data
 ;; by setting `openstack-fetch-function' and
-;; `openstack-render-function'.
+;; `openstack-render-function'.  A field table becomes a section tree:
+;; the title holds the fields, every field line is a section of its
+;; own, a block such as `properties' is a group and every record of a
+;; list is a section.  So `TAB' folds the section at point, `n' walks
+;; the tree and a refresh restores both the folds and the point of
+;; every section by its identity.
 ;;
 ;; Display buffers keep themselves up to date through
 ;; `auto-revert-mode': the refresh runs
@@ -135,7 +141,7 @@
 (require 'cl-lib)
 (require 'js)
 (require 'json)
-(require 'outline)
+(require 'magit-section)
 (require 'tabulated-list)
 (require 'thingatpt)
 (require 'openstack-data)
@@ -504,7 +510,6 @@ back to a single-resource view must clear it.")
     (define-key map (kbd "J") #'openstack-json-view)
     (define-key map [remap js-json-mode] #'openstack-json-view)
     (define-key map [remap json-ts-mode] #'openstack-json-view)
-    (define-key map (kbd "TAB") #'openstack-toggle-section)
     (define-key map (kbd "p") #'openstack-pop)
     (define-key map (kbd "C-c C-n") #'openstack-next-sibling)
     (define-key map (kbd "C-c C-p") #'openstack-previous-sibling)
@@ -526,7 +531,12 @@ a directory tree walk up the resource hierarchy in these
 buffers.  \\[openstack-next-sibling] and
 \\[openstack-previous-sibling] walk to the next and the previous
 resource of the same collection, and the back and forward mouse
-buttons run the same two commands.")
+buttons run the same two commands.  The keymap of
+`magit-section-mode' contributes the section keys: `TAB' folds the
+section at point, `n' and `M-n' (and `M-p') move between sections,
+`^' goes to the parent section and `1' to `4' show that many
+levels.  `p' keeps `openstack-pop' and `M-p' walks to the previous
+sibling section.")
 
 (defvar openstack-bookmark-handler 'openstack-bookmark-jump
   "Symbol of the bookmark handler for resource buffers.")
@@ -831,7 +841,9 @@ DATA is ignored: the default renderer shows only the ID.  This is
 the default value of `openstack-render-function'; derived modes
 provide their own renderer by setting that variable."
   (ignore data)
-  (insert (format "OpenStack resource\n\nID: %s\n" id)))
+  (openstack--insert-root
+   (lambda ()
+     (insert (format "OpenStack resource\n\nID: %s\n" id)))))
 
 (defun openstack-fetch-default (_id success-fn _error-fn)
   "Fetch nothing and complete immediately with nil data.
@@ -1125,6 +1137,7 @@ the display buffer redraws it.
 
 \\{openstack-json-mode-map}"
   :group 'openstack
+  :interactive nil
   (openstack--detach-directory)
   (setq-local revert-buffer-function #'openstack-json--revert)
   (setq buffer-read-only t))
@@ -1200,138 +1213,47 @@ collection buffer."
 ;;; Point keeping
 
 ;; A render erases the buffer, so `openstack--refresh-done' records the
-;; line of point before the render and restores it after the render.
-;; The record names the line and not a buffer position: the field name,
-;; the resource ID of a field value or, for a line without an identity,
-;; the text of the line and its ordinal among the equal lines above it.
-;; So a refresh keeps the reader on the same field even when a field
-;; appears above it, and a second window that shows the buffer keeps its
-;; own place.
-
-(defun openstack--line-property (property)
-  "Return the first PROPERTY value of the current line, or nil."
-  (declare (side-effect-free t))
-  (let ((end (line-end-position))
-        (position (line-beginning-position))
-        (value nil))
-    (while (and (not value) (< position end))
-      (setq value (get-text-property position property))
-      (unless value
-        (setq position (next-single-property-change
-                        position property nil end))))
-    value))
-
-(defun openstack--line-identity ()
-  "Return the identity of the line of point, or nil.
-The identity is a cons of a kind and a value: `field' and the
-field name, `id' and the resource ID of a field value, or `text'
-and the text of the line.  A line of whitespace alone has no
-identity, because its text would match every blank line."
-  (declare (side-effect-free t))
-  (or (when-let* ((field (get-text-property (line-beginning-position)
-                                            'openstack-field)))
-        (cons 'field field))
-      (when-let* ((id (openstack--line-property 'openstack-id)))
-        (cons 'id id))
-      (let ((text (string-trim-right
-                   (buffer-substring-no-properties (line-beginning-position)
-                                                   (line-end-position)))))
-        (unless (string-empty-p text)
-          (cons 'text text)))))
-
-(defun openstack--identity-ordinal (identity)
-  "Return the number of lines above point that carry IDENTITY.
-The count is the ordinal of the line of point among the equal
-identities of the buffer, so two records that share a key name
-keep their own line."
-  (declare (side-effect-free t))
-  (let ((origin (line-beginning-position))
-        (count 0))
-    (save-excursion
-      (goto-char (point-min))
-      (while (< (point) origin)
-        (when (equal (openstack--line-identity) identity)
-          (setq count (1+ count)))
-        (forward-line 1)))
-    count))
+;; section of point before the render and restores it after the render.
+;; The record names the section and not a buffer position:
+;; `magit-section-goto-successor' finds the section of the same ident
+;; in the new tree, so a field that appears above point keeps the
+;; reader on the same field, and a second window that shows the buffer
+;; keeps its own place.  A section that the new render dropped moves
+;; point to the start of the buffer.
 
 (defun openstack--point-record (&optional position)
   "Return a record of the line at POSITION, or nil.
-POSITION defaults to point.  The record holds the identity of the
-line, its ordinal among the equal identities above, the number of
-lines from that line to the line of POSITION and the column of
-POSITION.  A line without an identity leans on the nearest line
-above that has one, so the record keeps the distance from that
-line.  Return nil when no line of the buffer has an identity,
-because then there is no place to keep."
-  (let ((offset 0)
-        column
-        identity)
-    (save-excursion
-      (goto-char (or position (point)))
-      (setq column (- (point) (line-beginning-position)))
-      (beginning-of-line)
-      (let ((done nil))
-        (while (not done)
-          (setq identity (openstack--line-identity))
-          (cond (identity (setq done t))
-                ((bobp) (setq done t))
-                (t
-                 (setq offset (1+ offset))
-                 (forward-line -1))))))
-    (when identity
-      (list :identity identity
-            :ordinal (openstack--identity-ordinal identity)
-            :offset offset
-            :column column))))
+POSITION defaults to point.  The record holds the section of the
+line, the number of lines from the start of that section to the
+line and the column of POSITION.  Return nil when no section
+covers POSITION, because then there is no place to keep."
+  (let ((position (or position (point))))
+    (when-let* ((section (magit-section-at position)))
+      (list :section section
+            :line (- (line-number-at-pos position)
+                     (line-number-at-pos (oref section start)))
+            :column (- position
+                       (save-excursion
+                         (goto-char position)
+                         (line-beginning-position)))))))
 
-(defun openstack--identity-position (identity ordinal)
-  "Return the start of the line that IDENTITY names at ORDINAL.
-ORDINAL counts from zero among the lines that carry IDENTITY, so
-two records that share a key name keep their own line.  Return
-nil when the buffer holds no such line.  When it holds fewer
-lines than ORDINAL, the last one answers, because a line can go
-away between two refreshes and the reader stays in the same part
-of the buffer."
-  (declare (side-effect-free t))
-  (let ((index 0)
-        (found nil)
-        (last nil))
-    (save-excursion
-      (goto-char (point-min))
-      (while (not (eobp))
-        (when (equal (openstack--line-identity) identity)
-          (setq last (line-beginning-position))
-          (unless (or found (< index ordinal))
-            (setq found last))
-          (setq index (1+ index)))
-        (forward-line 1)))
-    (or found last)))
-
-(defun openstack--record-position (record)
+(defun openstack--section-position (record)
   "Return the buffer position that RECORD names, or nil.
-The position is the start of the line that the identity of RECORD
-names, moved down by the recorded number of lines and set to the
-recorded column.  A shorter line clips the column to its end."
+The position is where `magit-section-goto-successor' lands for the
+section of RECORD, moved down by its recorded line count.  Return
+nil when the new tree holds no section of that ident."
   (when record
     (save-excursion
-      (goto-char (point-min))
-      (when-let* ((start (openstack--identity-position
-                          (plist-get record :identity)
-                          (plist-get record :ordinal))))
-        (goto-char start)
-        (forward-line (plist-get record :offset))
-        (let ((column (plist-get record :column)))
-          (unless (zerop column)
-            (goto-char (min (+ (line-beginning-position) column)
-                            (line-end-position)))))
+      (when (magit-section-goto-successor (plist-get record :section)
+                                          (plist-get record :line)
+                                          (plist-get record :column))
         (point)))))
 
 (defun openstack--restore-point (record)
   "Move point to the position that RECORD describes.
 A nil RECORD moves point to the start of the buffer, because no
-line carried an identity before the render."
-  (goto-char (or (openstack--record-position record) (point-min))))
+section covered point before the render."
+  (goto-char (or (openstack--section-position record) (point-min))))
 
 (defun openstack--window-records ()
   "Return the point record of every other window that shows the buffer.
@@ -1356,7 +1278,7 @@ dead window stays alone."
     (let ((window (car record)))
       (when (window-live-p window)
         (set-window-point window
-                          (or (openstack--record-position (cdr record))
+                          (or (openstack--section-position (cdr record))
                               (point-min)))))))
 
 (defun openstack--refresh-done (buf marker id data err)
@@ -1366,13 +1288,14 @@ condition of a failed fetch: the last good content stays in the
 buffer and the error goes to the buffer's status display (see
 `openstack-error-display-function').  Rendering is skipped when
 DATA has the same content as the previously rendered data,
-keeping point, marks and window start intact.  A render records the
-line of point before it erases the buffer and restores that line
-afterwards, so a field that appeared above point does not carry
-the reader away; every other window that shows BUF keeps the line
-of its own point.  A refresh requested while this fetch ran is
-served now.  Do nothing when BUF is already dead or when MARKER
-is stale, i.e. when the fetch was superseded while it ran."
+keeping point, marks, folds and window start intact.  A render
+records the section of point before it erases the buffer and finds
+that section again afterwards, so a field that appeared above point
+does not carry the reader away; every other window that shows BUF
+keeps the line of its own point.  A refresh requested while this
+fetch ran is served now.  Do nothing when BUF is already dead or
+when MARKER is stale, i.e. when the fetch was superseded while it
+ran."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (when (eq marker openstack--fetch-marker)
@@ -1394,14 +1317,21 @@ is stale, i.e. when the fetch was superseded while it ran."
                 (funcall openstack-render-function id data)
               (let* ((record (openstack--point-record))
                      (windows (openstack--window-records))
-                     (sections (openstack--collapsed-sections))
                      (window (get-buffer-window buf 0))
                      (start (and (window-live-p window)
                                  (window-start window))))
                 (let ((inhibit-read-only t))
                   (erase-buffer)
+                  ;; The renderer builds a new tree: the old one points
+                  ;; into text that no longer exists.
+                  (setq magit-root-section nil)
                   (funcall openstack-render-function id data))
-                (openstack--restore-sections sections)
+                ;; Showing the root applies the folds that the visibility
+                ;; cache restored while the renderer created sections.
+                ;; The bind keeps that walk itself out of the cache.
+                (when magit-root-section
+                  (let ((magit-section-cache-visibility nil))
+                    (magit-section-show magit-root-section)))
                 (openstack--restore-point record)
                 (openstack--restore-window-points windows)
                 (when (window-live-p window)
@@ -1676,17 +1606,69 @@ HELP is the text of the tooltip."
   (declare (pure t) (side-effect-free t))
   (make-text-button text nil :type 'openstack-object 'help-echo help))
 
-(defun openstack--insert-field (field value &optional id width)
-  "Insert one FIELD of a resource with its VALUE into the buffer.
-When ID is non-nil, the value becomes an `openstack-object' button
-that carries `openstack-id', so `openstack-display-at-point' and
-`push-button' open the resource from the ID field line.  WIDTH,
-when a number, gives the column at which values start, so the
-field name gets padded with spaces after its colon.  A status
-value takes its face from `openstack-status-faces', a date field
-named in `openstack-date-fields' takes `openstack-date', the `id'
-field takes `openstack-id', and a value that differs from the
-previous refresh takes `openstack-field-changed'."
+;;; Sections
+
+;; A display buffer is a tree of `magit-section' objects.  Every
+;; field line is a section of its own and a block that holds rows is a
+;; group section, so `imenu', the point record, `TAB' and the section
+;; motion commands all read one tree.  The string renderers of
+;; `openstack-render-fields-to-string' must not carry a section
+;; object, so they bind `openstack--section-context' to nil and the
+;; insertion helpers fall back to plain text.
+
+(defvar-local openstack--buffer-kind 'openstack-show
+  "Symbol that names the kind of the current display buffer.
+The root section of a render carries it as its value.  Two buffer
+kinds that share a value share the fold cache of
+`magit-section-visibility-cache', so a mode that renders another
+tree sets its own symbol here.")
+
+(defvar openstack--section-context nil
+  "Non-nil while a renderer inserts `magit-section' sections.
+`openstack--insert-root' binds it, and
+`openstack-render-fields-to-string' leaves it nil, because the
+string it returns must not hold a section object.")
+
+(defun openstack--insert-root (insert-fn)
+  "Insert the root section of the current buffer around INSERT-FN.
+The value of the section is `openstack--buffer-kind'.  Every
+section that INSERT-FN writes belongs to that root.
+
+The render inserts once and the buffer then only reads, so the
+section positions need no marker.  A heading never takes a child
+count either: the rewrite would move the positions of the children
+that already recorded theirs.  Bind both here as well as in
+`openstack-mode', so a renderer called outside the mode still
+writes a sound tree."
+  (let ((openstack--section-context t)
+        (magit-section-inhibit-markers t)
+        (magit-section-show-child-count nil))
+    (magit-insert-section (openstack-detail openstack--buffer-kind)
+      (funcall insert-fn))))
+
+(defmacro openstack--with-section (type value &rest body)
+  "Insert a section of TYPE with VALUE around the BODY forms.
+Without a section context, run BODY alone, so the renderers write
+plain text for `openstack-render-fields-to-string'."
+  (declare (indent 2))
+  `(if openstack--section-context
+       (magit-insert-section (,type ,value) ,@body)
+     ,@body))
+
+(defun openstack--end-heading ()
+  "End the heading line of the section that is being inserted.
+A section heading is one line, so a renderer ends the heading after
+the first line of a field and lets the remaining lines form the
+body.  Outside a section context there is nothing to end."
+  (when openstack--section-context
+    (magit-insert-heading)))
+
+(defun openstack--field-line (field value &optional id width)
+  "Return the display line of FIELD with its VALUE, ending in a newline.
+ID, WIDTH and the faces behave as `openstack--insert-field'
+documents.  `openstack--insert-records' writes the keys of a
+record through this function, because the keys belong to the
+section of the record and need no section of their own."
   (let* ((text (openstack--format-value value field))
          (name-width (string-width field))
          (face (openstack--cell-face
@@ -1697,14 +1679,31 @@ previous refresh takes `openstack-field-changed'."
       (setq text (openstack--button-string
                   (propertize text 'openstack-id id)
                   (format "Open %s" id))))
-    (insert (propertize field 'face 'openstack-field-name
-                        'openstack-field field)
+    (concat (propertize field 'face 'openstack-field-name)
             ":"
             (make-string (if width
                              (1+ (- width name-width))
                            1)
                          ?\s)
             text "\n")))
+
+(defun openstack--insert-field (field value &optional id width)
+  "Insert one FIELD of a resource with its VALUE into the buffer.
+When ID is non-nil, the value becomes an `openstack-object' button
+that carries `openstack-id', so `openstack-display-at-point' and
+`push-button' open the resource from the ID field line.  WIDTH,
+when a number, gives the column at which values start, so the
+field name gets padded with spaces after its colon.  A status
+value takes its face from `openstack-status-faces', a date field
+named in `openstack-date-fields' takes `openstack-date', the `id'
+field takes `openstack-id', and a value that differs from the
+previous refresh takes `openstack-field-changed'.
+
+The line is an `openstack-field' section, so the field name names
+it in the section tree and in `imenu'."
+  (openstack--with-section openstack-field field
+    (insert (openstack--field-line field value id width))
+    (openstack--end-heading)))
 
 (defun openstack--insert-references (field values &optional width)
   "Insert FIELD, a resource ID or a list of them in VALUES.
@@ -1717,7 +1716,9 @@ resource.  WIDTH, when a number, gives the column at which values
 start, so the field name gets padded with spaces after its colon
 and the later IDs line up under the first one.  A list that
 differs from the previous refresh takes `openstack-field-changed'
-on every ID as well."
+on every ID as well.  The first ID line is the heading of an
+`openstack-field' section and the later IDs form its body, so
+`TAB' folds the list of IDs from any of its lines."
   (let* ((values (if (stringp values) (list values) values))
          (type (openstack--reference-type field))
          (face (if (openstack--field-changed-p field values)
@@ -1731,22 +1732,24 @@ on every ID as well."
                                        (string-width pad))
                                     ?\s))
          (first t))
-    (dolist (value values)
-      (insert (if first
-                  (concat (propertize field 'face 'openstack-field-name
-                                      'openstack-field field)
-                          ":" pad)
-                continuation))
-      (insert (openstack--button-string
-               (propertize (openstack--format-value value)
-                           'face face
-                           'openstack-id value
-                           'openstack-ref-type type)
-               (if type
-                   (format "Open %s %s" type value)
-                 (format "Open %s" value)))
-              "\n")
-      (setq first nil))))
+    (openstack--with-section openstack-field field
+      (dolist (value values)
+        (insert (if first
+                    (concat (propertize field 'face 'openstack-field-name)
+                            ":" pad)
+                  continuation))
+        (insert (openstack--button-string
+                 (propertize (openstack--format-value value)
+                             'face face
+                             'openstack-id value
+                             'openstack-ref-type type)
+                 (if type
+                     (format "Open %s %s" type value)
+                   (format "Open %s" value)))
+                "\n")
+        (when first
+          (openstack--end-heading))
+        (setq first nil)))))
 
 (defun openstack--insert-properties (properties)
   "Insert PROPERTIES, a hash table of resource metadata, as a block.
@@ -1755,22 +1758,20 @@ table.  Every key follows on its own indented line, sorted by
 name, with its value aligned one column past the longest key.
 The client flattens the Glance `locations' attribute into this
 hash table, so a list of record values prints as a nested block.
-The block is a foldable section."
-  (insert (propertize "properties:"
-                      'face 'openstack-field-name
-                      'openstack-field "properties"
-                      'openstack-section "properties")
-          "\n")
-  (let ((keys nil))
-    (maphash (lambda (key _value) (push key keys)) properties)
-    (setq keys (sort keys #'string<))
-    (let ((width (apply #'max 0 (mapcar #'string-width keys))))
-      (dolist (key keys)
-        (let ((value (gethash key properties)))
-          (if (openstack--record-list-p value)
-              (openstack--insert-records key value 2)
-            (insert "  ")
-            (openstack--insert-field key value nil width)))))))
+The block is an `openstack-group' section, so `TAB' folds it."
+  (openstack--with-section openstack-group "properties"
+    (insert (propertize "properties:" 'face 'openstack-field-name) "\n")
+    (openstack--end-heading)
+    (let ((keys nil))
+      (maphash (lambda (key _value) (push key keys)) properties)
+      (setq keys (sort keys #'string<))
+      (let ((width (apply #'max 0 (mapcar #'string-width keys))))
+        (dolist (key keys)
+          (let ((value (gethash key properties)))
+            (if (openstack--record-list-p value)
+                (openstack--insert-records key value 2)
+              (insert "  ")
+              (openstack--insert-field key value nil width))))))))
 
 (defun openstack--record-list-p (value)
   "Return non-nil when VALUE is a non-empty list of hash tables."
@@ -1802,58 +1803,73 @@ address."
 NETWORKS is a hash of network name to address records.  The
 addresses of a network follow its name, sorted and separated by a
 comma, aligned one column past the longest network name.  The
-block is a foldable section."
-  (insert (propertize (concat field ":")
-                      'face 'openstack-field-name
-                      'openstack-field field
-                      'openstack-section field)
-          "\n")
-  (let ((names nil))
-    (maphash (lambda (name _records) (push name names)) networks)
-    (setq names (sort names #'string<))
-    (let ((width (apply #'max 0 (mapcar #'string-width names))))
-      (dolist (name names)
-        (insert "  " (format (format "%%-%ds" width) name) ": "
-                (or (mapconcat #'identity
-                               (openstack--address-strings
-                                (gethash name networks))
-                               ", ")
-                    "-")
-                "\n")))))
+block is an `openstack-group' section, so `TAB' folds it."
+  (openstack--with-section openstack-group field
+    (insert (propertize (concat field ":") 'face 'openstack-field-name)
+            "\n")
+    (openstack--end-heading)
+    (let ((names nil))
+      (maphash (lambda (name _records) (push name names)) networks)
+      (setq names (sort names #'string<))
+      (let ((width (apply #'max 0 (mapcar #'string-width names))))
+        (dolist (name names)
+          (insert "  " (format (format "%%-%ds" width) name) ": "
+                  (or (mapconcat #'identity
+                                 (openstack--address-strings
+                                  (gethash name networks))
+                                 ", ")
+                      "-")
+                  "\n"))))))
+
 (defun openstack--insert-records (field records &optional indent)
   "Insert FIELD, a list of RECORDS, as an indented block.
 INDENT, the number of leading spaces, defaults to 0.  Every key of
 every record follows on its own line, sorted by name, with a `- '
 marker before the first key of each record and the values aligned
-past the longest key.  A block at the start of a line is a
-foldable section; a nested block stays inside the section of its
-field."
+past the longest key.  A block at the start of a line is an
+`openstack-group' section; a nested block stays inside the section
+of its field.  Every record is an `openstack-record' section whose
+heading is its first key line, so `TAB' folds the rest of the
+record away."
   (setq indent (or indent 0))
-  (let ((heading (concat field ":"))
-        (properties (list 'face 'openstack-field-name
-                          'openstack-field field)))
-    (when (zerop indent)
-      (setq properties (append properties
-                               (list 'openstack-section field))))
-    (insert (make-string indent ?\s)
-            (apply #'propertize heading properties)
-            "\n"))
-  (let ((keys nil))
+  (let ((heading (concat field ":")))
+    (if (zerop indent)
+        (openstack--with-section openstack-group field
+          (insert (propertize heading 'face 'openstack-field-name) "\n")
+          (openstack--end-heading)
+          (openstack--insert-record-lines records indent))
+      (insert (make-string indent ?\s)
+              (propertize heading 'face 'openstack-field-name)
+              "\n")
+      (openstack--insert-record-lines records indent))))
+
+(defun openstack--insert-record-lines (records indent)
+  "Insert one `openstack-record' section per record of RECORDS.
+INDENT spaces lead every line of the block, and the keys of a
+record align across the whole block."
+  (let ((keys nil)
+        (index 0))
     (dolist (record records)
       (maphash (lambda (key _value) (cl-pushnew key keys :test #'equal))
                record))
     (setq keys (sort keys #'string<))
     (let ((width (apply #'max 0 (mapcar #'string-width keys))))
       (dolist (record records)
-        (let ((first t))
-          (dolist (key keys)
-            (let ((value (gethash key record)))
-              (when value
-                (insert (make-string (if first (+ indent 2) (+ indent 4))
-                                     ?\s))
-                (when first (insert "- "))
-                (openstack--insert-field key value nil width)
-                (setq first nil)))))))))
+        (setq index (1+ index))
+        (openstack--with-section openstack-record index
+          (let ((first t))
+            (dolist (key keys)
+              (let ((value (gethash key record)))
+                (when value
+                  (insert (make-string (if first (+ indent 2) (+ indent 4))
+                                       ?\s))
+                  (when first (insert "- "))
+                  (insert (openstack--field-line key value nil width))
+                  (when first
+                    ;; The first key line is the heading of the record,
+                    ;; the remaining keys form its body.
+                    (openstack--end-heading))
+                  (setq first nil))))))))))
 
 (defun openstack--row-kind (field value)
   "Return the kind of the display row of FIELD with VALUE.
@@ -1876,6 +1892,68 @@ line."
              (and (stringp value) (not (string-empty-p value)))))
     'references)))
 
+(defun openstack--render-fields (title id data fields)
+  "Insert a field table titled TITLE into the current buffer.
+ID, DATA and FIELDS behave as `openstack-render-fields' documents.
+The title line is an `openstack-title' section that holds the rest
+of the buffer, so `TAB' on it folds the whole table and every field
+line below it is a section of its own."
+  (let ((heading (format "%s: %s" title
+                         (or (and (hash-table-p data) (gethash "name" data))
+                             id))))
+    (openstack--with-section openstack-title heading
+      (insert heading "\n")
+      (openstack--end-heading)
+      (when id
+        (insert (propertize "ID" 'face 'openstack-field-name)
+                ": " (openstack--button-string
+                       (propertize id 'face 'openstack-id
+                                   'openstack-id id)
+                       (format "Open %s" id))
+                "\n\n"))
+      (when (hash-table-p data)
+        (let ((unshown (make-hash-table :test #'equal))
+              (properties nil)
+              (rows nil))
+          (cl-labels
+              ((add-row (field value)
+                 "Record FIELD with VALUE as a display row, or as PROPERTIES."
+                 (let ((kind (and value (openstack--row-kind field value))))
+                   (if (eq kind 'properties)
+                       (setq properties value)
+                     (push (list field value
+                                 (and id (string= field "id") id)
+                                 kind)
+                           rows)))))
+            (maphash (lambda (key _value) (puthash key t unshown)) data)
+            (dolist (field fields)
+              (remhash field unshown)
+              (let ((value (gethash field data)))
+                (when value
+                  (add-row field value))))
+            (let ((remaining nil))
+              (maphash (lambda (key _value) (push key remaining)) unshown)
+              (dolist (field (sort remaining #'string<))
+                (add-row field (gethash field data)))))
+          (setq rows (nreverse rows))
+          (let ((width (apply #'max 0
+                              (mapcar (lambda (row)
+                                        (string-width (nth 0 row)))
+                                      rows))))
+            (dolist (row rows)
+              (pcase (nth 3 row)
+                ('records
+                 (openstack--insert-records (nth 0 row) (nth 1 row)))
+                ('addresses
+                 (openstack--insert-addresses (nth 0 row) (nth 1 row)))
+                ('references
+                 (openstack--insert-references (nth 0 row) (nth 1 row) width))
+                (_
+                 (openstack--insert-field
+                  (nth 0 row) (nth 1 row) (nth 2 row) width)))))
+          (when properties
+            (openstack--insert-properties properties)))))))
+
 (defun openstack-render-fields-to-string (title id data fields)
   "Return a field table titled TITLE as a string.
 ID identifies the resource in the header (nil in collection
@@ -1890,61 +1968,12 @@ last entry and prints as an indented `key: value' block; a
 records; a field named in `openstack-reference-fields' prints
 one referenced ID per line.  The text carries the same faces and
 `openstack-id' properties as the buffer view, because
-`openstack-render-fields' inserts this string."
+`openstack-render-fields' writes the same lines; it carries no
+section property, because that needs an object in a live
+buffer."
   (with-temp-buffer
-    (let ((heading (format "%s: %s" title
-                           (or (and (hash-table-p data) (gethash "name" data))
-                               id))))
-      (insert (propertize heading 'openstack-section heading) "\n"))
-    (when id
-      (insert (propertize "ID" 'face 'openstack-field-name)
-              ": " (openstack--button-string
-                     (propertize id 'face 'openstack-id
-                                 'openstack-id id)
-                     (format "Open %s" id))
-              "\n\n"))
-    (when (hash-table-p data)
-      (let ((unshown (make-hash-table :test #'equal))
-            (properties nil)
-            (rows nil))
-        (cl-labels
-            ((add-row (field value)
-               "Record FIELD with VALUE as a display row, or as PROPERTIES."
-               (let ((kind (and value (openstack--row-kind field value))))
-                 (if (eq kind 'properties)
-                     (setq properties value)
-                   (push (list field value
-                               (and id (string= field "id") id)
-                               kind)
-                         rows)))))
-          (maphash (lambda (key _value) (puthash key t unshown)) data)
-          (dolist (field fields)
-            (remhash field unshown)
-            (let ((value (gethash field data)))
-              (when value
-                (add-row field value))))
-          (let ((remaining nil))
-            (maphash (lambda (key _value) (push key remaining)) unshown)
-            (dolist (field (sort remaining #'string<))
-              (add-row field (gethash field data)))))
-        (setq rows (nreverse rows))
-        (let ((width (apply #'max 0
-                            (mapcar (lambda (row)
-                                      (string-width (nth 0 row)))
-                                    rows))))
-          (dolist (row rows)
-            (pcase (nth 3 row)
-              ('records
-               (openstack--insert-records (nth 0 row) (nth 1 row)))
-              ('addresses
-               (openstack--insert-addresses (nth 0 row) (nth 1 row)))
-              ('references
-               (openstack--insert-references (nth 0 row) (nth 1 row) width))
-              (_
-               (openstack--insert-field
-                (nth 0 row) (nth 1 row) (nth 2 row) width)))))
-        (when properties
-          (openstack--insert-properties properties))))
+    (let ((openstack--section-context nil))
+      (openstack--render-fields title id data fields))
     (buffer-string)))
 
 (defun openstack-render-fields (title id data fields)
@@ -1954,9 +1983,12 @@ buffers); DATA is the parsed `RESOURCE show' JSON and FIELDS
 the list of fields shown first, in that order.  Derived resource
 modes call this from their `openstack-render-function' with their
 own field order.  The text, its faces and its `openstack-id'
-properties come from `openstack-render-fields-to-string', so a
-caller without a buffer asks for the same text as a string."
-  (insert (openstack-render-fields-to-string title id data fields)))
+properties match `openstack-render-fields-to-string', and every
+field line is a `magit-section' section inside an
+`openstack-title' section, so `TAB', the section motion commands
+and `imenu' read the same tree."
+  (openstack--insert-root
+   (lambda () (openstack--render-fields title id data fields))))
 
 (defun openstack-resource-render (type data &optional id)
   "Return the display text of resource TYPE with DATA as a string.
@@ -1976,124 +2008,48 @@ mode of TYPE write the same text.  Signal
       (openstack-render-fields-to-string
        title id data (openstack-resource-fields type)))))
 
-;;; Sections
+;;; Section commands
 
-;; A display buffer folds its blocks through `outline-minor-mode'.  A
-;; heading is a line that carries the text property `openstack-section'
-;; with the name of the block, and `outline-search-function' finds it,
-;; so no heading needs a special character in its text.  Every block is
-;; a top level block, so `outline-level' answers one for each of them.
+;; The renderers build the tree with `magit-section', so the fold and
+;; motion commands come from `magit-section-mode-map': `TAB' folds the
+;; section at point, `n' and `M-n' (and `M-p') move between sections,
+;; `^' goes to the parent and `1' to `4' show that many levels.  The
+;; renderer writes the sections, so no command here keeps a fold of its
+;; own.
 
-(defun openstack--outline-search (&optional bound move backward looking-at)
-  "Search for the next text property `openstack-section'.
-BOUND, MOVE, BACKWARD and LOOKING-AT have the meaning that
-`outline-search-function' documents."
-  (outline-search-text-property 'openstack-section nil bound move backward
-                                looking-at))
-
-(defun openstack--section-headings ()
-  "Return the start of every section heading of the current buffer.
-The positions come in buffer order."
-  (let (headings
-        (position (point-min)))
-    (save-excursion
-      (while (< position (point-max))
-        (when (get-text-property position 'openstack-section)
-          (push position headings))
-        (setq position (or (next-single-property-change
-                            position 'openstack-section nil (point-max))
-                           (point-max)))))
-    (nreverse headings)))
-
-(defun openstack--collapsed-sections ()
-  "Return the names of the folded sections of the current buffer.
-`openstack--refresh-done' reads this before it erases the buffer, so
-a refresh keeps the fold of a reader."
-  (when (bound-and-true-p outline-minor-mode)
-    (let (names)
-      (dolist (heading (openstack--section-headings))
-        (save-excursion
-          (goto-char heading)
-          (when (outline-invisible-p (line-end-position))
-            (push (get-text-property heading 'openstack-section) names))))
-      names)))
-
-(defun openstack--keep-final-newline-visible ()
-  "Stop every fold of the current buffer from hiding the last newline.
-`outline-hide-subtree' folds up to `point-max' for a section that
-ends the buffer, and Emacs drops the line break of an invisible
-newline, so the next block would draw on the row of the folded
-heading."
-  (when (eq (char-before (point-max)) ?\n)
-    (dolist (overlay (overlays-in (point-min) (point-max)))
-      (when (and (eq (overlay-get overlay 'invisible) 'outline)
-                 (= (overlay-end overlay) (point-max)))
-        (move-overlay overlay (overlay-start overlay)
-                      (1- (point-max)))))))
-
-(defun openstack--hide-section (name)
-  "Fold the section NAME of the current buffer when it is present."
-  (when-let* ((heading (seq-find
-                        (lambda (position)
-                          (equal (get-text-property
-                                  position 'openstack-section)
-                                 name))
-                        (openstack--section-headings)))
-              (inhibit-read-only t))
-    (save-excursion
-      (goto-char heading)
-      (outline-hide-subtree)
-      (openstack--keep-final-newline-visible))))
-
-(defun openstack--restore-sections (names)
-  "Fold the sections of NAMES in the current buffer."
-  (dolist (name names)
-    (openstack--hide-section name)))
-
-(defun openstack--enclosing-section ()
-  "Return the start of the heading of the section around point.
-Return nil when point sits above the first section."
-  (save-excursion
-    (beginning-of-line)
-    (if (get-text-property (point) 'openstack-section)
-        (point)
-      (when (outline-previous-heading)
-        (point)))))
-
-(defun openstack-toggle-section ()
-  "Fold or unfold the OpenStack block around point.
-A block is the title and the field table, the `properties' block or
-a `locations' block.  The command works on every line of a block,
-so a reader folds a long block from the middle of it."
-  (interactive nil openstack-mode)
-  (let ((heading (openstack--enclosing-section)))
-    (unless heading
-      (user-error "No OpenStack section at point"))
-    (save-excursion
-      (goto-char heading)
-      (outline-toggle-children)
-      (openstack--keep-final-newline-visible))))
+(defun openstack--section-of-type (type &optional value)
+  "Return the section of TYPE with VALUE, or nil.
+VALUE defaults to any value, and TYPE matches the section type of a
+`magit-section' object.  Return nil in a buffer without a tree."
+  (let (found)
+    (when (bound-and-true-p magit-root-section)
+      (magit-map-sections
+       (lambda (section)
+         (when (and (eq (oref section type) type)
+                    (or (null value) (equal (oref section value) value)))
+           (setq found section)))
+       magit-root-section))
+    found))
 
 ;;; Imenu
 
 (defun openstack--imenu-index ()
-  "Return an imenu index of the sections and field lines of the buffer.
-Every heading and every `Field: value' line that the renderers
-write becomes an entry, so `imenu' jumps to a field or a block and
-`which-function-mode' names it at point."
+  "Return an imenu index of the title, the fields and the blocks.
+The entries come from the section tree that the renderers build, so
+`imenu' jumps to a field or a block and `which-function-mode'
+names it at point.  A record row stays out of the index, because
+its keys repeat across records."
   (let (index)
-    (save-excursion
-      (goto-char (point-min))
-      (while (not (eobp))
-        (cond
-         ((get-text-property (point) 'openstack-section)
-          (push (cons (get-text-property (point) 'openstack-section) (point))
-                index))
-         ((get-text-property (point) 'openstack-field)
-          (push (cons (get-text-property (point) 'openstack-field) (point))
-                index)))
-        (forward-line 1)))
-    (nreverse index)))
+    (when (bound-and-true-p magit-root-section)
+      (magit-map-sections
+       (lambda (section)
+         (when (memq (oref section type)
+                     '(openstack-title openstack-field openstack-group))
+           (push (cons (format "%s" (oref section value))
+                       (oref section start))
+                 index)))
+       magit-root-section))
+    (sort index (lambda (a b) (< (cdr a) (cdr b))))))
 
 ;;; Collection helpers
 
@@ -2140,7 +2096,7 @@ over the parent's own `revert-buffer-function'."
     (auto-revert-mode 1)))
 
 ;;;###autoload
-(define-derived-mode openstack-mode special-mode
+(define-derived-mode openstack-mode magit-section-mode
   "OpenStack Resource"
   "Display an OpenStack resource in the current buffer.
 This is the base mode for OpenStack resource display.  It
@@ -2152,11 +2108,20 @@ modes; they inherit the ID handling and only override fetching
 and rendering by setting `openstack-fetch-function' and
 `openstack-render-function' to their own functions.
 
-The renderers attach an `openstack-id' text property to the ID
-field lines, to the IDs of an `openstack-reference-fields' field
-and to the rows of collection buffers: RET or `mouse-2' there
-opens the resource with the buffer-local `openstack-show-command';
-`openstack-display-at-point' carries it out."
+The renderers build a tree of `magit-section' objects: the title
+and its field table form one section, every field line a section
+of its own and a block such as `properties' or a record list a
+group.  `TAB' folds the section at point, `n' and `M-n' (and
+`M-p') move between sections, `^' goes to the parent section and
+`1' to `4' show that many levels.  A refresh restores both the
+fold and the point of every section by its ident.
+
+The renderers also attach an `openstack-id' text property to the
+ID field lines, to the IDs of an `openstack-reference-fields'
+field and to the rows of collection buffers: RET or `mouse-2'
+there opens the resource with the buffer-local
+`openstack-show-command'; `openstack-display-at-point' carries it
+out."
   :group 'openstack
   ;; Entering the mode again (a derived mode superseding this one,
   ;; or `openstack-display' on an existing buffer) replaces the
@@ -2164,15 +2129,20 @@ opens the resource with the buffer-local `openstack-show-command';
   ;; starts from a clean slate.
   (openstack--init-display-buffer)
   (setq-local imenu-create-index-function #'openstack--imenu-index)
-  ;; A heading carries `openstack-section', so the outline search finds
-  ;; it and no heading needs a special character in its text.  Every
-  ;; block is a top level block, so the level answers one.  The
-  ;; renderers keep their own faces, so the outline highlight stays
-  ;; off.
-  (setq-local outline-search-function #'openstack--outline-search)
-  (setq-local outline-level (lambda () 1))
-  (setq-local outline-minor-mode-highlight nil)
-  (outline-minor-mode 1)
+  ;; The parent mode sets `truncate-lines' so a Magit buffer clips its
+  ;; lines.  A field value runs long, so this buffer wraps instead and
+  ;; keeps the visual motion that the parent chose.
+  (setq-local truncate-lines nil)
+  ;; The parent reads `default-directory' before
+  ;; `openstack--init-display-buffer' moves it to the temporary
+  ;; directory, so its value belongs to no buffer.
+  (setq-local list-buffers-directory nil)
+  ;; The renderer inserts once and the buffer then only reads, so the
+  ;; section positions need no marker.  The heading never carries a
+  ;; child count: that rewrite would move the positions of the children
+  ;; that already recorded theirs.
+  (setq-local magit-section-inhibit-markers t)
+  (setq-local magit-section-show-child-count nil)
   ;; A resource buffer bookmarks its ID; a collection buffer has none.
   (setq-local bookmark-make-record-function
               #'openstack--bookmark-make-record))

@@ -82,6 +82,36 @@
       (should (eq (key-binding (key-parse (car binding)))
                   (cdr binding))))))
 
+(ert-deftest openstack-evil-folds-through-the-section-commands ()
+  "The evil fold commands reach the sections of a show buffer.
+Every show mode is a major mode of its own, so the handler names
+the show minor mode of this file instead of each generated mode."
+  (with-temp-buffer
+    (openstack-mode)
+    (openstack-evil-show-mode 1)
+    (openstack-evil-test--normal)
+    (let ((inhibit-read-only t)
+          (data (json-parse-string
+                 (concat "{\"name\": \"ubuntu\", "
+                         "\"properties\": {\"arch\": \"x86_64\"}}")
+                 :object-type 'hash-table :array-type 'list)))
+      (openstack-render-fields "Image" "img-1" data '("name")))
+    (let ((properties (openstack--section-of-type 'openstack-group
+                                                  "properties")))
+      (should properties)
+      (should (seq-some (lambda (handler)
+                          (memq 'openstack-evil-show-mode (car handler)))
+                        evil-fold-list))
+      (goto-char (oref properties start))
+      (call-interactively #'evil-close-fold)
+      (should (oref properties hidden))
+      (call-interactively #'evil-open-fold)
+      (should-not (oref properties hidden))
+      (call-interactively #'evil-toggle-fold)
+      (should (oref properties hidden))
+      (call-interactively #'evil-open-folds)
+      (should-not (oref properties hidden)))))
+
 (ert-deftest openstack-evil-keeps-motions ()
   "The evil motions survive the bindings of the local minor modes."
   (with-temp-buffer

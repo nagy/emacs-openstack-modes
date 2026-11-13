@@ -65,6 +65,19 @@ record, and it turns the URLs of the log into links."
     (should (equal (buffer-string)
                    "Booting from Hard Disk...\nlogin: \n"))))
 
+(ert-deftest openstack-console-render-keeps-its-own-section-kind ()
+  "The log buffer names its own root section.
+A fold then never mixes with the folds of a show buffer, because
+the ident of a section starts at the root value."
+  (with-temp-buffer
+    (openstack-console-log-mode)
+    (let ((inhibit-read-only t))
+      (openstack-console--render "srv-1" "line one\nline two\n"))
+    (should (eq openstack--buffer-kind 'openstack-console-log))
+    (should (eq (oref magit-root-section value) 'openstack-console-log))
+    (should-not (oref magit-root-section content))
+    (should (= (point-max) (oref magit-root-section end)))))
+
 (ert-deftest openstack-console-log-displays-its-own-buffer ()
   "The command displays the log in a buffer named after the mode."
   (let ((seen nil))

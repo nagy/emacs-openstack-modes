@@ -14,7 +14,7 @@ name as the ID.
 | File | Purpose |
 |---|---|
 | `openstack.el` | Entry library and package namesake: requires `openstack-data`, `openstack-mode`, `openstack-read` and `openstack-resources`, then provides the feature `openstack`. `(use-package openstack ...)` and `:ensure t` load and resolve through it. The optional layers stay out of it. |
-| `openstack-mode.el` | Display layer: base major mode (ID handling, refresh pipeline, renderers, foldable blocks), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the resource-at-point resolver (`openstack--object-at-point` over the text property, the display buffer and a URL), the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), the block fold (`openstack-toggle-section`), and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
+| `openstack-mode.el` | Display layer: base major mode over `magit-section-mode` (ID handling, refresh pipeline, section renderers, fold and motion commands), the collection base mode over `tabulated-list-mode`, the `openstack-define-resource` macro, `openstack-buffer` behind `openstack-display`, the resource-at-point resolver (`openstack--object-at-point` over the text property, the display buffer and a URL), the parent ladder (`openstack-go-to-parent`, the parent spec of a definition, scoped list buffers), the sibling walk (`openstack-next-sibling`, `openstack-previous-sibling`), the section insertion helpers `openstack--insert-root`, `openstack--with-section` and `openstack--field-line`, and the text renderers `openstack-render-fields-to-string`, `openstack-resource-render`, `openstack-list-render-to-string` and `openstack-resource-render-list` |
 | `openstack-data.el` | Data layer and the only library a consumer needs: the type registry (`openstack-resource-definitions`, `openstack-resource-types`, `openstack-resource-definition`, `openstack-resource-cli-name`, `openstack-resource-arguments`, `openstack-resource-fields`, `openstack-resource-list-fields`), the parent getters `openstack-resource-parent`, `openstack-resource-parent-type`, `openstack-resource-parent-field`, `openstack-resource-parent-id` and `openstack-resource-parent-arguments`, the type-keyed entry points `openstack-resource-show`, `openstack-resource-show-async`, `openstack-resource-list`, `openstack-resource-list-async` and `openstack-resource-cancel`, the cache `openstack-resource-list-cached`, `openstack-resource-show-cached`, `openstack-resource-cached-rows` and `openstack-resource-invalidate` with `openstack-resource-cache-ttl` and `openstack-resource-change-functions`, and the field accessors `openstack-resource-field`, `openstack-resource-id` and `openstack-resource-name`. No buffer, mode or face code. |
 | `openstack-error.el` | The package-wide parent condition `openstack-error`; `openstack-cli-error` and `openstack-api-error` derive from it. Its own file, because the transport layers require it and must not depend on the data layer. |
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
@@ -25,22 +25,22 @@ name as the ID.
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
 | `openstack-evil.el` | Optional evil bindings: `openstack-evil-mode`, normal and visual state keys for show and list buffers |
-| `test/openstack-mode-test.el` | ERT tests for the base mode and the macro/registry, plus the consistency test that walks `openstack-resource-types` |
+| `test/openstack-mode-test.el` | ERT tests for the base mode, its section tree (structure, folds, point restore, imenu) and the macro/registry, plus the consistency test that walks `openstack-resource-types` |
 | `test/openstack-cli-test.el` | ERT tests for the CLI layer (mocked) |
 | `test/openstack-api-test.el` | ERT tests for the native API layer against a loopback fake cloud (no network, no cloud) |
 | `test/openstack-data-test.el` | ERT tests for the data layer: the sync and async entry points, definition and defcustom arguments, cancellation, accessors, condition hierarchy; no buffer, no mode |
 | `test/openstack-resource-test.el` | ERT tests for the resource show and list modes, one table of fixtures and one test body per check |
 | `test/openstack-list-mode-test.el` | ERT tests for the collection base mode: table format, widths, sorting, row identity, mode line |
-| `test/openstack-evil-test.el` | ERT tests for the evil bindings: state keys, motions, global mode, visual ID copy |
+| `test/openstack-evil-test.el` | ERT tests for the evil bindings: state keys, motions, the section fold entry, global mode, visual ID copy |
 | `ol-openstack.el` | Org link type `openstack:` (`TYPE/ID`) with follow, store, complete and Horizon export; enable with `(require 'ol-openstack)` |
 | `test/ol-openstack-test.el` | ERT tests for the Org link type |
 | `test/openstack-read-test.el` | ERT tests for the ID completion and the lookups |
 | `test/openstack-xref-test.el` | ERT tests for the xref backend |
 | `test/openstack-url-test.el` | ERT tests for the `openstack:` URL scheme |
-| `test/openstack-console-test.el` | ERT tests for the console log view: the derived mode, the text fetch, the renderer and the buffer name |
+| `test/openstack-console-test.el` | ERT tests for the console log view: the derived mode, the text fetch, the renderer, its own root section and the buffer name |
 | `test/openstack-test-helper.el` | Shared test helpers: the source tree lookup (`openstack-test--source`), the fixture client program and the process wait.  The name does not match `*-test.el`, so the loader leaves it out and each test file requires it |
 | `mock-openstack` | Fake client emitting canned JSON; demos/tests without a cloud (point `openstack-program` at it) |
-| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt`. The builder takes the Emacs to build for and is exported as `lib.openstackPackage`, so a consumer substitutes its own Emacs (`lib.openstackPackage pkgs { emacs = pkgs.emacs31; }`) or calls `.override { emacs = pkgs.emacs31; }` on the package, and `evil` then comes from that Emacs' package set |
+| `flake.nix` | Flake (flake-parts) with one `melpaBuild` for the whole repo (all modes ship in the `openstack-mode` package), patches `openstack-program` to the nixpkgs `openstackclient-full` binary, runs ERT; checks: `package` (build + tests), `package-lint`, `checkdoc`, `treefmt`. `packageRequires` names `magit-section`, and `preBuild` puts an `emacsWithPackages` wrapper (magit-section + evil) on `PATH`, because `melpaBuild` keeps its own dependencies off the load path of its `-Q` compiles. The builder takes the Emacs to build for and is exported as `lib.openstackPackage`, so a consumer substitutes its own Emacs (`lib.openstackPackage pkgs { emacs = pkgs.emacs31; }`) or calls `.override { emacs = pkgs.emacs31; }` on the package, and `magit-section` and `evil` then come from that Emacs' package set |
 | `README.org` | Project README |
 | `flake.lock` | Pinned flake inputs |
 | `LICENSE` | AGPLv3 |
@@ -51,7 +51,7 @@ name as the ID.
 nix build          # package; its checkPhase runs the tests
 nix flake check    # evaluate/verify all flake outputs
 nix fmt            # nixfmt via treefmt
-nix develop        # emacs + evil + openstackclient-full
+nix develop        # emacs + magit-section + evil + openstackclient-full
 ```
 
 The `checkPhase` copies the `test/` tree back from the store (the
@@ -64,7 +64,9 @@ maintain: `package-build` excludes `*-test.el` from the package
 itself.
 The phase adds the nixpkgs `evil` elisp directory to the load path,
 so `openstack-evil.el` compiles and its tests run; the package
-itself does not declare an evil dependency.
+itself does not declare an evil dependency.  `magit-section` comes
+from the `preBuild` wrapper, whose `EMACSLOADPATH` reaches the
+`-Q` compiles of the builder as well.
 `nix flake check` builds `checks.package` (same derivation as
 `packages.default`, so the tests run there too), plus three policy
 checks: `checks.package-lint` (ELPA headers and prefixes),
@@ -82,9 +84,10 @@ emacs --batch -L . -L test \
   -f ert-run-tests-batch-and-exit
 ```
 
-`test/openstack-evil-test.el` needs evil on the load path.  Add its
-elisp directory with `-L`, or start Emacs from a wrapper that
-includes evil.
+`test/openstack-evil-test.el` needs evil on the load path and every
+test needs `magit-section`.  Add their elisp directories with `-L`,
+or start Emacs from an `emacsWithPackages` wrapper that carries
+them.
 
 ## Conventions
 
@@ -352,7 +355,7 @@ includes evil.
   collects
   every row first and
   pads each name after its colon to the longest name, so all
-  values start at one column (`openstack--insert-field' takes the
+  values start at one column (`openstack--field-line' takes the
   width); a mode that renders fields by hand must align them the
   same way or the detail buffers disagree.  A hash-table
   `properties` value (Glance image properties, Swift container
@@ -522,8 +525,8 @@ includes evil.
   different resource than point names.  Commands that belong to a
   view stay buffer-bound: the JSON view and the export need the raw
   buffer, and `openstack-pop`, `openstack-set-id`,
-  `openstack-toggle-section`, `openstack-go-to-parent`, the two
-  sibling walks and the narrow commands walk a view.  A command that
+  `openstack-go-to-parent`, the two sibling walks and the narrow
+  commands walk a view.  A command that
   takes this route names no mode, because it works in any buffer
   that shows a property or a URL: `openstack-copy-id`,
   `openstack-open-web` and `openstack-display-at-point`.  There is
@@ -559,17 +562,17 @@ includes evil.
   keeps only the type lookup and the fresh-property check.  A
   custom THING gets no `forward-op`: the region comes from a text
   property, so a scan for it has no meaning.
-- `imenu` reads the renderers, not the modes own bookkeeping:
-  `openstack--insert-field` adds an `openstack-field` text property
-  to every field name, and `openstack--imenu-index` collects those
-  lines plus the section headings that carry `openstack-section`.
-  A heading wins over a field name on the same line, so
-  `properties` appears once.  `openstack-list--imenu-index`
-  collects the rows from their `openstack-id` property and names
-  each row by its name field and ID.  Both modes set
-  `imenu-create-index-function`, so `consult-imenu` and
-  `which-function-mode` work without further wiring.  Do not key
-  the show index on the `face` property: font-lock may replace it.
+- `imenu` reads the section tree, not a text property:
+  `openstack--imenu-index` walks `magit-root-section` and keeps the
+  sections whose type is `openstack-title`, `openstack-field` or
+  `openstack-group`, so a field and a block name their own entry
+  and a record row stays out (its keys repeat across records).
+  `openstack-list--imenu-index` collects the rows from their
+  `openstack-id` property and names each row by its name field and
+  ID.  Both modes set `imenu-create-index-function`, so
+  `consult-imenu` and `which-function-mode` work without further
+  wiring.  Do not key the show index on the `face` property:
+  font-lock may replace it.
 - `openstack-read-id` passes `openstack-read--choices-table` to
   `completing-read`, not the raw alist: the table answers the
   `metadata` action with an `annotation-function` built by
@@ -619,20 +622,22 @@ includes evil.
   `openstack-error-display-function` (header line for show modes,
   mode line for list modes).
 - A render erases the buffer, so `openstack--refresh-done` records the
-  line of point before the erase and restores it afterwards
+  section of point before the erase and restores it afterwards
   (`openstack--point-record`, `openstack--restore-point`).  The record
-  names the line, never its buffer position: the `openstack-field`
-  name, the `openstack-id` of a field value, or the text of a line
-  without an identity, each with its ordinal among the equal
-  identities above it, plus the distance in lines and the column.  So
-  a field that appears above point keeps the reader on the same field,
-  a reference line keeps its own ID, and a column past the end of a
-  shorter line clips to its end.  Every other window that shows the
-  buffer keeps the line of its own point through
-  `openstack--window-records` and `openstack--restore-window-points`,
-  because the erase takes the text that its point marker points into.
-  Only the show path needs this: a tabulated list renderer keeps its
-  own place and sets `openstack-render-manages-buffer`.
+  names the section, the distance in lines from its start and the
+  column, and never a buffer position: `magit-section-goto-successor`
+  finds the section of the same ident in the new tree, checks the
+  landing spot, and falls back to the section start.  So a field that
+  appears above point keeps the reader on the same field, a column
+  past the end of a shorter line clips to its end, and a section that
+  the new render dropped moves point to `point-min`.
+  `openstack--section-position` is the shared lookup; every other
+  window that shows the buffer keeps the line of its own point
+  through `openstack--window-records` and
+  `openstack--restore-window-points`, because the erase takes the
+  text that its point marker points into.  Only the show path needs
+  this: a tabulated list renderer keeps its own place and sets
+  `openstack-render-manages-buffer`.
 - Display buffers are views, not edited files: the three render
   paths (`openstack--refresh-done`, `openstack-list-render`,
   `openstack-json--render`) end with
@@ -730,7 +735,8 @@ includes evil.
   add evil to `packageRequires` in the flake: that turns the
   optional layer into a hard dependency for Nix consumers.  The
   flake `checkPhase` adds the nixpkgs evil elisp directory with
-  `-L` instead, and the devShell ships emacs with evil.
+  `-L` instead, the devShell ships emacs with evil, and the
+  `preBuild` wrapper carries evil for the `-Q` compiles too.
 - Evil state maps take precedence over a major mode map, so the
   layer binds every command key through
   `evil-define-minor-mode-key`, one key set per state and local
@@ -739,7 +745,8 @@ includes evil.
   `openstack-evil-list-visual-keys`).  Keep the evil motions
   untouched: show buffers keep `RET`, `<mouse-2>`, `q`, `gr`,
   `p`, `c`, `w` and `TAB` because the operators do nothing in a
-  read-only buffer; list buffers treat a row as the unit
+  read-only buffer (`TAB` runs `magit-section-toggle` there); list
+  buffers treat a row as the unit
   (`<mouse-2>` opens, `c` or `Y` copies, `S` sorts, `%` narrows,
   `W` widens, `j`/`k`
   move, `n`/`N` repeat the search, visual `y` copies the IDs of
@@ -760,30 +767,72 @@ includes evil.
   the row count follows the visible rows.  Do not fetch a filtered
   list from the client, and do not make the filter a defcustom: it
   belongs to the buffer that set it.
-- A show buffer folds its blocks through `outline-minor-mode`.  A
-  heading is a line that carries the text property
-  `openstack-section` with the name of the block, and
-  `outline-search-function` finds it, so no heading needs a special
-  character in its text.  `outline-level` answers one for every
-  buffer, because the blocks are flat, and
-  `outline-minor-mode-highlight` stays nil, because the renderers
-  carry their own faces.  The title line and its field table form
-  one block, the `properties:` line another and a top level
-  `locations:` line a third; the `openstack--insert-records` block
-  of a nested property sets no section, so it folds with its
-  field.  `openstack-toggle-section` on `TAB` folds the block
-  around point, and the evil layer binds the same key, which yields
-  the `evil-jump-forward` of `C-i` in a show buffer alone.
-  `openstack--collapsed-sections` reads the folded names before
-  `openstack--refresh-done` erases the buffer and
-  `openstack--restore-sections` folds them again, so an automatic
-  refresh never opens a fold under the reader.  A fold that ends
-  the buffer hides the newline of its last line, and Emacs drops
-  the line break of an invisible newline, so the next block would
-  draw on the row of the folded heading:
-  `openstack--keep-final-newline-visible` moves the end of such an
-  overlay back by one after every fold.  `openstack--imenu-index`
-  names the blocks as well as the fields.
+- A show buffer is a tree of `magit-section` objects, and
+  `openstack-mode` derives from `magit-section-mode`.  A render
+  opens one root section of the kind in `openstack--buffer-kind`
+  (`openstack-show` for the field renderers,
+  `openstack-console-log` for the log), an `openstack-title`
+  section that holds the buffer, an `openstack-field` section for
+  every field line, an `openstack-group` section for a block with
+  rows (`properties`, `addresses`, a record list) and an
+  `openstack-record` section per record, whose heading is its first
+  key line.  The keys inside a group or a record are plain lines,
+  so `magit-section-at` on any of them answers the group or the
+  record and `TAB` folds the block from the middle of it.  Do not
+  make such a key a section: its ident repeats among its siblings,
+  and the section of the outer block would then hold no text.
+  Section values must stay stable across renders and unique among
+  their siblings; a changing count belongs in the heading text.
+- The renderer writes the sections, so the mode adds no fold code:
+  `TAB` (`magit-section-toggle`), `n`, `M-n`, `M-p`, `^` and `1`
+  to `4` come from `magit-section-mode-map`, and `openstack-mode-map`
+  keeps `p` for `openstack-pop` and the back and forward mouse
+  buttons for the sibling walk.  A fold lives in
+  `magit-section-visibility-cache` under the ident of its section,
+  and a render restores it through
+  `magit-section-set-visibility-hook`, so no renderer-side fold
+  bookkeeping exists and an automatic refresh never opens a fold
+  under the reader.  The pipeline ends with `magit-section-show`
+  under a nil `magit-section-cache-visibility`, which applies the
+  restored folds without filling the cache with every section.
+- `openstack--insert-root` binds `magit-section-inhibit-markers` and
+  `magit-section-show-child-count` to nil for the render, and the
+  mode body sets them buffer-locally too.  A render inserts once and
+  the buffer then only reads, so markers buy nothing, and the child
+  count rewrite would move the positions of the children that
+  already recorded theirs.  The pair also keeps a direct
+  `openstack-render-fields` call outside the mode sound.  Never use
+  a lazy body (`magit-insert-section-body`) with inhibited markers.
+- The renderers keep the faces: `openstack--field-line` writes the
+  field name and its value, `openstack--insert-field` wraps that
+  line in a section, and the record rows write through
+  `openstack--field-line` without one.  `magit-insert-heading`
+  receives no string, so it paints no face: the renderer supplies
+  its own, and a render never calls `font-lock-ensure`, which would
+  strip a face from text that no keyword matches.  The heading line
+  still carries `magit-section-heading-map`, which binds only mouse
+  events, so `TAB` and the object buttons keep their meaning.
+- `openstack-render-fields-to-string` stays the plain-text path: it
+  binds `openstack--section-context` to nil, so the inserters write
+  the same text without a section object (a section in a returned
+  string would hold a live buffer position and an EIEIO object).
+  `openstack-render-fields` opens the root and the tree.  A new view
+  that needs the text without a buffer still calls the string
+  function or `openstack-resource-render`.
+- The evil layer binds `TAB` to `magit-section-toggle` and adds one
+  `evil-fold-list` entry for `openstack-evil-show-mode`, because
+  evil matches a handler by the major mode name or by a minor mode
+  variable and every show mode is a major mode of its own.  Its
+  `:open-all` clears the `hidden` slot of every section before the
+  walk, because `magit-section-show` applies the visibility state
+  instead of overriding it.  Do not require `magit-section` from
+  `openstack-evil.el`; `openstack-mode` already carries it.
+- `magit-section` is a real dependency: `openstack-mode.el` declares
+  it in `Package-Requires`, the flake passes it as `packageRequires`
+  and to the lint pack and the devShell, and `preBuild` puts an
+  `emacsWithPackages` wrapper on `PATH` because `melpaBuild` keeps
+  `packageRequires` off the load path of its own build and its
+  `-Q' compiles.  evil stays out of `packageRequires`.
 - Tests use `unwind-protect` around temporary buffers.
 - The Org link type lives in `ol-openstack.el` and is opt-in:
   users add `(require 'ol-openstack)` to their init.  Link paths

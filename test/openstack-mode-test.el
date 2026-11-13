@@ -79,7 +79,6 @@ commands of an OpenStack buffer and `M-x' can hide them elsewhere."
                    (openstack-set-id openstack-mode)
                    (openstack-next-sibling openstack-mode)
                    (openstack-previous-sibling openstack-mode)
-                   (openstack-toggle-section openstack-mode)
                    (openstack-json-view openstack-mode openstack-list-mode)
                    (openstack-display-at-point
                     openstack-mode openstack-list-mode)
@@ -1104,10 +1103,9 @@ separated by a comma."
                                 text))
         (should (string-match-p "^  public +: 192\\.0\\.2\\.7$" text))
         (should-not (string-match-p "\\[" text)))
-      (goto-char (point-min))
-      (search-forward "addresses")
-      (should (equal (get-text-property (match-beginning 0) 'openstack-section)
-                     "addresses")))))
+      (let ((section (openstack--section-of-type 'openstack-group "addresses")))
+        (should section)
+        (should (equal (oref section value) "addresses"))))))
 
 (ert-deftest openstack-render-fields-record-list-is-a-block ()
   "A field that holds a list of records prints an indented block.
@@ -1621,15 +1619,16 @@ the block instead of repeating a field."
       (let ((index (openstack--imenu-index)))
         (should (equal (mapcar #'car index)
                        '("Server: web-1" "name" "id" "status")))
-        (should (equal (get-text-property (cdr (car index)) 'openstack-section)
-                       "Server: web-1"))
+        ;; The entries come from the section tree, so the title line
+        ;; names its block and every field line has a section of its own.
+        (should (eq (oref (magit-section-at (cdr (car index))) type)
+                    'openstack-title))
         (dolist (entry (cdr index))
-          (goto-char (cdr entry))
-          (should (equal (get-text-property (point) 'openstack-field)
-                         (car entry)))
+          (should (eq (oref (magit-section-at (cdr entry)) type)
+                      'openstack-field))
           (should (string-prefix-p (concat (car entry) ": ")
                                    (buffer-substring-no-properties
-                                    (point) (line-end-position)))))))))
+                                    (cdr entry) (line-end-position)))))))))
 
 (ert-deftest openstack-list-imenu-index-lists-rows ()
   "Rows become imenu entries, named by name and ID."
@@ -1657,94 +1656,153 @@ the block instead of repeating a field."
            "\"properties\": {\"os_hash_algo\": \"sha512\", "
            "\"architecture\": \"x86_64\"}}")))
 
-(defun openstack-test--invisible-body-p (heading)
-  "Return non-nil when the body of the block of HEADING is folded."
-  (save-excursion
-    (goto-char heading)
-    (outline-invisible-p (line-end-position))))
+(defun openstack-test--render-properties ()
+  "Render the properties fixture into the current show buffer."
+  (let ((inhibit-read-only t))
+    (openstack-render-fields "Image" "img-1"
+                             (openstack-test--properties-data)
+                             '("name"))))
 
-(defun openstack-test--fold-keeps-final-newline-p ()
-  "Return non-nil when no fold of the buffer reaches `point-max'."
-  (not (seq-some (lambda (overlay)
-                   (and (eq (overlay-get overlay 'invisible) 'outline)
-                        (= (overlay-end overlay) (point-max))))
-                 (overlays-in (point-min) (point-max)))))
+(defun openstack-test--section-values (section)
+  "Return the value of every child of SECTION, in order."
+  (mapcar (lambda (child) (oref child value))
+          (oref section children)))
 
 (ert-deftest openstack-mode-sections ()
-  "A show buffer folds its blocks through `outline-minor-mode'.
-A heading line carries `openstack-section', so no heading needs a
-special character, and every block sits at the same level."
+  "A show buffer is a tree of `magit-section' objects.
+The root names the buffer kind, the title holds the field table,
+every field line is a section of its own and a block such as
+`properties' is a group."
   (with-temp-buffer
     (openstack-mode)
-    (let ((inhibit-read-only t))
-      (openstack-render-fields "Image" "img-1"
-                               (openstack-test--properties-data)
-                               '("name")))
-    (should outline-minor-mode)
-    (should (eq outline-search-function #'openstack--outline-search))
-    (should (equal (mapcar (lambda (position)
-                             (get-text-property position 'openstack-section))
-                           (openstack--section-headings))
-                   '("Image: ubuntu" "properties")))
-    (goto-char (point-min))
-    (should (outline-on-heading-p))
-    ;; The outline machinery calls the variable, not the function.
-    (should (= 1 (funcall outline-level)))))
+    (openstack-test--render-properties)
+    (should (derived-mode-p 'magit-section-mode))
+    (should (eq (oref magit-root-section type) 'openstack-detail))
+    (should (eq (oref magit-root-section value) 'openstack-show))
+    (should (equal (openstack-test--section-values magit-root-section)
+                   '("Image: ubuntu")))
+    (should (equal (openstack-test--section-values
+                    (openstack--section-of-type 'openstack-title))
+                   '("name" "status" "properties")))
+    (should (equal (mapcar #'car (openstack--imenu-index))
+                   '("Image: ubuntu" "name" "status" "properties"
+                     "architecture" "os_hash_algo")))
+    ;; A render inserts once, so the positions need no marker and the
+    ;; heading never carries a rewritten child count.
+    (should magit-section-inhibit-markers)
+    (should-not magit-section-show-child-count)
+    (should-not truncate-lines)))
 
-(ert-deftest openstack-mode-toggle-section ()
-  "TAB folds the block around point and TAB folds it open again."
+(ert-deftest openstack-mode-record-rows-are-sections ()
+  "A list of records is a group with one section per record.
+The first key line is the heading of the record, so TAB folds the
+remaining keys away."
   (with-temp-buffer
     (openstack-mode)
-    (let ((inhibit-read-only t))
-      (openstack-render-fields "Image" "img-1"
-                               (openstack-test--properties-data)
-                               '("name")))
-    (let ((title (nth 0 (openstack--section-headings)))
-          (properties (nth 1 (openstack--section-headings))))
-      (goto-char properties)
+    (let ((inhibit-read-only t)
+          (data (openstack-test--parse
+                 (concat "{\"name\": \"vol-1\", \"attachments\": ["
+                         "{\"server_id\": \"srv-1\", \"device\": \"/dev/vdb\"},"
+                         "{\"server_id\": \"srv-2\", \"device\": \"/dev/vdc\"}]}"))))
+      (openstack-render-fields "Volume" "vol-1" data '("name")))
+    (should (equal (openstack-test--section-values
+                    (openstack--section-of-type 'openstack-title))
+                   '("name" "attachments")))
+    (let ((group (openstack--section-of-type 'openstack-group "attachments")))
+      (should group)
+      (should (equal (mapcar (lambda (section) (oref section value))
+                             (oref group children))
+                     '(1 2))))
+    (let ((record (openstack--section-of-type 'openstack-record 1)))
+      (goto-char (oref record content))
+      (forward-line -1)
+      (should (equal (buffer-substring-no-properties
+                      (line-beginning-position) (line-end-position))
+                     "  - device:    /dev/vdb"))
+      ;; The record covers its whole block of keys.
+      (should (magit-section-at (oref record start))))))
+
+(ert-deftest openstack-mode-section-toggle ()
+  "TAB folds the section at point and TAB folds it open again.
+Every line of a record belongs to the section of the record, so a
+reader folds the block from the middle of it."
+  (with-temp-buffer
+    (openstack-mode)
+    (openstack-test--render-properties)
+    (let ((properties (openstack--section-of-type 'openstack-group
+                                                  "properties"))
+          (title (openstack--section-of-type 'openstack-title)))
+      (goto-char (oref properties start))
       (forward-line 1)
-      (openstack-toggle-section)
-      (should (equal (openstack--collapsed-sections) '("properties")))
-      (should (openstack-test--invisible-body-p properties))
-      (should-not (openstack-test--invisible-body-p title))
-      (openstack-toggle-section)
-      (should-not (openstack--collapsed-sections)))))
+      (call-interactively #'magit-section-toggle)
+      (should (oref properties hidden))
+      (should (invisible-p (1+ (oref properties content))))
+      (should-not (oref title hidden))
+      (call-interactively #'magit-section-toggle)
+      (should-not (oref properties hidden))
+      (should-not (invisible-p (1+ (oref properties content)))))))
 
 (ert-deftest openstack-mode-section-without-block ()
-  "A buffer without a block at point signals a `user-error'."
+  "The root section cannot fold, so TAB on plain text signals.
+A buffer whose renderer writes no section keeps the root alone."
   (with-temp-buffer
     (openstack-mode)
     (let ((inhibit-read-only t))
       (insert "plain text\n"))
     (goto-char (point-min))
-    (should-error (openstack-toggle-section) :type 'user-error)))
+    (should-error (call-interactively #'magit-section-toggle)
+                  :type 'user-error)))
 
 (ert-deftest openstack-mode-section-key ()
-  "TAB folds a block in a show buffer and stays a table key in a list."
+  "TAB folds a section in a show buffer and stays a table key in a list."
   (with-temp-buffer
     (openstack-server-mode)
-    (should (eq (key-binding (kbd "TAB")) #'openstack-toggle-section)))
+    (should (eq (key-binding (kbd "TAB")) #'magit-section-toggle))
+    ;; The section keys come from the parent map.
+    (should (eq (key-binding (kbd "n")) #'magit-section-forward))
+    (should (eq (key-binding (kbd "^")) #'magit-section-up)))
   (with-temp-buffer
     (openstack-list-mode)
-    (should-not (eq (key-binding (kbd "TAB")) #'openstack-toggle-section))))
-
-(ert-deftest openstack-mode-fold-keeps-the-final-newline ()
-  "A fold that ends the buffer keeps the last line break visible.
-Emacs drops the line break of an invisible newline, so the next
-block would draw on the row of the folded heading."
-  (with-temp-buffer
-    (openstack-mode)
-    (let ((inhibit-read-only t))
-      (openstack-render-fields "Image" "img-1"
-                               (openstack-test--properties-data)
-                               '("name")))
-    (goto-char (car (last (openstack--section-headings))))
-    (openstack-toggle-section)
-    (should (equal (openstack--collapsed-sections) '("properties")))
-    (should (openstack-test--fold-keeps-final-newline-p))))
+    (should-not (eq (key-binding (kbd "TAB")) #'magit-section-toggle))))
 
 (ert-deftest openstack-mode-refresh-keeps-a-fold ()
-  "A refresh keeps a folded block closed."
+  "A refresh keeps a folded section closed.
+The fold lives in the visibility cache under the ident of the
+section, so a new tree of the same data starts in the same state."
+  (let ((buf (openstack-test--make-resource-buffer)))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((success-fn nil)
+                (old nil))
+            (setq-local openstack-fetch-function
+                        (lambda (_id success _error)
+                          (setq success-fn success)))
+            (setq-local openstack-render-function
+                        (lambda (id data)
+                          (openstack-render-fields "Image" id data '("name"))))
+            (openstack--refresh)
+            (funcall success-fn (openstack-test--properties-data))
+            (setq old (openstack--section-of-type 'openstack-group
+                                                  "properties"))
+            (goto-char (oref old start))
+            (call-interactively #'magit-section-toggle)
+            (should (oref old hidden))
+            (openstack--refresh)
+            (funcall success-fn
+                     (openstack-test--parse
+                      (concat "{\"name\": \"ubuntu\", "
+                              "\"status\": \"active\", "
+                              "\"properties\": {\"os_hash_algo\": \"sha512\"}}")))
+            (let ((new (openstack--section-of-type 'openstack-group
+                                                   "properties")))
+              (should-not (eq old new))
+              (should (oref new hidden)))))
+      (kill-buffer buf))))
+
+(ert-deftest openstack-mode-refresh-drops-point-with-a-dropped-section ()
+  "A section that the new render dropped moves point to the start.
+A marker fallback could land outside the new text, so the record
+gives up instead."
   (let ((buf (openstack-test--make-resource-buffer)))
     (unwind-protect
         (with-current-buffer buf
@@ -1757,16 +1815,13 @@ block would draw on the row of the folded heading."
                           (openstack-render-fields "Image" id data '("name"))))
             (openstack--refresh)
             (funcall success-fn (openstack-test--properties-data))
-            (goto-char (car (last (openstack--section-headings))))
-            (openstack-toggle-section)
-            (should (equal (openstack--collapsed-sections) '("properties")))
+            (goto-char (oref (openstack--section-of-type 'openstack-group
+                                                         "properties")
+                             start))
             (openstack--refresh)
             (funcall success-fn
-                     (openstack-test--parse
-                      (concat "{\"name\": \"ubuntu\", "
-                              "\"status\": \"active\", "
-                              "\"properties\": {\"os_hash_algo\": \"sha512\"}}")))
-            (should (equal (openstack--collapsed-sections) '("properties")))))
+                     (openstack-test--parse "{\"name\": \"ubuntu\"}"))
+            (should (= (point) (point-min)))))
       (kill-buffer buf))))
 
 ;;; Status faces, changes and notifications

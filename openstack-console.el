@@ -68,8 +68,11 @@ client process, so the display machinery can cancel the fetch."
    :text t))
 
 (defun openstack-console--render (_id data)
-  "Insert the console log DATA into the current buffer."
-  (insert (or data "")))
+  "Insert the console log DATA into the current buffer.
+The log is one text block: the root section holds it, so the
+section commands of `openstack-mode' work as in a show buffer."
+  (openstack--insert-root
+   (lambda () (insert (or data "")))))
 
 ;;;###autoload
 (define-derived-mode openstack-console-log-mode openstack-mode
@@ -82,6 +85,8 @@ buffer.  The client prints the log as plain text, and
 
 \\{openstack-mode-map}"
   :group 'openstack-console
+  :interactive nil
+  (setq-local openstack--buffer-kind 'openstack-console-log)
   (setq-local openstack-fetch-function #'openstack-console--fetch)
   (setq-local openstack-render-function #'openstack-console--render)
   (setq-local openstack-id-prefix "compute")
