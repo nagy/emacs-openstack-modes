@@ -51,7 +51,9 @@
 ;; metadata of the completion table shows the state of a resource
 ;; beside its ID, and `completion-category-overrides' treats one
 ;; kind of resource as one kind of object.  The answers go to
-;; `openstack-read-id-history'.
+;; `openstack-read-id-history' and `openstack-read-resource-history'.
+;; Every prompt names a history of its own, so `savehist-mode' saves
+;; the answers of one session and offers them in the next one.
 
 ;;; Code:
 
@@ -73,6 +75,11 @@ the ID that the user opened last.")
 
 (defvar openstack-read-resource-history nil
   "History of the prompt that reads any OpenStack resource.")
+
+(defvar openstack-read-type-history nil
+  "History of the prompt that reads an OpenStack resource type.
+`ol-openstack' reads a type for an `openstack:' link with it, so a
+hand-written prompt shares the answers of the link prompt.")
 
 (defun openstack-read--row-value (row names)
   "Return the value of the first key of ROW that matches NAMES.

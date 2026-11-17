@@ -50,6 +50,7 @@
 
 (require 'ol)
 (require 'openstack-mode)
+(require 'openstack-read)
 (require 'openstack-resources)
 
 (defun openstack-org--split (path)
@@ -86,10 +87,11 @@ in its own mode.  ARG is ignored."
 
 (defun openstack-org-complete (&optional _arg)
   "Complete an `openstack' link, prompting for type and ID.
-ARG is ignored.  Return the link path TYPE/ID."
+ARG is ignored.  Return the link path TYPE/ID.  The type prompt
+keeps its answers in `openstack-read-type-history'."
   (let ((type (completing-read "OpenStack resource type: "
                                (mapcar #'car openstack-resource-types)
-                               nil t)))
+                               nil t nil 'openstack-read-type-history)))
     (format "openstack:%s/%s" type
             (read-string "OpenStack resource ID: "))))
 

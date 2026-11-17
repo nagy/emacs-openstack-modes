@@ -167,5 +167,18 @@
             ((symbol-function 'read-string) (lambda (_prompt) "net-1")))
     (should (equal (openstack-org-complete) "openstack:network/net-1"))))
 
+(ert-deftest ol-openstack-complete-keeps-a-history ()
+  "The type prompt names `openstack-read-type-history'.
+`savehist' then saves the types that the link prompt answered, so
+the next session offers them again."
+  (let ((history nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt _collection _predicate _require _initial hist)
+                 (setq history hist)
+                 "network"))
+              ((symbol-function 'read-string) (lambda (_prompt) "net-1")))
+      (openstack-org-complete)
+      (should (eq history 'openstack-read-type-history)))))
+
 (provide 'ol-openstack-test)
 ;;; ol-openstack-test.el ends here

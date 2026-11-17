@@ -599,6 +599,15 @@ them.
   `openstack-read-annotation-fields` that the row has.  The prompt
   keeps its answers in `openstack-read-id-history`, which every
   type shares, so `M-p` recalls the ID that the user opened last.
+  Every prompt names a history of its own
+  (`openstack-read-id-history`, `openstack-read-resource-history`
+  and `openstack-read-type-history` for the type prompt of
+  `ol-openstack.el`), so `savehist-mode` saves the answers without a
+  setting: savehist adds the value of `minibuffer-history-variable`
+  to `savehist-minibuffer-history-variables` while a minibuffer
+  runs.  Do not add these names to `savehist-additional-variables`:
+  a non-nil list there costs the concurrent-write handling of the
+  history file.
   `openstack-read-resource` reads any type in one prompt
   (`openstack-read--any-choices`): every label starts with the type,
   the value is a plist of :type and :id, and the table names the one

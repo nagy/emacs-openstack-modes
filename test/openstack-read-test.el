@@ -275,17 +275,32 @@ the resource type."
                   (intern (format "openstack-%s" type)))))))
 
 (ert-deftest openstack-read-id-keeps-a-history ()
-  "The ID prompt passes its own history symbol to `completing-read'."
-  (let ((openstack-resource--list-cache nil)
-        (history nil))
-    (openstack-read-test--with-client calls
-      (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt _collection _predicate _require _initial
-                                  hist)
-                   (setq history hist)
-                   "web-1 (srv-1)")))
-        (should (equal (openstack-read-id "server") "srv-1"))
-        (should (eq history 'openstack-read-id-history))))))
+  "Every prompt names its own history.
+`savehist' adds the value of `minibuffer-history-variable' to
+`savehist-minibuffer-history-variables' when a minibuffer runs, so
+a named history per prompt keeps the answers of one session in the
+history file.  A renamed prompt or a new prompt without a history
+fails here."
+  (dolist (case '((openstack-read-id . openstack-read-id-history)
+                  (openstack-read-resource
+                   . openstack-read-resource-history)))
+    (let ((openstack-resource--list-cache nil)
+          (openstack-resource--show-cache nil)
+          (history nil))
+      (openstack-read-test--with-client calls
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (_prompt _collection _predicate _require _initial
+                            hist)
+                     (setq history hist)
+                     (if (eq (car case) 'openstack-read-id)
+                         "web-1 (srv-1)"
+                       "server web-1 (srv-1)"))))
+          (cond ((eq (car case) 'openstack-read-id)
+                 (should (equal (openstack-read-id "server") "srv-1")))
+                (t
+                 (should (equal (openstack-read-resource)
+                                '(:type "server" :id "srv-1")))))
+          (should (eq history (cdr case))))))))
 
 (ert-deftest openstack-read-id-annotation-needs-no-cache ()
   "A choice keeps its row, so the annotation reads no cache entry.
