@@ -33,7 +33,7 @@
 ;; and registers the type for the ID prompts, the Org links and the
 ;; xref backend.
 ;;
-;; The order of the forms is the order of `openstack-resources-types':
+;; The order of the forms is the order of `openstack-resource-types':
 ;; `openstack-read-type-of-id' and the type prompt walk it, so a
 ;; frequently used resource belongs near the top.
 ;;

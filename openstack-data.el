@@ -121,7 +121,9 @@ always asks the client."
 Each plist holds :type, :cli, :noun, :title, :id-prefix,
 :url-suffix, :fields, :list-fields, :list-arguments,
 :list-arguments-variable, :list-prefix-arguments, :show-arguments,
-:parent, :mode, :display, :list-mode and :list-display.  The
+:parent, :mode, :display, :list-mode and :list-display.  A new
+keyword that the data layer must honor belongs in this plist too,
+or a mode and a library consumer read different facts.  The
 registry is the single source of truth for the resource names:
 `openstack-resource-types'
 is its view for the ID prompts, the Org links and the xref backend.")
@@ -250,8 +252,9 @@ cancels the fetch, which then calls neither callback."
   "Return the extra `RESOURCE list' arguments of resource TYPE.
 Read the generated `openstack-TYPE-list-arguments' defcustom while
 the variable exists, so a user customization wins over the default
-of the definition.  Signal `openstack-resource-error' for an
-unknown TYPE."
+of the definition.  A nil value of that defcustom means no extra
+argument, so never merge the definition value back in.  Signal
+`openstack-resource-error' for an unknown TYPE."
   (declare (side-effect-free t))
   (let* ((definition (openstack--definition-or-error type))
          (variable (plist-get definition :list-arguments-variable)))

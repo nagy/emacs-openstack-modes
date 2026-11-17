@@ -549,6 +549,8 @@ back to a single-resource view must clear it.")
     (define-key map (kbd "c") #'openstack-copy-id)
     (define-key map (kbd "w") #'openstack-open-web)
     (define-key map (kbd "J") #'openstack-json-view)
+    ;; Emacs 30 ships two JSON major modes, and a menu or a key that
+    ;; runs either one would replace the display buffer.
     (define-key map [remap js-json-mode] #'openstack-json-view)
     (define-key map [remap json-ts-mode] #'openstack-json-view)
     (define-key map (kbd "p") #'openstack-pop)

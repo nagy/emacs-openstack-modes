@@ -45,6 +45,13 @@
 ;; `openstack-cli-async-request', which add no formatter and parse
 ;; nothing.
 ;;
+;; Every call authenticates on its own: the client reads `clouds.yaml'
+;; and asks the identity server.  Do not pass an `OS_TOKEN' through
+;; the environment.  A `clouds.yaml' that selects application
+;; credential auth carries no token argument, so its plugin fails with
+;; a TypeError.  A token cache belongs to the native API layer of
+;; openstack-api.el, where one POST authenticates a whole session.
+;;
 ;; Synchronous usage:
 ;;
 ;;   (openstack-cli-request '("server" "show" "some-id"))
