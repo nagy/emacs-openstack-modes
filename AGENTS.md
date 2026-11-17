@@ -705,6 +705,16 @@ them.
   from `openstack-resource-type-for-mode` or from the URL, so a
   command in a base mode buffer without a type copies the bare ID and
   in a buffer of another type still copies the right link.
+  An active region in a collection buffer widens both commands to
+  every selected row: `openstack-list--region-objects` reads the
+  `openstack-id` property of each line between the region ends, so
+  the narrow commands, an expansion or a sort never confuse it.  The
+  copy writes one ID or one link per line, and the web command opens
+  one page per row.  A region that ends at the beginning of a line
+  keeps that line out, because `region-end` names a position before
+  it.  A region of one row, and a buffer that is no collection,
+  fall back to the resource at point, so one command serves a show
+  buffer, a table row and a selection.
 - Mode-switch rules: `openstack--id`, `openstack--origin-buffer`
   and `openstack--pending` are `permanent-local` (entering a mode
   cancels any in-flight fetch via `openstack--kill-pending`);

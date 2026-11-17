@@ -459,5 +459,63 @@ row stop before its newline and the runs of two rows never join."
     (should-error (openstack-copy-id) :type 'user-error)
     (should-error (openstack-open-web) :type 'user-error)))
 
+(defmacro openstack-list-test--with-region (rows &rest body)
+  "Render ROWS and select all of them, then run BODY.
+Bind `kill-ring' to a fresh list, so a copy test reads its own
+answer."
+  (declare (indent 1))
+  `(let ((kill-ring nil)
+         (kill-ring-yank-pointer nil))
+     (with-temp-buffer
+       (openstack-server-list-mode)
+       (openstack-list-test--render ,rows)
+       (goto-char (point-max))
+       (set-mark (point-min))
+       (activate-mark)
+       ,@body)))
+
+(ert-deftest openstack-list-copy-ids-of-a-region ()
+  "An active region copies every selected row ID, one per line."
+  (openstack-list-test--with-region
+      (openstack-list-test--rows '(("ID" . "id-1") ("Name" . "web-1"))
+                                 '(("ID" . "id-2") ("Name" . "web-2")))
+    (openstack-copy-id)
+    (should (equal (car kill-ring) "id-1\nid-2"))))
+
+(ert-deftest openstack-list-copy-links-of-a-region ()
+  "A prefix argument copies the `openstack:TYPE/ID' form of every row."
+  (openstack-list-test--with-region
+      (openstack-list-test--rows '(("ID" . "id-1"))
+                                 '(("ID" . "id-2")))
+    (openstack-copy-id '(4))
+    (should (equal (car kill-ring)
+                   "openstack:server/id-1\nopenstack:server/id-2"))))
+
+(ert-deftest openstack-list-region-stops-at-its-last-row ()
+  "A region that ends at the start of a line keeps that line out."
+  (openstack-list-test--with-region
+      (openstack-list-test--rows '(("ID" . "id-1"))
+                                 '(("ID" . "id-2")))
+    (goto-char (point-min))
+    (forward-line 1)
+    (set-mark (point))
+    (goto-char (point-min))
+    (activate-mark)
+    (openstack-copy-id)
+    (should (equal (car kill-ring) "id-1"))))
+
+(ert-deftest openstack-list-open-web-of-a-region ()
+  "An active region opens the dashboard page of every selected row."
+  (let ((opened nil))
+    (openstack-list-test--with-region
+        (openstack-list-test--rows '(("ID" . "id-1"))
+                                   '(("ID" . "id-2")))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url) (push url opened))))
+        (openstack-open-web))
+      (should (equal (nreverse opened)
+                     '("https://horizon.example.org/compute/id-1"
+                       "https://horizon.example.org/compute/id-2"))))))
+
 (provide 'openstack-list-mode-test)
 ;;; openstack-list-mode-test.el ends here

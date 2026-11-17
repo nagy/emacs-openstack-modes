@@ -482,7 +482,10 @@ row, an ID field line and a reference are text buttons of the type
 the button and a single click follows a link in a show buffer.  In
 a list buffer the left click keeps the row selection.  =c=
 copies the ID of the row, =C-u c= copies its =openstack:TYPE/ID=
-link, and =w= opens its dashboard page.  =n= and
+link, and =w= opens its dashboard page.  Select several rows and
+=c= copies one ID per line, =C-u c= one link per line, and =w=
+opens one dashboard page per row.  A region of one row, and a
+region that names no resource row, act like the row at point.  =n= and
 =p= move by row, and =q= buries the buffer: =openstack-pop= (=p=)
 stays a show-mode command.  =%= narrows the table to the rows whose
 text matches a regexp, and =W= shows every row again (the mode line

@@ -1410,19 +1410,36 @@ the identity of the display buffer, or an `openstack:TYPE/ID' link
 or dashboard URL, so the command serves a detail buffer, a row of a
 collection table and a link in any buffer.  With LINK, copy the
 `openstack:TYPE/ID' form that the Org link type and the
-`openstack:' URL scheme read instead."
+`openstack:' URL scheme read instead.
+
+With an active region in a collection buffer, copy every selected
+row, one per line, in row order."
   (interactive "P")
-  (let ((object (openstack--object-at-point)))
-    (unless object
-      (user-error "No OpenStack resource at point"))
-    (let ((id (nth 1 object))
-          (type (nth 0 object)))
-      (if (and link type)
-          (let ((text (format "openstack:%s/%s" type id)))
-            (kill-new text)
-            (message "Copied OpenStack link: %s" text))
-        (kill-new id)
-        (message "Copied OpenStack resource ID: %s" id)))))
+  (let ((objects (openstack-list--region-objects)))
+    (cond
+     ((cdr objects)
+      (let ((texts (mapcar (lambda (object)
+                             (let ((id (nth 1 object))
+                                   (type (nth 0 object)))
+                               (if (and link type)
+                                   (format "openstack:%s/%s" type id)
+                                 id)))
+                           objects)))
+        (kill-new (mapconcat #'identity texts "\n"))
+        (message "Copied %d OpenStack resource ID%s" (length texts)
+                 (if (= (length texts) 1) "" "s"))))
+     (t
+      (let ((object (or (car objects) (openstack--object-at-point))))
+        (unless object
+          (user-error "No OpenStack resource at point"))
+        (let ((id (nth 1 object))
+              (type (nth 0 object)))
+          (if (and link type)
+              (let ((text (format "openstack:%s/%s" type id)))
+                (kill-new text)
+                (message "Copied OpenStack link: %s" text))
+            (kill-new id)
+            (message "Copied OpenStack resource ID: %s" id))))))))
 
 ;;;###autoload
 (defun openstack-open-web ()
@@ -1432,12 +1449,23 @@ the identity of the display buffer, or an `openstack:TYPE/ID' link
 or dashboard URL, so the command serves a detail buffer, a row of a
 collection table and a link in any buffer.  A reference opens the
 page of its own resource type, so the subnets of a network reach
-the subnet page."
+the subnet page.
+
+With an active region in a collection buffer, open the page of
+every selected row."
   (interactive)
-  (let ((object (openstack--object-at-point)))
-    (unless object
-      (user-error "No OpenStack resource at point"))
-    (browse-url (openstack--dashboard-url-of (nth 0 object) (nth 1 object)))))
+  (let ((objects (openstack-list--region-objects)))
+    (if (cdr objects)
+        (progn
+          (dolist (object objects)
+            (browse-url (openstack--dashboard-url-of (nth 0 object)
+                                                     (nth 1 object))))
+          (message "Opened %d OpenStack pages" (length objects)))
+      (let ((object (or (car objects) (openstack--object-at-point))))
+        (unless object
+          (user-error "No OpenStack resource at point"))
+        (browse-url (openstack--dashboard-url-of (nth 0 object)
+                                                 (nth 1 object)))))))
 
 ;;;###autoload
 (defun openstack-pop ()
@@ -2994,6 +3022,40 @@ echo area costs nothing."
 (defun openstack-list--id-at-point ()
   "Return the resource ID of the row at point, or nil."
   (get-text-property (line-beginning-position) 'openstack-id))
+
+(defun openstack-list--region-objects ()
+  "Return the objects of the rows in the active region, in row order.
+The result holds the TYPE, ID and SOURCE lists of
+`openstack--object-at-point'.  A column of a row carries no
+property, so the function reads each line from its beginning.  A
+buffer that is not a collection buffer, and a buffer without an
+active region, answer nil, so a command falls back to the row at
+point.  Signal `user-error' when the region names no resource."
+  (when (and (derived-mode-p 'openstack-list-mode) (use-region-p))
+    (let* ((start (save-excursion
+                    (goto-char (region-beginning))
+                    (line-beginning-position)))
+           (end (save-excursion
+                  (goto-char (region-end))
+                  (when (and (> (point) (point-min))
+                             (= (point) (line-beginning-position)))
+                    (forward-line -1))
+                  (line-beginning-position)))
+           (default-type (openstack-resource-type-for-mode major-mode))
+           objects)
+      (save-excursion
+        (goto-char start)
+        (while (<= (point) end)
+          (when-let* ((id (get-text-property (point) 'openstack-id)))
+            (push (list (or (get-text-property (point) 'openstack-ref-type)
+                            default-type)
+                        id 'property)
+                  objects))
+          (forward-line 1)))
+      (setq objects (nreverse objects))
+      (when (null objects)
+        (user-error "The region names no OpenStack resource"))
+      objects)))
 
 ;;;###autoload
 (defun openstack-list-narrow (regexp)
