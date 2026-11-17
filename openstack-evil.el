@@ -51,12 +51,13 @@
 ;; level up.
 ;;
 ;; List buffers treat a row as the unit: RET opens the row, o opens it
-;; in another window, c or Y copies its ID, w opens its dashboard
-;; page, q quits the window, gr refreshes, S sorts the current column,
-;; % narrows the table to the rows that match and W widens it again.
-;; The evil motions stay untouched, so n and N repeat a search and j
-;; and k move by row.  A visual line selection followed by y copies
-;; the IDs of every selected row, one per line.
+;; in another window, TAB expands the row into the rows of the
+;; resource types that it owns, c or Y copies its ID, w opens its
+;; dashboard page, q quits the window, gr refreshes, S sorts the
+;; current column, % narrows the table to the rows that match and W
+;; widens it again.  The evil motions stay untouched, so n and N
+;; repeat a search and j and k move by row.  A visual line selection
+;; followed by y copies the IDs of every selected row, one per line.
 ;;
 ;; The local minor modes below do the work.  Enable
 ;; `openstack-evil-mode' instead of them.
@@ -94,6 +95,9 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
 (defvar openstack-evil-list-keys
   '(("RET" . openstack-display-at-point)
     ("<remap> <evil-open-below>" . openstack-open-other-window)
+    ;; Evil leaves TAB unbound in its normal state, so a plain key
+    ;; reaches the expansion of a row.
+    ("TAB" . openstack-list-toggle-expansion)
     ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)
@@ -108,9 +112,10 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
   "Keys that `openstack-evil-mode' binds in list buffers.
 Each entry is a key description and the command it runs.  A row is
 the unit: S sorts the column at point, c or Y copies the ID of
-the row at point, and % narrows the table while W widens it again.
-The table is read-only, so the evil operators behind % and W have
-nothing to do there.  n, N, j and k stay evil motions.")
+the row at point, TAB expands it and % narrows the table while W
+widens it again.  The table is read-only, so the evil operators
+behind % and W have nothing to do there.  n, N, j and k stay evil
+motions.")
 
 (defvar openstack-evil-list-visual-keys
   '(("y" . openstack-evil-list-copy-ids))

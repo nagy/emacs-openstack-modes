@@ -488,6 +488,10 @@ The default writes the header line; `openstack-list-mode' replaces
 it, because the tabulated list modes use the header line for the
 column labels and report the error in the mode line instead.")
 
+;; Declared here because `openstack--refresh' drops the table and the
+;; expansion code that owns it lives in the collection section.
+(defvar openstack-list--child-answers)
+
 (defvar-local openstack-render-manages-buffer nil
   "Non-nil when `openstack-render-function' prints the whole buffer.
 A tabulated list renderer erases the buffer and restores point by
@@ -1036,6 +1040,10 @@ already in flight is remembered and served when that fetch
 completes.  A fetcher that signals counts as a failed fetch;
 when the fetcher returns a process object, it is remembered so
 `openstack--kill-pending' can cancel it."
+  (when openstack-collection
+    ;; A refresh reads the cloud again, so the child rows of an
+    ;; expanded row go as well.
+    (setq openstack-list--child-answers nil))
   (cond
    ((and (null openstack--id) (not openstack-collection)) nil)
    (openstack--pending
@@ -2218,6 +2226,15 @@ keeps a readable part of its value and its whole name."
   :type 'natnum
   :group 'openstack-list)
 
+(defcustom openstack-list-expand-indent 2
+  "Indentation of a child row of a table, in characters.
+An expanded row shows the rows of the resource types that name the
+type of the table as their parent.  The base mode indents the first
+cell of a child row by this many spaces, so a reader sees the
+relation."
+  :type 'natnum
+  :group 'openstack-list)
+
 ;;; Fetcher and columns
 
 (defvar-local openstack-list--filter nil
@@ -2629,21 +2646,204 @@ value that differs from the previous refresh takes
          (text (openstack--format-value value)))
     (if face (propertize text 'face face) text)))
 
+(defun openstack-list--identities (rows)
+  "Return ROWS as a list of (ID . ROW) pairs, in table order.
+The identity of a row comes from `openstack-list--row-id', so a
+caller reads the identity that the table itself uses."
+  (declare (side-effect-free t))
+  (let ((number 0))
+    (mapcar (lambda (row)
+              (setq number (1+ number))
+              (cons (openstack-list--row-id row number) row))
+            rows)))
+
 (defun openstack-list--entries (rows columns)
   "Return `tabulated-list-entries' for ROWS and COLUMNS.
 Each element pairs the row identity with a vector of cell
 strings.  The identity keeps point on the same resource when a
 refresh re-sorts the table.  Emacs 31 requires a list here: a
 cons makes `tabulated-list-print-entry' signal a type error."
-  (let ((number 0))
-    (mapcar
-     (lambda (row)
-       (setq number (1+ number))
-       (list (openstack-list--row-id row number)
-             (vconcat (mapcar (lambda (column)
-                                (openstack-list--cell row column))
-                              columns))))
-     rows)))
+  (mapcar
+   (lambda (pair)
+     (list (car pair)
+           (vconcat (mapcar (lambda (column)
+                              (openstack-list--cell (cdr pair) column))
+                            columns))))
+   (openstack-list--identities rows)))
+
+(defun openstack-list--indent-entry (entry)
+  "Return ENTRY with its first non-empty cell indented.
+The indentation comes from `openstack-list-expand-indent', so a
+child row reads as a row below its parent."
+  (let* ((cells (copy-sequence (cadr entry)))
+         (index (cl-position-if (lambda (cell)
+                                  (and (stringp cell)
+                                       (not (string-empty-p cell))))
+                                cells))
+         (indent (make-string (max openstack-list-expand-indent 0) ?\s)))
+    (when index
+      (aset cells index (concat indent (aref cells index))))
+    (list (car entry) cells)))
+
+(defun openstack-list--woven-entries (rows groups columns)
+  "Return the table entries of ROWS with the child rows of GROUPS.
+GROUPS is a list of (PARENT-ID CHILD-TYPE ROWS) lists from
+`openstack-list--child-groups', and COLUMNS names the table
+columns.  The children of a row follow it, so a table without a
+sort column reads as a tree.  A sort keeps the pair together
+through `openstack-list--sorter'."
+  (let ((entries (openstack-list--entries rows columns))
+        (children (make-hash-table :test #'equal)))
+    (dolist (group groups)
+      (puthash (nth 0 group)
+               (append (gethash (nth 0 group) children)
+                       (openstack-list--entries (nth 2 group) columns))
+               children))
+    (let (woven)
+      (dolist (entry entries)
+        (push entry woven)
+        (dolist (child-entry (gethash (car entry) children))
+          (push (openstack-list--indent-entry child-entry) woven)))
+      (nreverse woven))))
+
+;;; Row expansion
+
+(defvar-local openstack-list--expanded nil
+  "Hash table of the row IDs whose child rows the table shows.
+The table speaks of the buffer alone, so a refresh keeps every
+expanded row open.")
+(put 'openstack-list--expanded 'permanent-local t)
+
+(defvar-local openstack-list--child-answers nil
+  "Hash table of the child rows that the current buffer fetched.
+The key is a cons of the child resource type and the parent row ID,
+the value a plist with these keys:
+
+  :state  `pending', `done' or `error'
+  :rows   the parsed child list of a `done' answer
+  :error  the condition of an `error' answer
+
+A refresh drops the table, so an expanded row reads the cloud
+again.")
+(put 'openstack-list--child-answers 'permanent-local t)
+
+(defvar-local openstack-list--row-types nil
+  "Hash table that maps the identity of a child row to its type.
+A parent row needs no entry: its type is the type of the table.")
+
+(defvar-local openstack-list--row-parents nil
+  "Hash table that maps the identity of a child row to its parent.
+The sorters read it, so a sort never separates a row from its
+children.")
+
+(defun openstack-list--expanded-p (id)
+  "Return non-nil when the table shows the child rows of row ID."
+  (declare (side-effect-free t))
+  (and (hash-table-p openstack-list--expanded)
+       (gethash id openstack-list--expanded)))
+
+(defun openstack-list--set-expanded (id value)
+  "Show the child rows of row ID when VALUE is non-nil, else hide them.
+Return VALUE."
+  (unless (hash-table-p openstack-list--expanded)
+    (setq-local openstack-list--expanded
+                (make-hash-table :test #'equal)))
+  (if value
+      (puthash id t openstack-list--expanded)
+    (remhash id openstack-list--expanded))
+  value)
+
+(defun openstack-list--child-table ()
+  "Return the child answer table of the current buffer."
+  (if (hash-table-p openstack-list--child-answers)
+      openstack-list--child-answers
+    (setq-local openstack-list--child-answers
+                (make-hash-table :test #'equal))))
+
+(defun openstack-list--child-types (type)
+  "Return the resource types that name TYPE as their parent.
+The order follows the registry, so the subnets of a network come
+before its ports."
+  (declare (side-effect-free t))
+  (when type
+    (let (types)
+      (dolist (cell openstack-resource-definitions (nreverse types))
+        (when (equal type (plist-get (plist-get (cdr cell) :parent) :type))
+          (push (car cell) types))))))
+
+(defun openstack-list--children-arrived (buffer)
+  "Reprint the table of BUFFER now that a child answer arrived.
+BUFFER is ignored when it is dead or no longer shows a collection,
+because the answer belongs to a view that is gone."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and (derived-mode-p 'openstack-list-mode)
+                 openstack--rendered
+                 openstack--last-data)
+        (openstack-list--redraw)))))
+
+(defun openstack-list--fetch-children (child-type id)
+  "Return the child rows of type CHILD-TYPE for parent ID.
+Run `CHILD-TYPE list' with the parent arguments of the definition
+of CHILD-TYPE, so the client filters the rows by ID, and answer
+the rows that an earlier call delivered.  The call is asynchronous
+and runs once per buffer and parent: a `pending' answer starts no
+second call, and an `error' answer waits for the next refresh or
+for a second expansion."
+  (let* ((key (cons child-type id))
+         (table (openstack-list--child-table))
+         (answer (gethash key table)))
+    (cond
+     ((null answer)
+      (puthash key (list :state 'pending) table)
+      (let ((buffer (current-buffer)))
+        (condition-case err
+            (openstack-resource-list-async
+             child-type
+             (lambda (rows)
+               (with-current-buffer buffer
+                 (puthash key
+                          (list :state 'done
+                                :rows (openstack-list--rows rows))
+                          (openstack-list--child-table))
+                 (openstack-list--children-arrived buffer)))
+             (lambda (err)
+               (with-current-buffer buffer
+                 (puthash key (list :state 'error :error err)
+                          (openstack-list--child-table))
+                 (message "OpenStack %s of %s: %s"
+                          child-type id (openstack--error-string err))
+                 (openstack-list--children-arrived buffer)))
+             (openstack-resource-parent-arguments child-type id))
+          (error
+           (puthash key (list :state 'error :error err) table))))
+      nil)
+     ((eq (plist-get answer :state) 'done)
+      (plist-get answer :rows))
+     (t nil))))
+
+(defun openstack-list--child-groups (type rows)
+  "Return the child rows of a table of TYPE for its expanded ROWS.
+The value is a list of (PARENT-ID CHILD-TYPE ROWS) lists in row
+order, one per parent and relation.  An expanded row fetches the
+rows of every type that names TYPE as its parent and answers those
+that arrived."
+  (let (groups)
+    (dolist (pair (openstack-list--identities rows) (nreverse groups))
+      (let ((id (car pair)))
+        (when (openstack-list--expanded-p id)
+          (dolist (child-type (openstack-list--child-types type))
+            (when-let* ((rows (openstack-list--fetch-children child-type id)))
+              (push (list id child-type rows) groups))))))))
+
+(defun openstack-list--entry-root (entry)
+  "Return the row entry that holds ENTRY, or ENTRY itself.
+The root of a child row is its parent row, so a sort keeps a row
+and its children together."
+  (declare (side-effect-free t))
+  (let ((parent (and (hash-table-p openstack-list--row-parents)
+                     (gethash (car entry) openstack-list--row-parents))))
+    (if parent (list parent) entry)))
 
 ;;; Sorting
 
@@ -2672,17 +2872,33 @@ and every other pair compares as strings, ignoring case."
   (when-let* ((row (gethash (car entry) openstack-list--rows)))
     (gethash column row)))
 
+(defun openstack-list--entry-lessp (column entry-a entry-b)
+  "Return non-nil when the value of COLUMN puts ENTRY-A before ENTRY-B.
+The comparison reads typed values, so a numeric column sorts as
+numbers, and a row without a value sorts last."
+  (declare (side-effect-free t))
+  (let ((a (openstack-list--sort-value column entry-a))
+        (b (openstack-list--sort-value column entry-b)))
+    (cond ((and a b) (openstack-list--value-lessp a b))
+          ((null a) nil)
+          (t t))))
+
 (defun openstack-list--sorter (column)
   "Return the sort predicate of COLUMN.
 The predicate compares typed values, so a numeric column sorts as
-numbers.  Rows without a value sort last."
+numbers.  Rows without a value sort last.  A child row sorts by the
+value of its parent row, and the parent row comes before its
+children, so a sort never separates a row from the rows it shows."
   (declare (side-effect-free t))
   (lambda (entry-a entry-b)
-    (let ((a (openstack-list--sort-value column entry-a))
-          (b (openstack-list--sort-value column entry-b)))
-      (cond ((and a b) (openstack-list--value-lessp a b))
-            ((null a) nil)
-            (t t)))))
+    (let ((root-a (openstack-list--entry-root entry-a))
+          (root-b (openstack-list--entry-root entry-b)))
+      (if (not (equal (car root-a) (car root-b)))
+          (openstack-list--entry-lessp column root-a root-b)
+        (cond ((equal (car entry-a) (car root-a))
+               (not (equal (car entry-b) (car root-b))))
+              ((equal (car entry-b) (car root-b)) nil)
+              (t (openstack-list--entry-lessp column entry-a entry-b)))))))
 
 (defun openstack-list--numeric-column-p (rows column)
   "Return non-nil when every value in ROWS of COLUMN is a number.
@@ -2852,10 +3068,17 @@ prompt names a candidate."
 `tabulated-list-print-entry' draws the cells; this function then
 makes the whole line an `openstack-object' button that carries
 `openstack-id', so RET, `mouse-2', a click and `push-button' open
-the row's resource from any column and a tooltip names it."
-  (let ((start (point)))
+the row's resource from any column and a tooltip names it.  A
+child row also carries its resource type in `openstack-ref-type',
+so it opens in the mode of its own type."
+  (let ((start (point))
+        (type (and (hash-table-p openstack-list--row-types)
+                   (gethash id openstack-list--row-types))))
     (tabulated-list-print-entry id columns)
-    (add-text-properties start (1- (point)) (list 'openstack-id id))
+    (add-text-properties start (1- (point))
+                         (append (list 'openstack-id id)
+                                 (and type
+                                      (list 'openstack-ref-type type))))
     (openstack--buttonize start (1- (point))
                           (openstack-list--row-help id))))
 
@@ -2921,6 +3144,33 @@ function and the list mode of TYPE show the same columns.  Signal
      (openstack-resource-list-fields type)
      (format "(no %s)" (plist-get definition :noun)))))
 
+(defun openstack-list--child-fields (groups)
+  "Return the column order of the child rows of GROUPS.
+GROUPS is a list of (PARENT-ID CHILD-TYPE ROWS) lists, and the
+table adds the column order of every expanded child type after the
+columns of the parent, so a child row shows its own columns."
+  (let (fields)
+    (dolist (group groups (nreverse fields))
+      (dolist (field (openstack-resource-list-fields (nth 1 group)))
+        (unless (member field fields)
+          (push field fields))))))
+
+(defun openstack-list--remember-children (groups)
+  "Record the type and parent of the child rows of GROUPS.
+The printer reads the type to open a child row in its own mode,
+and the sorters read the parent to keep a row beside its
+children."
+  (let ((types (make-hash-table :test #'equal))
+        (parents (make-hash-table :test #'equal)))
+    (dolist (group groups)
+      (let ((parent (nth 0 group))
+            (type (nth 1 group)))
+        (dolist (pair (openstack-list--identities (nth 2 group)))
+          (puthash (car pair) type types)
+          (puthash (car pair) parent parents))))
+    (setq-local openstack-list--row-types types)
+    (setq-local openstack-list--row-parents parents)))
+
 (defun openstack-list-render (placeholder rows fields)
   "Render PLACEHOLDER or ROWS as a `tabulated-list-mode' table.
 PLACEHOLDER is a string such as \"(no servers)\", inserted when
@@ -2929,18 +3179,31 @@ of hash tables.  FIELDS names the columns shown first, in that
 order; the remaining fields follow, sorted by name.  A filter of
 `openstack-list-narrow' keeps the rows that match it.  Collection
 modes call this from their `openstack-render-function' with their
-own column order."
+own column order.
+
+An expanded row shows the rows of every resource type that names
+the type of the table as its parent, as in
+`openstack-list-toggle-expansion'.  The child rows take the
+columns of their own type after the columns of the parent, so one
+table shows both."
   (let* ((rows (openstack-list--filtered-rows (openstack-list--rows rows)))
-         (columns (or (openstack-list-columns rows fields) fields))
+         (type (openstack-resource-type-for-mode major-mode))
+         (groups (openstack-list--child-groups type rows))
+         (child-rows (apply #'append (mapcar (lambda (group) (nth 2 group))
+                                             groups)))
+         (all-rows (append rows child-rows))
+         (all-fields (append fields (openstack-list--child-fields groups)))
+         (columns (or (openstack-list-columns all-rows all-fields) fields))
          (window (openstack-list--pin-width-window)))
     (setq-local openstack-list--count (length rows))
-    (setq-local openstack-list--rows (openstack-list--row-index rows))
+    (openstack-list--remember-children groups)
+    (setq-local openstack-list--rows (openstack-list--row-index all-rows))
     (setq-local openstack-list--fit-width
                 (openstack-list--available-width columns window))
     (setq-local tabulated-list-format
-                (openstack-list--format rows columns window))
+                (openstack-list--format all-rows columns window))
     (setq-local tabulated-list-entries
-                (and rows (openstack-list--entries rows columns)))
+                (and rows (openstack-list--woven-entries rows groups columns)))
     ;; The renderer supplies its own printer, so it can fill a plain
     ;; buffer as well as a buffer in `openstack-list-mode'.
     (setq-local tabulated-list-printer #'openstack-list--print-entry)
@@ -3057,6 +3320,31 @@ point.  Signal `user-error' when the region names no resource."
         (user-error "The region names no OpenStack resource"))
       objects)))
 
+(defun openstack-list-toggle-expansion (&optional row)
+  "Expand or collapse the row at point, or the row ROW.
+An expanded row shows the rows of every resource type whose
+definition names the type of this table as its parent, so the
+subnets and ports of a network open below the network row.  The
+child rows fetch through the asynchronous CLI layer and arrive
+alone, so a slow relation never blocks the table.  A child row
+collapses the row of its parent.
+
+`gr' reads the cloud again, so the child rows of an expanded row
+come with the new answer."
+  (interactive nil openstack-list-mode)
+  (let* ((id (or row (openstack-list--id-at-point)))
+         (type (openstack-resource-type-for-mode major-mode)))
+    (unless id
+      (user-error "No row at point"))
+    ;; A child row expands or collapses the row that shows it.
+    (when (and (hash-table-p openstack-list--row-parents)
+               (gethash id openstack-list--row-parents))
+      (setq id (gethash id openstack-list--row-parents)))
+    (unless (openstack-list--child-types type)
+      (user-error "The %ss hold no child rows" type))
+    (openstack-list--set-expanded id (not (openstack-list--expanded-p id)))
+    (openstack-list--redraw)))
+
 ;;;###autoload
 (defun openstack-list-narrow (regexp)
   "Show only the rows whose text matches REGEXP.
@@ -3139,6 +3427,7 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   :parent tabulated-list-mode-map
   "RET" #'openstack-display-at-point
   "o" #'openstack-open-other-window
+  "TAB" #'openstack-list-toggle-expansion
   "<mouse-2>" #'openstack-mouse-display-at-point
   "c" #'openstack-copy-id
   "%" #'openstack-list-narrow
@@ -3172,8 +3461,13 @@ so a list fetches asynchronously and keeps itself up to date with
 `auto-revert-mode'.
 
 RET and `mouse-2' open the resource of the row with the
-buffer-local `openstack-show-command'.  Errors go to the mode
-line, because the header line holds the column labels.
+buffer-local `openstack-show-command', and `o' opens it in another
+window.  TAB expands the row at point into the rows of the resource
+types that name the type of the table as their parent, so the
+subnets and ports of a network open below the network row; the
+child rows take the columns of their own type after the columns of
+the table.  Errors go to the mode line, because the header line
+holds the column labels.
 
 \\{openstack-list-mode-map}"
   :group 'openstack-list

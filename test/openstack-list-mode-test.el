@@ -517,5 +517,171 @@ answer."
                      '("https://horizon.example.org/compute/id-1"
                        "https://horizon.example.org/compute/id-2"))))))
 
+;;; Row expansion
+
+(defun openstack-list-test--networks ()
+  "Return network list rows for the expansion tests."
+  (openstack-list-test--rows
+   '(("ID" . "net-1") ("Name" . "provider") ("Status" . "ACTIVE")
+     ("Subnets" . "snet-1") ("Shared" . "False")
+     ("Router External" . "False"))
+   '(("ID" . "net-2") ("Name" . "private") ("Status" . "ACTIVE")
+     ("Subnets" . "snet-2") ("Shared" . "False")
+     ("Router External" . "False"))))
+
+(defun openstack-list-test--subnets ()
+  "Return subnet list rows for the expansion tests."
+  (openstack-list-test--rows
+   '(("ID" . "snet-1") ("Name" . "web-subnet") ("Network" . "provider")
+     ("Subnet" . "10.0.0.0/24"))))
+
+(defun openstack-list-test--ports ()
+  "Return port list rows for the expansion tests."
+  (openstack-list-test--rows
+   '(("ID" . "port-1") ("Name" . "web-port") ("Status" . "ACTIVE"))))
+
+(defmacro openstack-list-test--with-network-table (&rest body)
+  "Render a network table and run BODY with the child fetches stubbed.
+Bind `calls' to the pending client calls, newest first, as a list
+of (TYPE ARGS SUCCESS-FN).  The stub answers nothing by itself, so
+a test decides when an answer arrives."
+  (declare (indent 0))
+  `(let ((calls nil))
+     (with-temp-buffer
+       (openstack-network-list-mode)
+       (setq-local openstack--rendered t)
+       (setq-local openstack--last-data (openstack-list-test--networks))
+       (cl-letf (((symbol-function 'openstack-resource-list-async)
+                  (lambda (type success _error &optional extra)
+                    (push (list type extra success) calls))))
+         (openstack-list-render "(no networks)"
+                                (openstack-list-test--networks)
+                                '("ID" "Name" "Status"))
+         ,@body))))
+
+(defmacro openstack-list-test--deliver-children ()
+  "Answer every pending child fetch that `calls' holds.
+The answer runs through the callback of the real transport, so the
+table reprints the way it does after a real client answer."
+  (declare (indent 0))
+  `(while calls
+     (let ((call (pop calls)))
+       (funcall (nth 2 call)
+                (pcase (nth 0 call)
+                  ("subnet" (openstack-list-test--subnets))
+                  ("port" (openstack-list-test--ports)))))))
+
+(defun openstack-list-test--line-of (text)
+  "Return the line of the current buffer that holds TEXT, or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward text nil t)
+      (buffer-substring-no-properties (line-beginning-position)
+                                      (line-end-position)))))
+
+(ert-deftest openstack-list-toggle-expansion-shows-the-children ()
+  "TAB fetches the child rows of a row and indents them below it.
+The child rows take the columns of their own type, so a subnet row
+shows its CIDR beside the columns of the network table."
+  (openstack-list-test--with-network-table
+    (openstack-list-toggle-expansion)
+    (should (equal (mapcar (lambda (call) (list (nth 0 call) (nth 1 call)))
+                           (reverse calls))
+                   '(("subnet" ("--network" "net-1"))
+                     ("port" ("--network" "net-1")))))
+    (openstack-list-test--deliver-children)
+    (let ((line (openstack-list-test--line-of "^  snet-1")))
+      (should (string-prefix-p "  snet-1" line))
+      (should (string-match-p "web-subnet" line))
+      (should (string-match-p "10\\.0\\.0\\.0/24" line)))
+    (should (openstack-list-test--line-of "^  port-1"))
+    ;; The other row stays closed, and the count speaks of the parents.
+    (should (equal (count-matches "^net-" (point-min) (point-max)) 2))
+    (should (equal openstack-list--count 2))))
+
+(ert-deftest openstack-list-toggle-expansion-collapses ()
+  "A second TAB hides the child rows without another client call."
+  (openstack-list-test--with-network-table
+    (openstack-list-toggle-expansion)
+    (openstack-list-test--deliver-children)
+    (should (openstack-list-test--line-of "^  snet-1"))
+    (openstack-list-toggle-expansion)
+    (should-not (openstack-list-test--line-of "^  snet-1"))
+    (should-not calls)
+    ;; The answer stays cached, so the row opens again at once.
+    (openstack-list-toggle-expansion)
+    (should (openstack-list-test--line-of "^  snet-1"))
+    (should-not calls)))
+
+(ert-deftest openstack-list-expanded-row-is-a-link-of-its-type ()
+  "A child row carries its own type, so RET opens the subnet buffer."
+  (openstack-list-test--with-network-table
+    (openstack-list-toggle-expansion)
+    (openstack-list-test--deliver-children)
+    (goto-char (point-min))
+    (should (re-search-forward "^  snet-1" nil t))
+    (should (equal (get-text-property (point) 'openstack-id) "snet-1"))
+    (should (equal (get-text-property (point) 'openstack-ref-type) "subnet"))
+    (let ((shown nil))
+      (cl-letf (((symbol-function 'openstack-subnet-display)
+                 (lambda (id) (setq shown id))))
+        (openstack-display-at-point))
+      (should (equal shown "snet-1")))))
+
+(ert-deftest openstack-list-expanded-row-collapses-from-a-child ()
+  "TAB on a child row collapses the row that shows it."
+  (openstack-list-test--with-network-table
+    (openstack-list-toggle-expansion)
+    (openstack-list-test--deliver-children)
+    (goto-char (point-min))
+    (should (re-search-forward "^  snet-1" nil t))
+    (openstack-list-toggle-expansion)
+    (should-not (openstack-list-test--line-of "^  snet-1"))))
+
+(ert-deftest openstack-list-expanded-row-keeps-its-children-on-a-sort ()
+  "A sort keeps the child rows behind the row that shows them."
+  (openstack-list-test--with-network-table
+    (openstack-list-toggle-expansion)
+    (openstack-list-test--deliver-children)
+    ;; Sort by name, so the private network comes first.
+    (tabulated-list-sort 1)
+    (let ((lines (split-string (buffer-string) "\n" t))
+          (parent nil))
+      (dolist (line lines)
+        (cond ((string-prefix-p "net-1" line) (setq parent "net-1"))
+              ((string-prefix-p "net-2" line) (setq parent "net-2"))
+              ((string-prefix-p "  " line)
+               (should (equal parent "net-1"))))))
+    (should (string-prefix-p "net-2"
+                             (car (split-string (buffer-string) "\n" t))))
+    (should (equal (gethash "snet-1" openstack-list--row-parents) "net-1"))
+    (should (equal (gethash "port-1" openstack-list--row-parents) "net-1"))))
+
+(ert-deftest openstack-list-expansion-needs-a-child-type ()
+  "A table of a type that owns no resource signals a user-error."
+  (with-temp-buffer
+    (openstack-container-list-mode)
+    (setq-local openstack--rendered t)
+    (setq-local openstack--last-data
+                (openstack-list-test--rows '(("Name" . "logs"))))
+    (openstack-list-render "(no containers)"
+                           (openstack-list-test--rows '(("Name" . "logs")))
+                           '("Name"))
+    (goto-char (point-min))
+    (should-error (openstack-list-toggle-expansion) :type 'user-error)))
+
+(ert-deftest openstack-list-refresh-drops-the-child-answers ()
+  "A refresh forgets the child rows, so an expanded row reads again."
+  (with-temp-buffer
+    (openstack-network-list-mode)
+    (setq-local openstack-list--child-answers
+                (let ((table (make-hash-table :test #'equal)))
+                  (puthash '("subnet" . "net-1") (list :state 'done)
+                           table)
+                  table))
+    (setq-local openstack-fetch-function (lambda (&rest _) nil))
+    (openstack--refresh)
+    (should-not openstack-list--child-answers)))
+
 (provide 'openstack-list-mode-test)
 ;;; openstack-list-mode-test.el ends here

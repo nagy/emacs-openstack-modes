@@ -496,6 +496,22 @@ the same way, and so does a subnet ID in a network buffer, which
 opens through the display command of the type that
 =openstack-reference-fields= names.
 
+TAB expands the row at point into the rows of the resource types
+that name the type of the table as their parent
+(=openstack-list-toggle-expansion=).  The subnets and the ports of
+a network open below the network row, and the servers, volumes,
+images, networks, routers and security groups of a project open
+below the project row.  The child rows are indented by
+=openstack-list-expand-indent= and take the columns of their own
+type after the columns of the table, so a subnet row shows its CIDR
+beside the network columns.  Each relation fetches in its own
+asynchronous client call, so a slow answer never blocks the table.
+A second TAB collapses the row, and TAB on a child row collapses
+the row that shows it.  A sort keeps a row and its children
+together, and =gr= reads the cloud again, children included.  The
+row count of the mode line counts the rows of the table itself, and
+the narrow filter matches those rows only.
+
 The list buffer has no resource ID: the buffer-level ID commands
 do not apply there.  A show buffer bookmarks its ID and its mode,
 so =M-x bookmark-set= (=C-x r m=) in a server buffer reopens a server

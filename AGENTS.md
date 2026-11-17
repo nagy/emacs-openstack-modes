@@ -373,6 +373,41 @@ them.
   segments sets `openstack-url-suffix` (e.g. "/detail"); the
   leading ones go into `openstack-id-prefix`.  Both come from the
   macro call (`:id-prefix`, `:url-suffix`).
+- A collection table expands a row into the rows of the resource
+  types whose `:parent` names the type of the table
+  (`openstack-list--child-types` reads the registry), so a
+  definition needs no keyword for it: the network table owns the
+  subnets and the ports because their definitions name the network
+  as their parent.  `openstack-list-toggle-expansion` (`TAB`) flips
+  the row in `openstack-list--expanded`, a permanent-local hash, so
+  a refresh and a re-display keep the fold; a child row toggles the
+  row that shows it, which `openstack-list--row-parents` names.
+  `openstack-list--fetch-children` runs `CHILD-TYPE list` through
+  `openstack-resource-list-async` with
+  `openstack-resource-parent-arguments` of the child definition, so
+  the client filters the rows by the parent, and it keeps one
+  answer per buffer and relation in `openstack-list--child-answers`
+  under a cons of the child type and the parent ID: `pending` starts
+  no second call, `done` holds the rows, and `error` waits for the
+  next refresh or collapse so a failed fetch cannot loop.  A
+  callback reprints through `openstack-list--children-arrived`, so
+  an expanded row fills in when its answer arrives.
+  `openstack--refresh` drops the answer table, so `gr` reads the
+  children again; a resize and a narrow reprint from the cache.
+  `openstack-list-render` unions the columns of the parent and of
+  the expanded child types (`openstack-list--child-fields`), sorts
+  the parent rows, weaves the children behind their parent
+  (`openstack-list--woven-entries`), indents the first non-empty
+  cell of a child by `openstack-list-expand-indent`, and feeds the
+  union rows to the widths, the numeric check and the row index.
+  `openstack-list--sorter` compares the root of an entry and puts a
+  row before its children, so a sort never separates them, and
+  `openstack-list--print-entry` adds `openstack-ref-type` of the
+  child row, so RET opens the child in the mode of its own type.
+  The row count and the narrow filter speak of the parent rows
+  only; a child row belongs to the row that shows it.  The string
+  renderer (`openstack-list-render-to-string`) stays flat, because
+  it holds no mode and no fetch.
 - Collection buffers (lists) have no resource ID:
   `openstack-list-mode` sets the buffer-local `openstack-collection`
   flag, so `openstack--refresh` runs and the fetcher receives nil as
