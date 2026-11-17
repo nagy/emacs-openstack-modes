@@ -401,6 +401,42 @@ buffers, faces or keymaps."
     (should (equal (openstack-resource-parent-arguments "object" "logs")
                    '("logs")))))
 
+(ert-deftest openstack-data-show-arguments-default-to-id ()
+  "A definition without `:show-arguments' shows the bare ID."
+  (should (equal (openstack-resource-show-arguments "server" "srv-1")
+                 '("srv-1"))))
+
+(ert-deftest openstack-data-show-arguments-fill-the-parent ()
+  "The template keeps its order and takes the parent ID."
+  (let ((openstack-resource-definitions
+         (cons '("fake-member" :type "fake-member"
+                               :cli "fake member"
+                               :show-arguments (:parent :id))
+               openstack-resource-definitions)))
+    (should (equal (openstack-resource-show-arguments
+                    "fake-member" "m-1" "p-1")
+                   '("p-1" "m-1")))
+    ;; The template needs the parent, so it signals without one.
+    (should-error (openstack-resource-show-arguments "fake-member" "m-1")
+                  :type 'user-error)))
+
+(ert-deftest openstack-data-show-async-passes-the-parent ()
+  "The async show call fills the parent slot of the template."
+  (let ((seen nil)
+        (openstack-resource-definitions
+         (cons '("fake-member" :type "fake-member"
+                               :cli "fake member"
+                               :show-arguments (:parent :id))
+               openstack-resource-definitions)))
+    (cl-letf (((symbol-function 'openstack-cli-async-request)
+               (cl-function (lambda (args &key _success-fn _error-fn)
+                              (setq seen args)
+                              :handle))))
+      (should (eq (openstack-resource-show-async
+                   "fake-member" "m-1" #'ignore #'ignore "p-1")
+                  :handle))
+      (should (equal seen '("fake" "member" "show" "p-1" "m-1"))))))
+
 (ert-deftest openstack-data-parent-id ()
   "Read the parent ID from the show data, without regard to key case."
   (should (equal (openstack-resource-parent-id
@@ -412,7 +448,13 @@ buffers, faces or keymaps."
                  "p-3"))
   (should (null (openstack-resource-parent-id "server" nil)))
   (should (null (openstack-resource-parent-id
-                 "server" (openstack-data-test--row "id" "srv-1")))))
+                 "server" (openstack-data-test--row "id" "srv-1"))))
+  ;; A field that holds a list of IDs answers its first element.
+  (should (equal (openstack-resource-parent-id
+                  "listener"
+                  (openstack-data-test--row "loadbalancers"
+                                            '("lb-1" "lb-2")))
+                 "lb-1")))
 
 (provide 'openstack-data-test)
 ;;; openstack-data-test.el ends here

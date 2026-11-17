@@ -241,5 +241,122 @@
             :arguments ("--project" :id))
   :list-fields '("ID" "Name" "Description" "Project" "Tags" "Shared"))
 
+;;; Load balancers
+
+;; The Octavia client names its resources in several words, so every
+;; form below sets `:cli'.  It also prints its list columns in lower
+;; case with underscores, unlike every other client in this package,
+;; so the `:list-fields' keep the snake case of the client and the
+;; table header title-cases them (see `openstack-list--column-label').
+;;
+;; A load balancer owns its listeners and its pools.  Both hang
+;; directly below it, because `openstack loadbalancer pool list'
+;; filters by load balancer only and takes no `--listener'.
+
+(openstack-define-resource "load-balancer"
+  :noun "load balancers"
+  :title "Load Balancer"
+  :cli "loadbalancer"
+  :id-prefix "project/loadbalancers"
+  :url-suffix "/detail"
+  :fields '("name" "provisioning_status" "operating_status"
+            "vip_address" "vip_network_id" "vip_subnet_id"
+            "vip_port_id" "listeners" "pools" "provider"
+            "flavor_id" "availability_zone" "admin_state_up"
+            "description" "project_id" "tags"
+            "created_at" "updated_at")
+  :parent '(:type "project" :field "project_id"
+            :arguments ("--project" :id))
+  :list-fields '("id" "name" "provisioning_status"
+                 "operating_status" "vip_address" "provider"
+                 "project_id"))
+
+;;; Listeners
+
+;; A listener listens on one port of a load balancer and names its
+;; default pool.  Its show data reports the owning load balancers as
+;; a list of IDs, so `openstack-resource-parent-id' reads its first
+;; element.
+
+(openstack-define-resource "listener"
+  :noun "listeners"
+  :cli "loadbalancer listener"
+  :id-prefix "project/loadbalancers"
+  :fields '("name" "provisioning_status" "operating_status"
+            "protocol" "protocol_port" "default_pool_id"
+            "loadbalancers" "admin_state_up" "connection_limit"
+            "sni_container_refs" "description" "project_id"
+            "tags" "created_at" "updated_at")
+  :parent '(:type "load-balancer" :field "loadbalancers"
+            :arguments ("--loadbalancer" :id))
+  :list-fields '("id" "name" "default_pool_id" "protocol"
+                 "protocol_port" "admin_state_up" "project_id"))
+
+;;; Pools
+
+;; A pool names the load balancer that holds it, its members and its
+;; health monitor.  Its `members' field lists the member IDs.
+
+(openstack-define-resource "pool"
+  :noun "pools"
+  :cli "loadbalancer pool"
+  :id-prefix "project/loadbalancers"
+  :fields '("name" "provisioning_status" "operating_status"
+            "lb_algorithm" "protocol" "members" "healthmonitor_id"
+            "listeners" "loadbalancers" "session_persistence"
+            "admin_state_up" "description" "project_id" "tags"
+            "created_at" "updated_at")
+  :parent '(:type "load-balancer" :field "loadbalancers"
+            :arguments ("--loadbalancer" :id))
+  :list-fields '("id" "name" "provisioning_status"
+                 "lb_algorithm" "protocol" "admin_state_up"
+                 "project_id"))
+
+;;; Members
+
+;; A member is the only resource of this package that the client
+;; shows through its parent: `openstack loadbalancer member show'
+;; takes the pool first and the member second, so `:show-arguments'
+;; names both and the fetcher reads the pool from
+;; `openstack--show-parent'.  Its list takes the pool as its only
+;; positional argument.
+
+(openstack-define-resource "member"
+  :noun "members"
+  :cli "loadbalancer member"
+  :id-prefix "project/loadbalancers"
+  :fields '("name" "provisioning_status" "operating_status"
+            "address" "protocol_port" "weight" "subnet_id"
+            "pools" "monitor_address" "monitor_port" "backup"
+            "admin_state_up" "project_id" "tags"
+            "created_at" "updated_at")
+  :show-arguments '(:parent :id)
+  :parent '(:type "pool" :field "pools"
+            :arguments (:id))
+  :list-fields '("id" "name" "provisioning_status"
+                 "operating_status" "address" "protocol_port"
+                 "weight" "project_id"))
+
+;;; Health monitors
+
+;; A health monitor belongs to a pool, but `openstack loadbalancer
+;; healthmonitor list' takes no filter at all, so the definition names
+;; no parent: the table lists every monitor of the project and the
+;; pool's `healthmonitor_id' field is the way down from the pool.
+
+(openstack-define-resource "health-monitor"
+  :noun "health monitors"
+  :title "Health Monitor"
+  :cli "loadbalancer healthmonitor"
+  :id-prefix "project/loadbalancers"
+  :fields '("name" "type" "provisioning_status" "operating_status"
+            "delay" "timeout" "max_retries" "max_retries_down"
+            "expected_codes" "http_method" "url_path"
+            "http_version" "domain_name" "pools" "admin_state_up"
+            "description" "project_id" "tags"
+            "created_at" "updated_at")
+  :list-fields '("id" "name" "type" "admin_state_up"
+                 "project_id"))
+
 (provide 'openstack-resources)
 ;;; openstack-resources.el ends here

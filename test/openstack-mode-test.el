@@ -70,6 +70,50 @@ an explicit `require'."
                        (regexp-quote entry))
                source)))))
 
+(ert-deftest openstack-mode-display-parent-of-a-child-row ()
+  "A child row names its parent through the text property."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (let ((inhibit-read-only t))
+      (insert "member-1 10.0.0.11\n")
+      (add-text-properties 1 (line-end-position)
+                           (list 'openstack-id "member-1"
+                                 'openstack-ref-type "member"
+                                 'openstack-ref-parent "pool-1")))
+    (goto-char (point-min))
+    (should (equal (openstack--object-parent "member") "pool-1"))))
+
+(ert-deftest openstack-mode-display-parent-of-a-scoped-table ()
+  "A row of a scoped table sits below the parent of the table."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (setq-local openstack-list--scope '(:type "pool" :id "pool-1"))
+    (let ((inhibit-read-only t))
+      (insert "member-1 10.0.0.11\n")
+      (add-text-properties 1 (line-end-position)
+                           (list 'openstack-id "member-1"
+                                 'openstack-ref-type "member")))
+    (goto-char (point-min))
+    (should (equal (openstack--object-parent "member") "pool-1"))
+    ;; A table scoped by another type names no parent for a listener.
+    (should (null (openstack--object-parent "listener")))))
+
+(ert-deftest openstack-mode-buffer-keeps-the-display-parent ()
+  "A display buffer records the parent that point named."
+  (let ((buf nil))
+    (unwind-protect
+        (let ((openstack--display-parent "pool-1"))
+          (cl-letf (((symbol-function 'openstack-member--fetch)
+                     (lambda (_id success-fn _error-fn)
+                       (funcall success-fn nil)
+                       nil))
+                    ((symbol-function 'openstack-member--render)
+                     (lambda (_id _data) nil)))
+            (setq buf (openstack-buffer "member-1" #'openstack-member-mode))
+            (with-current-buffer buf
+              (should (equal openstack--show-parent "pool-1")))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
 (ert-deftest openstack-mode-command-modes ()
   "The show and list commands name the modes they serve.
 `execute-extended-command-for-buffer' (`M-S-x') then offers the

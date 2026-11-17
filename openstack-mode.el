@@ -225,7 +225,9 @@ polls with this interval; every other buffer polls every
 
 (defcustom openstack-transitional-states
   '("BUILD" "REBOOT" "DELETING" "REBUILD" "MIGRATING" "RESIZE"
-    "BACKUP" "creating" "queued" "saving")
+    "BACKUP" "creating" "queued" "saving"
+    "PENDING_CREATE" "PENDING_UPDATE" "PENDING_DELETE"
+    "DRAINING")
   "Status values that mark a resource as still changing.
 The comparison ignores case, because `RESOURCE show' and
 `RESOURCE list' spell the same state differently.  A buffer
@@ -275,7 +277,9 @@ list buffer opens the right kind of show buffer."
   :group 'openstack)
 
 (defcustom openstack-status-fields '("status" "vm_state" "host_status"
-                                     "health_status")
+                                     "health_status"
+                                     "provisioning_status"
+                                     "operating_status")
   "Fields rendered as a status in display buffers.
 A value of such a field takes its face from
 `openstack-status-faces'; the field name comparison ignores
@@ -298,7 +302,17 @@ Set this to nil to render dates with the default face."
     ("network_id" . "network")
     ("security_group_ids" . "security-group")
     ("project_id" . "project")
-    ("tenant_id" . "project"))
+    ("tenant_id" . "project")
+    ;; Octavia names the resources around a load balancer.
+    ("vip_network_id" . "network")
+    ("vip_subnet_id" . "subnet")
+    ("vip_port_id" . "port")
+    ("listeners" . "listener")
+    ("pools" . "pool")
+    ("loadbalancers" . "load-balancer")
+    ("default_pool_id" . "pool")
+    ("members" . "member")
+    ("healthmonitor_id" . "health-monitor"))
   "Fields whose values name other resources.
 Each entry maps a show field name to the resource type of its
 values.  The client reports such values as a list of IDs, as a
@@ -322,6 +336,7 @@ one line of text."
     ("in-use" . openstack-status-ok)
     ("healthy" . openstack-status-ok)
     ("up" . openstack-status-ok)
+    ("online" . openstack-status-ok)
     ;; Inactive states.
     ("down" . openstack-status-off)
     ("shutoff" . openstack-status-off)
@@ -330,6 +345,8 @@ one line of text."
     ("suspended" . openstack-status-off)
     ("shelved" . openstack-status-off)
     ("shelved_offloaded" . openstack-status-off)
+    ("offline" . openstack-status-off)
+    ("no_monitor" . openstack-status-off)
     ;; States that still change.
     ("build" . openstack-status-pending)
     ("building" . openstack-status-pending)
@@ -349,6 +366,10 @@ one line of text."
     ("maintenance" . openstack-status-pending)
     ("unknown" . openstack-status-pending)
     ("pending_delete" . openstack-status-pending)
+    ("pending_create" . openstack-status-pending)
+    ("pending_update" . openstack-status-pending)
+    ("draining" . openstack-status-pending)
+    ("degraded" . openstack-status-pending)
     ;; Failure states.
     ("error" . openstack-status-error)
     ("error_deleting" . openstack-status-error)
@@ -431,6 +452,22 @@ to the `ID' line of a show buffer, to the `id' field, to the
 (defvar-local openstack--origin-buffer nil
   "Buffer to return to with `openstack-pop'.")
 (put 'openstack--origin-buffer 'permanent-local t)
+
+(defvar-local openstack--show-parent nil
+  "Parent ID of the resource that the current buffer displays.
+The client shows some resources through their parent, as
+`loadbalancer member show POOL MEMBER' does, so the fetcher of a
+definition whose `:show-arguments' names `:parent' reads the ID
+here.  `openstack-buffer' fills it from
+`openstack--display-parent'.")
+(put 'openstack--show-parent 'permanent-local t)
+
+(defvar openstack--display-parent nil
+  "Parent ID of the resource that a display command opens.
+`openstack-display-at-point' binds it around the display of a row
+that sits below its parent, so `openstack-buffer' can record it in
+`openstack--show-parent' before the first fetch.  Deliberately not
+buffer-local.")
 
 (defvar-local openstack--pending nil
   "In-flight fetch of the current buffer, or nil when idle.
@@ -827,6 +864,26 @@ display buffer serves next."
      ((when-let* ((url (openstack--url-at-point)))
         (when-let* ((object (openstack--url-object url)))
           (list (car object) (cdr object) 'url)))))))
+
+(defvar openstack-list--scope)
+
+(defun openstack--object-parent (type)
+  "Return the parent ID of the resource of TYPE at point, or nil.
+A child row of a collection table carries its parent in the
+`openstack-ref-parent' property.  A row of a scoped table sits
+below the parent of the table, so the scope names the parent when
+it holds the parent type of TYPE."
+  (declare (side-effect-free t))
+  (or (get-char-property (point) 'openstack-ref-parent)
+      (and openstack-collection
+           (get-text-property (line-beginning-position)
+                              'openstack-ref-parent))
+      (and openstack-collection
+           (let ((scope openstack-list--scope))
+             (and scope
+                  (equal (plist-get scope :type)
+                         (openstack-resource-parent-type type))
+                  (plist-get scope :id))))))
 
 (defun openstack--object-at-point (&optional type)
   "Return (TYPE ID SOURCE) of the OpenStack resource at point, or nil.
@@ -1387,17 +1444,22 @@ the fetcher's process running."
 The buffer is named by `openstack--buffer-name-for-id' and put into
 MODE, defaulting to `openstack-mode'.  Derived modes are entered by
 passing their symbol, which activates their specialized fetcher and
-renderer (see `openstack-server-display').  The content is fetched
-with `openstack-fetch-function' and rendered with
+renderer (see `openstack-server-display').  The parent ID of
+`openstack--display-parent' becomes `openstack--show-parent', so a
+resource that the client shows through its parent fetches at
+once.  The content is fetched with `openstack-fetch-function' and
+rendered with
 `openstack-render-function'; the fetch may complete later, in which
 case the buffer fills in asynchronously.  This function selects no
 window, so a caller can read the buffer or show it itself; the
 command `openstack-display' pops it."
   (let ((buf (get-buffer-create (openstack--buffer-name-for-id id)))
-        (origin (current-buffer)))
+        (origin (current-buffer))
+        (parent openstack--display-parent))
     (with-current-buffer buf
       (funcall (or mode #'openstack-mode))
       (setq-local openstack--id id)
+      (setq-local openstack--show-parent parent)
       (setq-local openstack--origin-buffer origin)
       (openstack--refresh))
     buf))
@@ -1507,14 +1569,18 @@ holds a display command for that type, this command runs it, so
 a subnet opens in a subnet buffer.  Every other target opens with
 the buffer-local `openstack-show-command', which a collection mode
 binds to its resource's display command, defaulting to
-`openstack-display'."
+`openstack-display'.  The parent of the target, when point names
+one, travels in `openstack--display-parent', so a resource that
+the client shows through its parent opens from its table row."
   (interactive nil openstack-mode openstack-list-mode)
   (let ((object (openstack--object-at-point)))
     (unless object
       (user-error "No OpenStack resource at point"))
     (let* ((id (nth 1 object))
            (type (nth 0 object))
-           (entry (and type (openstack-resource-type type))))
+           (entry (and type (openstack-resource-type type)))
+           (openstack--display-parent (and type
+                                           (openstack--object-parent type))))
       (cond ((null type) (funcall openstack-show-command id))
             (entry (funcall (nth 2 entry) id))
             (t (user-error "No display command for resource type %s"
@@ -1555,16 +1621,17 @@ the collection buffer that a climb opens."
 
 ;;; Generic resource fetch and render
 
-(defun openstack-show-fetch (type id success-fn error-fn)
+(defun openstack-show-fetch (type id success-fn error-fn &optional parent-id)
   "Fetch the details of resource TYPE with ID for a display buffer.
 TYPE names a key of `openstack-resource-definitions', e.g.
-`server' or `volume'.  Run `RESOURCE show ID' through
+`server' or `volume'.  Run `RESOURCE show' through
 `openstack-resource-show-async' and call SUCCESS-FN with the
 parsed JSON, or ERROR-FN with an `openstack-cli-error' condition.
-Return the client process, so the display machinery can cancel the
-fetch.  Derived resource modes wrap this with their own type as
-their `openstack-fetch-function'."
-  (openstack-resource-show-async type id success-fn error-fn))
+PARENT-ID fills the `:parent' slot of the `:show-arguments'
+template of the definition.  Return the client process, so the
+display machinery can cancel the fetch.  Derived resource modes
+wrap this with their own type as their `openstack-fetch-function'."
+  (openstack-resource-show-async type id success-fn error-fn parent-id))
 
 (defvar-local openstack-value-formatters nil
   "Alist of field name to formatter function for the show renderer.
@@ -2289,8 +2356,10 @@ Collection modes wrap this with their own resource type as their
   "Return the table columns of ROWS in display order.
 FIELDS names the columns shown first, in that order; every
 remaining field of ROWS follows, sorted by name.  The field
-names are the title-case names the client prints for lists,
-for example `ID' or `Volume Type'."
+names are the column names of the client, for example `ID' and
+`Volume Type' from `RESOURCE list', or `vip_address' from a
+client that prints snake case; `openstack-list--column-label'
+names them in the header."
   (declare (side-effect-free t))
   (let ((unseen (make-hash-table :test #'equal))
         (columns nil))
@@ -2916,6 +2985,26 @@ An empty column does not count as numeric."
             (setq numeric nil)))))
     (and seen numeric)))
 
+;;; Column labels
+
+(defun openstack-list--column-label (column)
+  "Return the header label of COLUMN, a field name of a list row.
+A client that prints its columns in title case, as
+`openstack server list' does, needs no change.  A client that
+prints snake case, as `openstack loadbalancer list' does, spells
+the column with underscores, so `vip_address' reads Vip Address
+and `id' reads ID."
+  (declare (pure t) (side-effect-free t))
+  (if (let ((case-fold-search nil))
+        (string-match-p "\\`[A-Z]" column))
+      column
+    (mapconcat (lambda (word)
+                 (if (string-equal-ignore-case word "id")
+                     "ID"
+                   (capitalize word)))
+               (split-string column "[_ ]" t)
+               " ")))
+
 ;;; Column widths
 
 (defvar-local openstack-list--width-window nil
@@ -2957,11 +3046,12 @@ does not show the table stays unpinned."
 
 (defun openstack-list--natural-widths (rows columns)
   "Return the width that each column needs to show all ROWS.
-There is one width for every name in COLUMNS."
+There is one width for every name in COLUMNS, and a column keeps
+the whole of its label."
   (declare (side-effect-free t))
   (mapcar
    (lambda (column)
-     (let ((width (string-width column)))
+     (let ((width (string-width (openstack-list--column-label column))))
        (dolist (row rows width)
          (setq width
                (max width
@@ -2983,10 +3073,11 @@ column but the last."
 (defun openstack-list--column-floors (columns)
   "Return the narrowest width of every name in COLUMNS.
 A column keeps `openstack-list-min-column-width' and the whole of
-its own name, so a fitted table never cuts a column label."
+its own label, so a fitted table never cuts a column header."
   (declare (side-effect-free t))
   (mapcar (lambda (column)
-            (max openstack-list-min-column-width (string-width column)))
+            (max openstack-list-min-column-width
+                 (string-width (openstack-list--column-label column))))
           columns))
 
 (defun openstack-list--widest-above-floor (widths floors)
@@ -3043,7 +3134,7 @@ to the window that decides the widths of the table."
                   minimums))
          (format nil))
     (dolist (column columns)
-      (push (list column
+      (push (list (openstack-list--column-label column)
                   (pop widths)
                   (openstack-list--sorter column)
                   :right-align (openstack-list--numeric-column-p rows column))
@@ -3069,16 +3160,23 @@ prompt names a candidate."
 makes the whole line an `openstack-object' button that carries
 `openstack-id', so RET, `mouse-2', a click and `push-button' open
 the row's resource from any column and a tooltip names it.  A
-child row also carries its resource type in `openstack-ref-type',
-so it opens in the mode of its own type."
+child row also carries its resource type in `openstack-ref-type'
+and its parent in `openstack-ref-parent', so it opens in the mode
+of its own type and a definition that shows the resource through
+its parent gets the parent ID."
   (let ((start (point))
         (type (and (hash-table-p openstack-list--row-types)
-                   (gethash id openstack-list--row-types))))
+                   (gethash id openstack-list--row-types)))
+        (parent (and (hash-table-p openstack-list--row-parents)
+                     (gethash id openstack-list--row-parents))))
     (tabulated-list-print-entry id columns)
     (add-text-properties start (1- (point))
                          (append (list 'openstack-id id)
                                  (and type
-                                      (list 'openstack-ref-type type))))
+                                      (list 'openstack-ref-type type))
+                                 (and parent
+                                      (list 'openstack-ref-parent
+                                            parent))))
     (openstack--buttonize start (1- (point))
                           (openstack-list--row-help id))))
 
@@ -3119,7 +3217,7 @@ ROWS is empty."
                           'left))
                       columns))
              (header (openstack-list--table-line
-                      columns widths
+                      (mapcar #'openstack-list--column-label columns) widths
                       (make-list (length columns) 'left)))
              (lines (mapcar
                      (lambda (row)
@@ -3544,6 +3642,12 @@ PROPERTIES is a plist with these keys:
   :list-arguments  extra client arguments of `RESOURCE list'
   :list-prefix-arguments  extra client arguments of `RESOURCE list'
                   when the display command gets a prefix argument
+  :show-arguments  template of the arguments that follow the
+                 `show' action: `:id' marks the resource ID,
+                 `:parent' the parent ID of `:parent', so a
+                 client command that takes both, as
+                 `loadbalancer member show POOL MEMBER' does,
+                 keeps its order (default `(:id)')
   :value-formatters  alist of show field name to formatter function
   :parent        parent spec plist: :type names the resource type
                  that owns TYPE, :field the show field or fields
@@ -3571,6 +3675,8 @@ the Org links and the xref backend learn about the new type."
                                                           :list-arguments))
          (list-prefix-arguments (openstack-define-resource--value
                                  properties :list-prefix-arguments))
+         (show-arguments (openstack-define-resource--value
+                          properties :show-arguments '(:id)))
          (value-formatters (openstack-define-resource--value
                             properties :value-formatters))
          (parent (openstack-define-resource--value properties :parent))
@@ -3618,7 +3724,9 @@ JSON, or ERROR-FN with an `openstack-cli-error' condition.  Return
 the client process, so the display machinery can cancel the fetch.
 This is the value of `openstack-fetch-function' in `%s'."
                   type cli mode)
-         (openstack-show-fetch ,type id success-fn error-fn))
+         (openstack-show-fetch ,type id success-fn error-fn
+                               ,@(and (memq :parent show-arguments)
+                                      '(openstack--show-parent))))
 
        (defun ,render (id data)
          ,(openstack-define-resource--doc "Insert the display of %s ID with DATA into the buffer.
@@ -3776,6 +3884,7 @@ ID and the ID commands do not apply.  The %s are fetched with
               :list-arguments ',list-arguments
               :list-arguments-variable ',list-arguments-var
               :list-prefix-arguments ',list-prefix-arguments
+              :show-arguments ',show-arguments
               :parent ',parent
               :mode ',mode
               :display ',display

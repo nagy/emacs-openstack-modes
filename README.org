@@ -396,6 +396,60 @@ through the =security_group_ids= entry of
 =openstack-reference-fields=, which prints one ID per line.
 Horizon serves the detail view at =project/security_groups/ID=.
 
+* Load balancers
+
+Five modes display the resources of the Octavia service.  The
+client names the resource commands in several words, so every
+definition sets =:cli=:
+
+- =openstack-load-balancer-mode= -- display a load balancer by ID
+  (=openstack loadbalancer show=)
+- =openstack-listener-mode= -- display a listener by ID
+  (=openstack loadbalancer listener show=)
+- =openstack-pool-mode= -- display a pool by ID
+  (=openstack loadbalancer pool show=)
+- =openstack-member-mode= -- display a member of a pool by ID
+  (=openstack loadbalancer member show POOL MEMBER=)
+- =openstack-health-monitor-mode= -- display a health monitor by ID
+  (=openstack loadbalancer healthmonitor show=)
+
+Each type has its list mode and its display command, for example
+=M-x openstack-load-balancer-list-display= for the load balancer
+table.  The Octavia client prints its list columns in lower case
+with underscores, unlike every other client of this package.  The
+list modes keep those names as the column keys and title-case them
+for the header, so =vip_address= reads =Vip Address= and =id=
+reads =ID=.
+
+A load balancer belongs to a project, and a listener and a pool
+belong to a load balancer, so the project table expands into load
+balancers, the load balancer table into its listeners and its
+pools, and a pool into its members.  Both of them hang directly
+below the load balancer, because =openstack loadbalancer pool
+list= filters by load balancer only and takes no =--listener=.
+A member list takes the pool as its only positional argument,
+which the parent spec of the definition names.
+
+The client shows a member through its parent: =openstack
+loadbalancer member show= takes the pool first.  The definition
+names both in =:show-arguments=, so the mode reads the pool from
+the table row that opened the buffer.  A member buffer that no
+table opened, such as a jump from a bare ID prompt, cannot fetch
+and says so.  A health monitor belongs to a pool too, but
+=openstack loadbalancer healthmonitor list= takes no filter at
+all, so that table lists every monitor and the pool buffer is the
+way down: its =healthmonitor_id= field opens the monitor.
+
+The =vip_network_id=, =vip_subnet_id= and =vip_port_id= fields of
+a load balancer, the =listeners=, =pools=, =members=,
+=loadbalancers=, =default_pool_id= and =healthmonitor_id= fields
+of its children open the resource they name.  Horizon nests the
+child pages below the load balancer, which the flat
+=openstack-id-prefix= cannot name, so those modes land on the load
+balancer panel.  Override =openstack-id-prefix= and
+=openstack-url-suffix= in a mode hook for a deployment that
+serves another path.
+
 * Projects
 
 =openstack-project-mode= displays a project of the Identity
@@ -459,6 +513,16 @@ single resource; the server list mode is the reference:
   (=openstack flavor list=)
 - =M-x openstack-security-group-list-display= -- list all security
   groups (=openstack security group list=)
+- =M-x openstack-load-balancer-list-display= -- list all load
+  balancers (=openstack loadbalancer list=)
+- =M-x openstack-listener-list-display= -- list all listeners
+  (=openstack loadbalancer listener list=)
+- =M-x openstack-pool-list-display= -- list all pools
+  (=openstack loadbalancer pool list=)
+- =M-x openstack-member-list-display= -- list all members
+  (=openstack loadbalancer member list POOL=)
+- =M-x openstack-health-monitor-list-display= -- list all health
+  monitors (=openstack loadbalancer healthmonitor list=)
 
 Every list mode derives from =openstack-list-mode=, which derives
 from =tabulated-list-mode=.  The table therefore has a clickable
@@ -499,9 +563,11 @@ opens through the display command of the type that
 TAB expands the row at point into the rows of the resource types
 that name the type of the table as their parent
 (=openstack-list-toggle-expansion=).  The subnets and the ports of
-a network open below the network row, and the servers, volumes,
+a network open below the network row, the servers, volumes,
 images, networks, routers and security groups of a project open
-below the project row.  The child rows are indented by
+below the project row, and the load balancers of a project, then
+their listeners, pools and members, open below their own parent.
+The child rows are indented by
 =openstack-list-expand-indent= and take the columns of their own
 type after the columns of the table, so a subnet row shows its CIDR
 beside the network columns.  Each relation fetches in its own
@@ -654,6 +720,10 @@ The optional keys of the form:
 - =:list-prefix-arguments= -- extra client arguments of
   =RESOURCE list= when the display command gets a prefix argument
   (the image list uses =("--all")=)
+- =:show-arguments= -- template of the arguments after the =show=
+  action; =:id= marks the resource ID and =:parent= the parent ID,
+  so a client command that takes both, as =loadbalancer member
+  show POOL MEMBER= does, keeps its order (default =(:id)=)
 - =:parent= -- parent spec plist; =:type= names the resource type
   that owns the resource, =:field= the show field or fields that
   hold its ID, =:arguments= the client arguments that filter the
@@ -929,7 +999,18 @@ climbs the hierarchy without a mode:
 #+end_src
 
 A type without a single parent returns nil.  The command
-=openstack-go-to-parent= reads the same functions.
+=openstack-go-to-parent= reads the same functions.  A parent field
+that holds a list of IDs, as a listener reports its
+=loadbalancers=, answers its first element.
+
+A resource that the client shows through its parent names the
+argument order in its definition, and
+=openstack-resource-show-arguments= fills it:
+
+#+begin_src elisp
+  (openstack-resource-show-arguments "server" id)          ; (id)
+  (openstack-resource-show-arguments "member" id pool-id)  ; (pool-id id)
+#+end_src
 
 * Design
 

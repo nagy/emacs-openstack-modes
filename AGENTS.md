@@ -20,7 +20,7 @@ name as the ID.
 | `openstack-cli.el` | CLI layer: `openstack-cli-request` (sync) + `openstack-cli-async-request` (async), `openstack-program` defcustom |
 | `openstack-api.el` | Native read layer: asynchronous `openstack-api-request` and synchronous `openstack-api-fetch` over Emacs `url.el` (keep-alive, gnutls, chunked decoding), plus cancellation, per-request timeout, JSON parsing and the `openstack-api-error` condition |
 | `openstack-read.el` | ID prompt completion, `openstack-open-id`, type and name lookups. Reads cached list rows through `openstack-resource-cached-rows` and refills them through `openstack-resource-list-cached`, so the definition and its defcustom apply. |
-| `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet, port, router, flavor, security-group.  The server, volume, image, network, router and security-group forms name a parent (a project, or a network for a subnet and a port); project, container and flavor name none |
+| `openstack-resources.el` | The resource types, one `openstack-define-resource` form each: server, volume, image, network, project, container, subnet, port, router, flavor, security-group, load-balancer, listener, pool, member, health-monitor.  The server, volume, image, network, router and security-group forms name a project as parent, a subnet and a port a network, a listener and a pool a load-balancer, a member a pool; project, container, flavor and health-monitor name none, because `loadbalancer healthmonitor list` takes no filter |
 | `openstack-console.el` | The console log view of a server: `openstack-console-log-mode` over `openstack-mode`, the fetch of `console log show` through the text path of the CLI layer, `goto-address-mode` for the URLs of the log and the command `openstack-console-log` |
 | `openstack-xref.el` | xref backend: `M-.` on an `openstack-id` property or a UUID, `M-?` over cached list rows, opt-in via `(require 'openstack-xref)` |
 | `openstack-url.el` | `openstack:TYPE/ID` URL scheme: registers a `browse-url` handler, opt-in via `(require 'openstack-url)` |
@@ -180,12 +180,33 @@ them.
   `:title` names the title line of the show buffer and the mode
   name; it defaults to the capitalized type, which leaves a
   two-word type such as `security-group` with a hyphen.
+  `:show-arguments` is the template of the words that follow the
+  `show` action: `:id` marks the resource ID and `:parent` the
+  parent ID, so a command that takes both in a fixed order keeps
+  it.  Only the `member` form names it, because
+  `loadbalancer member show POOL MEMBER` takes the pool first; the
+  default is `(:id)`.
+- A definition that shows its resource through its parent reads
+  the parent from `openstack--show-parent`, a permanent-local
+  buffer variable.  `openstack-display-at-point` binds the dynamic
+  `openstack--display-parent` to the parent of the row at point
+  (`openstack--object-parent`: the `openstack-ref-parent` property
+  of a child row, then the scope of a scoped table), and
+  `openstack-buffer` records it in the new buffer before the first
+  fetch.  The macro passes it to `openstack-show-fetch` only when
+  the `:show-arguments` template names `:parent`, and
+  `openstack-resource-show-arguments` of the data layer fills the
+  template, so a missing parent is a `user-error` and never a nil
+  argument.  Do not resolve a parent from the buffer at fetch time
+  and do not add a second display signature.
 - A resource has at most one parent, and `:parent` names it: a
   plist with `:type` (the parent resource type), `:field` (the show
   field, or the list of show fields, that holds the parent ID) and
   `:arguments` (the `RESOURCE list` arguments that filter the rows by
   the parent, with `:id` standing for the parent ID; a bare `:id`
-  entry stays a positional argument).  The macro writes the spec
+  entry stays a positional argument).  A field that holds a list of
+  IDs, as a listener reports its `loadbalancers`, answers its first
+  element.  The macro writes the spec
   into the registry, and the `openstack-resource-parent*` getters of
   the data layer read it, so a mode and a library consumer climb the
   same ladder.  `openstack-go-to-parent` climbs two rungs: a show
@@ -351,7 +372,12 @@ them.
   `subnets` of a network holds many IDs, and a field that holds one
   ID, such as `project_id`, prints one link on its own field line.
   The default maps `project_id` and `tenant_id` to the `project`
-  type, so every resource reaches its project.  The field renderer
+  type, so every resource reaches its project.  It also names the
+  Octavia fields (`vip_network_id`, `listeners`, `pools`,
+  `loadbalancers`, `default_pool_id`, `members` and
+  `healthmonitor_id`), so a load balancer buffer reaches every
+  resource that hangs below it and a pool buffer reaches its
+  monitor.  The field renderer
   collects
   every row first and
   pads each name after its colon to the longest name, so all
@@ -515,6 +541,14 @@ them.
   stands above its own floor, so no column cuts its header.  A table
   too narrow even for the floors overflows the window, and
   `tabulated-list-print-col` then truncates the cells.
+- `openstack-list--column-label` names a column in the header.  A
+  client that prints title case, such as `openstack server list`,
+  needs no change; a client that prints snake case, as the Octavia
+  client does, gets `Vip Address` for `vip_address` and `ID` for
+  `id`.  The column key stays the field name, so the sorters, the
+  filter and the row lookups read the same key; only the header and
+  the two width helpers take the label.  Do not title-case the data
+  or the `:list-fields` of a definition.
 - An ID in a display buffer is a text button of the type
   `openstack-object`: `openstack--button-string` wraps a string and
   `openstack--buttonize` a region, so `button.el` carries the mouse
@@ -959,7 +993,13 @@ them.
   `openstack--refresh-done` binds `openstack--previous-data`
   around the render and then calls the state-change hook; a mode
   that renders its own view must go through the same helpers to
-  keep faces, changes and the hook.
+  keep faces, changes and the hook.  `openstack-status-fields`
+  names `provisioning_status` and `operating_status` beside
+  `status`, because the Octavia client splits the state in two,
+  and `openstack-status-faces` carries the `ONLINE`, `OFFLINE`,
+  `DRAINING` and `NO_MONITOR` values.  A new status field needs
+  one entry in the first list and its values in the second, not a
+  per-mode change.
 - Every face of the package inherits a standard one and lives in
   `openstack-mode.el`: `openstack-status-ok`, `openstack-status-off`,
   `openstack-status-pending`, `openstack-status-error`,
@@ -1011,12 +1051,14 @@ them.
   in `openstack--kill-pending` once parity passes.
 - Derived modes for more resource types (hosts, domains, …);
   every type of the Networking and Compute panels that has a single
-  parent exists, plus flavors.  The git-bug tracker holds one
-  ticket per missing single-parent type (volume snapshot, volume
-  backup, Swift object, domain); `git bug bug` lists them.
+  parent exists, plus flavors and the five Octavia types.  The
+  git-bug tracker holds one ticket per missing single-parent type
+  (volume snapshot, volume backup, Swift object, domain);
+  `git bug bug` lists them.
 - Collection modes for more resource types (hosts, domains, …);
   server, volume, image, network, project, container, subnet, port,
-  router, flavor and security group lists exist.
+  router, flavor, security group, load balancer, listener, pool,
+  member and health monitor lists exist.
 - Objects of the Object Storage service.  `object list` needs a
   container argument and an object has no ID at all (its identity
   is container plus name), so decide the identity scheme first:

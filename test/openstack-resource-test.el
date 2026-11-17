@@ -363,12 +363,251 @@
                       "Shared" "Alpha" "Zebra")
        :list-rows ("^sg-1 +default +Default security group +proj-1 +team-a +- +early +late"
                    "^sg-2 +web +- +proj-1 +- +true +early +late")
-       :list-first-id "sg-1"))
+       :list-first-id "sg-1")
+
+      ("load-balancer"
+       :show-id "lb-1"
+       :show-json
+       ,(concat "{\"id\": \"lb-1\", \"name\": \"public-lb\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"vip_address\": \"10.0.0.10\", "
+                "\"vip_network_id\": \"net-1\", "
+                "\"vip_subnet_id\": \"subnet-1\", "
+                "\"vip_port_id\": \"port-1\", "
+                "\"listeners\": [\"listener-1\"], "
+                "\"pools\": [\"pool-1\"], "
+                "\"additional_vips\": [{\"ip_address\": \"10.0.0.11\", "
+                "\"subnet_id\": \"subnet-1\"}], "
+                "\"provider\": \"amphora\", "
+                "\"flavor_id\": \"\", "
+                "\"availability_zone\": \"nova\", "
+                "\"admin_state_up\": true, "
+                "\"description\": \"Public web\", "
+                "\"project_id\": \"proj-1\", "
+                "\"tags\": [\"team-a\"], "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("tags" . "team-a"))
+       :show-references (("pools" . ("pool-1"))
+                         ("listeners" . ("listener-1")))
+       :show-blocks (("additional_vips"
+                      . "^  - ip_address: 10\\.0\\.0\\.11$"))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"id\": \"lb-1\", \"name\": \"public-lb\", "
+                "\"project_id\": \"proj-1\", "
+                "\"vip_address\": \"10.0.0.10\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"provider\": \"amphora\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"id\": \"lb-2\", \"name\": \"edge-lb\", "
+                "\"project_id\": \"proj-1\", "
+                "\"vip_address\": \"10.0.0.20\", "
+                "\"provisioning_status\": \"PENDING_CREATE\", "
+                "\"operating_status\": \"OFFLINE\", "
+                "\"provider\": \"ovn\", "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("id" "name" "provisioning_status"
+                      "operating_status" "vip_address" "provider"
+                      "project_id" "Alpha" "Zebra")
+       :list-header ("ID" "Name" "Provisioning Status"
+                     "Operating Status" "Vip Address" "Provider"
+                     "Project ID" "Alpha" "Zebra")
+       :list-rows
+       ("^lb-1 +public-lb +ACTIVE +ONLINE +10\\.0\\.0\\.10 +amphora +proj-1 +early +late"
+        "^lb-2 +edge-lb +PENDING_CREATE +OFFLINE +10\\.0\\.0\\.20 +ovn +proj-1 +early +late")
+       :list-first-id "lb-1")
+
+      ("listener"
+       :show-id "listener-1"
+       :show-json
+       ,(concat "{\"id\": \"listener-1\", \"name\": \"web\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"protocol\": \"HTTP\", \"protocol_port\": 80, "
+                "\"default_pool_id\": \"pool-1\", "
+                "\"loadbalancers\": [\"lb-1\"], "
+                "\"admin_state_up\": true, "
+                "\"connection_limit\": -1, "
+                "\"sni_container_refs\": [], "
+                "\"description\": \"Web front end\", "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-references (("default_pool_id" . ("pool-1"))
+                         ("loadbalancers" . ("lb-1")))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"id\": \"listener-1\", "
+                "\"default_pool_id\": \"pool-1\", "
+                "\"name\": \"web\", \"project_id\": \"proj-1\", "
+                "\"protocol\": \"HTTP\", \"protocol_port\": 80, "
+                "\"admin_state_up\": true, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"id\": \"listener-2\", "
+                "\"default_pool_id\": \"pool-2\", "
+                "\"name\": \"mail\", \"project_id\": \"proj-1\", "
+                "\"protocol\": \"TCP\", \"protocol_port\": 25, "
+                "\"admin_state_up\": false, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("id" "name" "default_pool_id" "protocol"
+                      "protocol_port" "admin_state_up"
+                      "project_id" "Alpha" "Zebra")
+       :list-header ("ID" "Name" "Default Pool ID" "Protocol"
+                     "Protocol Port" "Admin State Up" "Project ID"
+                     "Alpha" "Zebra")
+       :list-rows
+       ("^listener-1 +web +pool-1 +HTTP +80 +true +proj-1 +early +late"
+        "^listener-2 +mail +pool-2 +TCP +25 +- +proj-1 +early +late")
+       :list-first-id "listener-1")
+
+      ("pool"
+       :show-id "pool-1"
+       :show-json
+       ,(concat "{\"id\": \"pool-1\", \"name\": \"web-pool\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"lb_algorithm\": \"ROUND_ROBIN\", "
+                "\"protocol\": \"HTTP\", "
+                "\"members\": [\"member-1\"], "
+                "\"healthmonitor_id\": \"hm-1\", "
+                "\"listeners\": [\"listener-1\"], "
+                "\"loadbalancers\": [\"lb-1\"], "
+                "\"session_persistence\": {\"type\": \"SOURCE_IP\"}, "
+                "\"admin_state_up\": true, "
+                "\"description\": \"\", "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-nested (("session_persistence" . "{\"type\""))
+       :show-references (("members" . ("member-1"))
+                         ("listeners" . ("listener-1")))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"id\": \"pool-1\", \"name\": \"web-pool\", "
+                "\"project_id\": \"proj-1\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"protocol\": \"HTTP\", "
+                "\"lb_algorithm\": \"ROUND_ROBIN\", "
+                "\"admin_state_up\": true, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"id\": \"pool-2\", \"name\": \"mail-pool\", "
+                "\"project_id\": \"proj-1\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"protocol\": \"TCP\", "
+                "\"lb_algorithm\": \"LEAST_CONNECTIONS\", "
+                "\"admin_state_up\": false, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("id" "name" "provisioning_status"
+                      "lb_algorithm" "protocol" "admin_state_up"
+                      "project_id" "Alpha" "Zebra")
+       :list-header ("ID" "Name" "Provisioning Status"
+                     "Lb Algorithm" "Protocol" "Admin State Up"
+                     "Project ID" "Alpha" "Zebra")
+       :list-rows
+       ("^pool-1 +web-pool +ACTIVE +ROUND_ROBIN +HTTP +true +proj-1 +early +late"
+        "^pool-2 +mail-pool +ACTIVE +LEAST_CONNECTIONS +TCP +- +proj-1 +early +late")
+       :list-first-id "pool-1")
+
+      ("member"
+       :show-id "member-1"
+       :show-parent "pool-1"
+       :show-arguments (:parent :id)
+       :show-json
+       ,(concat "{\"id\": \"member-1\", \"name\": \"web-1\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"address\": \"10.0.0.11\", "
+                "\"protocol_port\": 80, \"weight\": 1, "
+                "\"subnet_id\": \"subnet-1\", "
+                "\"pools\": [\"pool-1\"], "
+                "\"backup\": false, "
+                "\"admin_state_up\": true, "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-references (("pools" . ("pool-1")))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"id\": \"member-1\", \"name\": \"web-1\", "
+                "\"project_id\": \"proj-1\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", "
+                "\"address\": \"10.0.0.11\", "
+                "\"protocol_port\": 80, \"weight\": 1, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"id\": \"member-2\", \"name\": \"web-2\", "
+                "\"project_id\": \"proj-1\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"OFFLINE\", "
+                "\"address\": \"10.0.0.12\", "
+                "\"protocol_port\": 80, \"weight\": 2, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("id" "name" "provisioning_status"
+                      "operating_status" "address" "protocol_port"
+                      "weight" "project_id" "Alpha" "Zebra")
+       :list-header ("ID" "Name" "Provisioning Status"
+                     "Operating Status" "Address" "Protocol Port"
+                     "Weight" "Project ID" "Alpha" "Zebra")
+       :list-rows
+       ("^member-1 +web-1 +ACTIVE +ONLINE +10\\.0\\.0\\.11 +80 +1 +proj-1 +early +late"
+        "^member-2 +web-2 +ACTIVE +OFFLINE +10\\.0\\.0\\.12 +80 +2 +proj-1 +early +late")
+       :list-first-id "member-1")
+
+      ("health-monitor"
+       :show-id "hm-1"
+       :show-json
+       ,(concat "{\"id\": \"hm-1\", \"name\": \"web-health\", "
+                "\"type\": \"HTTP\", "
+                "\"provisioning_status\": \"ACTIVE\", "
+                "\"operating_status\": \"ONLINE\", \"delay\": 5, "
+                "\"timeout\": 3, \"max_retries\": 3, "
+                "\"max_retries_down\": 3, "
+                "\"expected_codes\": \"200\", "
+                "\"http_method\": \"GET\", "
+                "\"url_path\": \"/healthcheck\", "
+                "\"http_version\": 1.1, "
+                "\"domain_name\": \"\", "
+                "\"pools\": [\"pool-1\"], "
+                "\"admin_state_up\": true, "
+                "\"description\": \"\", "
+                "\"project_id\": \"proj-1\", "
+                "\"zzz_extra\": \"late\", "
+                "\"created_at\": \"2026-01-01T00:00:00Z\"}")
+       :show-missing ("updated_at")
+       :show-references (("pools" . ("pool-1")))
+       :show-unlisted ("zzz_extra")
+       :list-json
+       ,(concat "[{\"id\": \"hm-1\", \"name\": \"web-health\", "
+                "\"project_id\": \"proj-1\", \"type\": \"HTTP\", "
+                "\"admin_state_up\": true, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}, "
+                "{\"id\": \"hm-2\", \"name\": \"mail-health\", "
+                "\"project_id\": \"proj-1\", \"type\": \"TCP\", "
+                "\"admin_state_up\": false, "
+                "\"Zebra\": \"late\", \"Alpha\": \"early\"}]")
+       :list-columns ("id" "name" "type" "admin_state_up"
+                      "project_id" "Alpha" "Zebra")
+       :list-header ("ID" "Name" "Type" "Admin State Up"
+                     "Project ID" "Alpha" "Zebra")
+       :list-rows ("^hm-1 +web-health +HTTP +true +proj-1 +early +late"
+                   "^hm-2 +mail-health +TCP +- +proj-1 +early +late")
+       :list-first-id "hm-1"))
     "Client answers and expected texts, one entry per resource type.
 Each entry is a list of the type string and a plist.  The plist
 holds the ID, JSON and expectations of the show mode (:show-*) and
 of the list mode (:list-*).  The first row of the list JSON names
-:list-first-id, the row identity the table must report."))
+:list-first-id, the row identity the table must report.  A fixture
+of a resource that the client shows through its parent names the
+parent in :show-parent and the argument order in :show-arguments;
+:list-header holds the column labels when they differ from the
+column names, as the snake case columns of the load balancer do."))
 
 (defmacro openstack-resource-test--def-type-tests (suffix &rest body)
   "Define SUFFIX tests, one per fixture in the fixture table.
@@ -492,6 +731,8 @@ command does, answers too."
   (let ((fetch (openstack-resource-test--name type "openstack-%s--fetch"))
         (cli (plist-get (openstack-resource-test--definition type) :cli))
         (id (plist-get fixture :show-id))
+        (parent (plist-get fixture :show-parent))
+        (template (or (plist-get fixture :show-arguments) '(:id)))
         (args-seen nil)
         (success-seen nil)
         (error-seen nil))
@@ -501,10 +742,15 @@ command does, answers too."
                                     success-seen success-fn
                                     error-seen error-fn)
                               :process-handle))))
-      (should (eq (funcall fetch id (lambda (_data) nil) (lambda (_err) nil))
-                  :process-handle))
+      (let ((openstack--show-parent parent))
+        (should (eq (funcall fetch id (lambda (_data) nil) (lambda (_err) nil))
+                    :process-handle)))
       (should (equal args-seen
-                     (append (split-string cli) (list "show" id))))
+                     (append (split-string cli)
+                             (list "show")
+                             (mapcar (lambda (token)
+                                       (if (eq token :id) id parent))
+                                     template))))
       (should (functionp success-seen))
       (should (functionp error-seen)))))
 
@@ -640,7 +886,8 @@ command does, answers too."
      (openstack-resource-test--fixture-script fixture)
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-timeout 5))
+             (openstack-cli-timeout 5)
+             (openstack--display-parent (plist-get fixture :show-parent)))
          (unwind-protect
              (progn
                (funcall display id)
@@ -666,7 +913,8 @@ command does, answers too."
      "printf '%s' 'not json'\n"
      (lambda (program)
        (let ((openstack-program program)
-             (openstack-cli-timeout 5))
+             (openstack-cli-timeout 5)
+             (openstack--display-parent (plist-get fixture :show-parent)))
          (unwind-protect
              (progn
                (funcall display id)
@@ -770,7 +1018,8 @@ defcustom, and a call without a prefix drops them again."
                 (plist-get fixture :list-json)))
       (let ((header (prin1-to-string header-line-format))
             (text (buffer-string)))
-        (dolist (column (plist-get fixture :list-columns))
+        (dolist (column (or (plist-get fixture :list-header)
+                            (plist-get fixture :list-columns)))
           (should (string-match-p (regexp-quote column) header)))
         (dolist (row (plist-get fixture :list-rows))
           (should (string-match-p row text)))
@@ -838,6 +1087,11 @@ defcustom, and a call without a prefix drops them again."
                  (with-current-buffer buf
                    (re-search-forward (regexp-quote first-id))
                    (goto-char (match-beginning 0))
+                   (when-let* ((parent (plist-get fixture :show-parent)))
+                     (setq-local openstack-list--scope
+                                 (list :type (openstack-resource-parent-type
+                                              type)
+                                       :id parent)))
                    (openstack-display-at-point))
                  (let ((show (get-buffer expected)))
                    (should show)

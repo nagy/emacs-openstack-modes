@@ -120,9 +120,10 @@ always asks the client."
 `openstack-define-resource' fills it when a resource file loads.
 Each plist holds :type, :cli, :noun, :title, :id-prefix,
 :url-suffix, :fields, :list-fields, :list-arguments,
-:list-arguments-variable, :list-prefix-arguments, :parent, :mode,
-:display, :list-mode and :list-display.  The registry is the single
-source of truth for the resource names: `openstack-resource-types'
+:list-arguments-variable, :list-prefix-arguments, :show-arguments,
+:parent, :mode, :display, :list-mode and :list-display.  The
+registry is the single source of truth for the resource names:
+`openstack-resource-types'
 is its view for the ID prompts, the Org links and the xref backend.")
 
 (defun openstack-resource-definition (type)
@@ -191,27 +192,57 @@ Signal `openstack-resource-error' when no definition exists."
 
 ;;; Resource data
 
-(defun openstack-resource-show (type id)
+(defun openstack-resource-show-arguments (type id &optional parent-id)
+  "Return the client arguments of the `RESOURCE show' command of TYPE.
+The words follow the `show' action.  The `:show-arguments' of the
+definition holds the template: `:id' marks the resource ID and
+`:parent' the parent ID, so a resource that the client shows
+through its parent, as `loadbalancer member show POOL MEMBER'
+does, keeps the order of the arguments.  A definition without the
+keyword shows the bare ID.  PARENT-ID fills `:parent'; signal
+`user-error' when the template needs it and PARENT-ID is nil.
+Signal `openstack-resource-error' for an unknown TYPE."
+  (let ((template (plist-get (openstack--definition-or-error type)
+                             :show-arguments)))
+    (mapcar (lambda (token)
+              (pcase token
+                (:id id)
+                (:parent (or parent-id
+                             (user-error
+                              "The parent of this OpenStack %s is not known"
+                              type)))
+                (_ token)))
+            (or template '(:id)))))
+
+(defun openstack-resource-show (type id &optional parent-id)
   "Return the parsed `RESOURCE show' data of resource TYPE with ID.
 TYPE names a key of `openstack-resource-definitions'; ID goes to
-the client unchanged.  The result is the parsed JSON of the client,
-a hash table with its field names.  Signal
-`openstack-resource-error' for an unknown TYPE, and
+the client unchanged.  PARENT-ID fills the `:parent' slot of the
+`:show-arguments' template of the definition, for a resource that
+the client shows through its parent.  The result is the parsed
+JSON of the client, a hash table with its field names.  Signal
+`openstack-resource-error' for an unknown TYPE, `user-error' when
+the command needs a PARENT-ID that is missing, and
 `openstack-cli-error' when the client fails or a timeout expires."
   (openstack--definition-or-error type)
   (openstack-cli-request
-   (append (openstack--cli-arguments type "show") (list id))))
+   (append (openstack--cli-arguments type "show")
+           (openstack-resource-show-arguments type id parent-id))))
 
-(defun openstack-resource-show-async (type id success-fn error-fn)
+(defun openstack-resource-show-async (type id success-fn error-fn
+                                           &optional parent-id)
   "Fetch the data of resource TYPE with ID asynchronously.
 Call SUCCESS-FN with the parsed JSON, or ERROR-FN with an
-`openstack-cli-error' condition.  Signal `openstack-resource-error'
-for an unknown TYPE, and `user-error' when a callback is missing.
-Return the client process; `delete-process' on it cancels the
-fetch, which then calls neither callback."
+`openstack-cli-error' condition.  PARENT-ID fills the `:parent'
+slot of the `:show-arguments' template of the definition.  Signal
+`openstack-resource-error' for an unknown TYPE, and `user-error'
+when a callback is missing or the command needs a PARENT-ID that
+is missing.  Return the client process; `delete-process' on it
+cancels the fetch, which then calls neither callback."
   (openstack--definition-or-error type)
   (openstack-cli-async-request
-   (append (openstack--cli-arguments type "show") (list id))
+   (append (openstack--cli-arguments type "show")
+           (openstack-resource-show-arguments type id parent-id))
    :success-fn success-fn
    :error-fn error-fn))
 
@@ -295,13 +326,15 @@ Signal `openstack-resource-error' for an unknown TYPE."
 DATA is the hash table that `openstack-resource-show' returns.
 Read the fields of `openstack-resource-parent-field' in order, so a
 client that reports the owner of a resource under more than one
-name still resolves.  Return nil when DATA holds none of them.
+name still resolves.  A field that holds a list of IDs, as a
+listener reports its `loadbalancers', answers its first element.
+Return nil when DATA holds none of them.
 Signal `openstack-resource-error' for an unknown TYPE."
   (declare (side-effect-free t))
   (cl-loop for field in (openstack-resource-parent-field type)
            for value = (openstack-resource-field data field)
            when value
-           return value))
+           return (if (consp value) (car value) value)))
 
 (defun openstack-resource-parent-arguments (type id)
   "Return the client arguments that filter the list of TYPE by ID.

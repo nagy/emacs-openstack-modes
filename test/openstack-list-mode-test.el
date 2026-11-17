@@ -41,6 +41,53 @@ The columns come from `openstack-list-test--fields'."
 
 ;;; Mode
 
+(ert-deftest openstack-list-column-labels-from-snake-case ()
+  "A snake case column name gets a title case header label."
+  (should (equal (openstack-list--column-label "vip_address")
+                 "Vip Address"))
+  (should (equal (openstack-list--column-label "id") "ID"))
+  (should (equal (openstack-list--column-label "admin_state_up")
+                 "Admin State Up"))
+  ;; A client that prints title case needs no change.
+  (should (equal (openstack-list--column-label "Volume Type")
+                 "Volume Type"))
+  (should (equal (openstack-list--column-label "ID") "ID")))
+
+(ert-deftest openstack-list-render-labels-snake-case-columns ()
+  "The table header shows the label of a snake case column."
+  (let ((rows (openstack-list-test--rows
+               (list (cons "vip_address" "10.0.0.10")))))
+    (with-temp-buffer
+      (openstack-list-mode)
+      (openstack-list-render "(no rows)" rows '("vip_address"))
+      ;; The format holds the label, and the sorters keep the key.
+      (should (equal (mapcar #'car (append tabulated-list-format nil))
+                     '("Vip Address")))
+      (should (string-match-p "Vip Address"
+                              (prin1-to-string header-line-format)))
+      (should (string-match-p "10\\.0\\.0\\.10" (buffer-string))))
+    ;; The string renderer names the same columns.
+    (should (equal (car (split-string
+                         (openstack-list-render-to-string
+                          rows '("vip_address"))
+                         "\n"))
+                   "Vip Address"))))
+
+(ert-deftest openstack-list-sort-key-stays-the-column-name ()
+  "A sort by a labelled column reads the rows through its key."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (openstack-list-render
+     "(no rows)"
+     (openstack-list-test--rows
+      (list (cons "id" "lb-b") (cons "vip_address" "10.0.0.20"))
+      (list (cons "id" "lb-a") (cons "vip_address" "10.0.0.10")))
+     '("id" "vip_address"))
+    (tabulated-list-sort 1)
+    (goto-char (point-min))
+    (should (equal (tabulated-list-get-id) "lb-a"))
+    (should (equal (car tabulated-list-sort-key) "Vip Address"))))
+
 (ert-deftest openstack-list-mode-is-tabulated ()
   "The collection base mode derives from `tabulated-list-mode'."
   (with-temp-buffer
