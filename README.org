@@ -459,7 +459,10 @@ carries the column labels.
 
 RET or =mouse-2= anywhere on a row opens the resource's show
 buffer: list modes bind =openstack-show-command= to their
-resource's display command (e.g. =openstack-server-display=).  A
+resource's display command (e.g. =openstack-server-display=).  =o=
+(=openstack-open-other-window=) does the same in a window other
+than the selected one, so a table stays visible beside the detail
+buffer.  A
 row, an ID field line and a reference are text buttons of the type
 =openstack-object=, so a tooltip names the resource, =C-h .= describes
 the button and a single click follows a link in a show buffer.  In
@@ -688,9 +691,10 @@ Evil state maps take precedence over a major mode map, so a mode
 key such as RET or =q= needs a state binding to reach the buffer.
 
 Show buffers keep the command keys of the mode: RET or
-=<mouse-2>= opens the resource at point, =q= quits the window,
-=gr= refreshes, =p= pops back to the origin buffer, =c= copies
-the resource ID and =w= opens the dashboard page.  The evil
+=<mouse-2>= opens the resource at point, =o= opens it in another
+window, =q= quits the window, =gr= refreshes, =p= pops back to the
+origin buffer, =c= copies the resource ID and =w= opens the
+dashboard page.  The evil
 operators on those keys do nothing in a read-only buffer, so the
 commands win.  The layer also remaps =dired-jump= and
 =dired-up-directory= to =openstack-go-to-parent=, as the major
@@ -700,7 +704,8 @@ states, so =C-c C-n=, =C-c C-p=, =[mouse-9]= and =[mouse-8]= reach
 state binding.
 
 List buffers treat a row as the unit: RET or =<mouse-2>= opens the
-row, =c= or =Y= copies its ID, =w= opens its dashboard page, =q=
+row, =o= opens it in another window, =c= or =Y= copies its ID, =w=
+opens its dashboard page, =q=
 quits the window, =gr= refreshes and =S= sorts the current
 column.  The evil motions stay untouched, so =j= and =k= move by
 row and =n= and =N= repeat a search.  Select rows with =V= and

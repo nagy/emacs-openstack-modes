@@ -509,6 +509,17 @@ them.
   without a definition stays a `user-error`.
   `openstack-display-at-point` reads the resource at point and never
   a bare UUID: a UUID in a log line stays `M-.` territory.
+- `openstack-open-other-window` (`o` in both mode maps) does what RET
+  does in a window other than the selected one: it runs
+  `openstack-display-at-point` under one
+  `display-buffer-overriding-action`,
+  `(display-buffer-reuse-window display-buffer-pop-up-window)` with
+  `inhibit-same-window`.  Every display path ends in `pop-to-buffer`,
+  so the one action reaches the resource buffer and the collection
+  buffer that a climb opens; do not write an other-window twin of a
+  display command.  The evil layer remaps `evil-open-below` to the
+  command in the show and list state maps, because `o` edits text
+  there, and a read-only buffer takes no edit.
 - A command that acts on one resource takes its target from
   `openstack--object-at-point`, a list of TYPE, ID and SOURCE.
   SOURCE is `property`, `buffer` or `url`.  The precedence is the

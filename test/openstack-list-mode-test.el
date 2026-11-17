@@ -61,8 +61,9 @@ The columns come from `openstack-list-test--fields'."
     (should (null tabulated-list-sort-key))))
 
 (ert-deftest openstack-list-mode-keymap ()
-  "RET, `mouse-2', `c', `J', `w', `%' and `W' act on the table."
+  "RET, `mouse-2', `o', `c', `J', `w', `%' and `W' act on the table."
   (dolist (binding (list (cons (kbd "RET") #'openstack-display-at-point)
+                         (cons (kbd "o") #'openstack-open-other-window)
                          (cons [mouse-2] #'openstack-mouse-display-at-point)
                          (cons (kbd "c") #'openstack-copy-id)
                          (cons (kbd "J") #'openstack-json-view)

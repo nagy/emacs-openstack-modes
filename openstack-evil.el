@@ -40,22 +40,23 @@
 ;; the modes needs a state binding to reach the buffer at all.
 ;;
 ;; Show buffers keep the command keys of the mode: RET opens the
-;; resource at point, q quits the window, gr refreshes, p pops back
-;; to the origin buffer, c copies the resource ID, w opens the
-;; dashboard page and TAB folds the section at point.  The fold
-;; commands of evil, za, zo and zc, reach the sections through the
-;; `evil-fold-list' entry of `openstack-evil-show-mode'.  Evil
-;; operators on those keys do nothing in a read-only buffer, so the
-;; commands win.  The `dired-jump' and `dired-up-directory' remaps
-;; climb one resource level up.
+;; resource at point, o opens it in another window, q quits the
+;; window, gr refreshes, p pops back to the origin buffer, c copies
+;; the resource ID, w opens the dashboard page and TAB folds the
+;; section at point.  The fold commands of evil, za, zo and zc, reach
+;; the sections through the `evil-fold-list' entry of
+;; `openstack-evil-show-mode'.  Evil operators on those keys do
+;; nothing in a read-only buffer, so the commands win.  The
+;; `dired-jump' and `dired-up-directory' remaps climb one resource
+;; level up.
 ;;
-;; List buffers treat a row as the unit: RET opens the row, c or Y
-;; copies its ID, w opens its dashboard page, q quits the window, gr
-;; refreshes, S sorts the current column, % narrows the table to the
-;; rows that match and W widens it again.  The evil motions stay
-;; untouched, so n and N repeat a search and j and k move by row.  A
-;; visual line selection followed by y copies the IDs of every
-;; selected row, one per line.
+;; List buffers treat a row as the unit: RET opens the row, o opens it
+;; in another window, c or Y copies its ID, w opens its dashboard
+;; page, q quits the window, gr refreshes, S sorts the current column,
+;; % narrows the table to the rows that match and W widens it again.
+;; The evil motions stay untouched, so n and N repeat a search and j
+;; and k move by row.  A visual line selection followed by y copies
+;; the IDs of every selected row, one per line.
 ;;
 ;; The local minor modes below do the work.  Enable
 ;; `openstack-evil-mode' instead of them.
@@ -69,6 +70,9 @@
 
 (defvar openstack-evil-show-keys
   '(("RET" . openstack-display-at-point)
+    ;; `o' opens below in evil, a text edit that a read-only buffer
+    ;; takes not, so the key opens the resource in another window.
+    ("<remap> <evil-open-below>" . openstack-open-other-window)
     ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)
@@ -89,6 +93,7 @@ buffer, such as paste on p and change on c.  The `dired-jump' and
 
 (defvar openstack-evil-list-keys
   '(("RET" . openstack-display-at-point)
+    ("<remap> <evil-open-below>" . openstack-open-other-window)
     ("<mouse-2>" . openstack-mouse-display-at-point)
     ("q" . quit-window)
     ("gr" . revert-buffer)

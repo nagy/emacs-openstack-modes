@@ -82,6 +82,8 @@ commands of an OpenStack buffer and `M-x' can hide them elsewhere."
                    (openstack-json-view openstack-mode openstack-list-mode)
                    (openstack-display-at-point
                     openstack-mode openstack-list-mode)
+                   (openstack-open-other-window
+                    openstack-mode openstack-list-mode)
                    (openstack-mouse-display-at-point
                     openstack-mode openstack-list-mode)
                    (openstack-go-to-parent
@@ -1427,8 +1429,30 @@ once a subnet mode exists."
               #'openstack-display-at-point))
   (should (eq (lookup-key openstack-mode-map [mouse-2])
               #'openstack-mouse-display-at-point))
+  (should (eq (lookup-key openstack-mode-map (kbd "o"))
+              #'openstack-open-other-window))
   (should (eq (lookup-key openstack-mode-map (kbd "J"))
               #'openstack-json-view)))
+
+(ert-deftest openstack-open-other-window-keeps-the-selected-window ()
+  "`openstack-open-other-window' opens the resource in another window.
+It runs `openstack-display-at-point' under a display action that
+avoids the selected window, so every display path behaves alike."
+  (with-temp-buffer
+    (openstack-mode)
+    (let ((action nil)
+          (shown nil))
+      (cl-letf (((symbol-function 'openstack-display-at-point)
+                 (lambda ()
+                   (setq action display-buffer-overriding-action
+                         shown openstack--id))))
+        (setq-local openstack--id "srv-1")
+        (openstack-open-other-window))
+      (should (equal shown "srv-1"))
+      (should (equal (car action)
+                     '(display-buffer-reuse-window
+                       display-buffer-pop-up-window)))
+      (should (eq (cdr (assq 'inhibit-same-window (cdr action))) t)))))
 
 ;;; JSON view
 

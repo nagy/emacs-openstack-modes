@@ -518,6 +518,7 @@ back to a single-resource view must clear it.")
     (define-key map [remap dired-jump] #'openstack-go-to-parent)
     (define-key map [remap dired-up-directory] #'openstack-go-to-parent)
     (define-key map (kbd "RET") #'openstack-display-at-point)
+    (define-key map (kbd "o") #'openstack-open-other-window)
     (define-key map [mouse-2] #'openstack-mouse-display-at-point)
     map)
   "Keymap for `openstack-mode'.
@@ -525,10 +526,10 @@ This keymap is used as the parent of the keymap installed by
 `openstack-mode', which itself is a parent for derived
 resource modes.  `q' and `g' are inherited from `special-mode'.
 RET and `mouse-2' open the resource at point (a row in a
-collection buffer.  `dired-jump' and `dired-up-directory' climb
-one level with `openstack-go-to-parent', so the keys that walk up
-a directory tree walk up the resource hierarchy in these
-buffers.  \\[openstack-next-sibling] and
+collection buffer), and `o' opens it in another window.
+`dired-jump' and `dired-up-directory' climb one level with
+`openstack-go-to-parent', so the keys that walk up a directory
+tree walk up the resource hierarchy in these buffers.  \\[openstack-next-sibling] and
 \\[openstack-previous-sibling] walk to the next and the previous
 resource of the same collection, and the back and forward mouse
 buttons run the same two commands.  The keymap of
@@ -1496,6 +1497,24 @@ the click, which need not be point."
       (save-excursion
         (goto-char pos)
         (openstack-display-at-point)))))
+
+;;;###autoload
+(defun openstack-open-other-window ()
+  "Display the OpenStack resource at point in another window.
+Do what RET does, in a window other than the selected one, as
+`dired-find-file-other-window' does: `openstack-display-at-point'
+opens a resource from a detail buffer, from a row of a collection
+table and from a link in any buffer.  A window that shows the
+buffer already is reused, else a new window is split off.
+
+Every display path ends in `pop-to-buffer', so one binding of
+`display-buffer-overriding-action' reaches the resource buffer and
+the collection buffer that a climb opens."
+  (interactive nil openstack-mode openstack-list-mode)
+  (let ((display-buffer-overriding-action
+         '((display-buffer-reuse-window display-buffer-pop-up-window)
+           (inhibit-same-window . t))))
+    (openstack-display-at-point)))
 
 
 ;;; Generic resource fetch and render
@@ -3057,6 +3076,7 @@ needed: `openstack-list--mode-line' reads `openstack--last-error'."
   :doc "Local keymap for `openstack-list-mode' buffers."
   :parent tabulated-list-mode-map
   "RET" #'openstack-display-at-point
+  "o" #'openstack-open-other-window
   "<mouse-2>" #'openstack-mouse-display-at-point
   "c" #'openstack-copy-id
   "%" #'openstack-list-narrow
