@@ -2788,8 +2788,8 @@ Run `CHILD-TYPE list' with the parent arguments of the definition
 of CHILD-TYPE, so the client filters the rows by ID, and answer
 the rows that an earlier call delivered.  The call is asynchronous
 and runs once per buffer and parent: a `pending' answer starts no
-second call, and an `error' answer waits for the next refresh or
-for a second expansion."
+second call, and an `error' answer waits for the next refresh, so
+a failing relation cannot loop."
   (let* ((key (cons child-type id))
          (table (openstack-list--child-table))
          (answer (gethash key table)))

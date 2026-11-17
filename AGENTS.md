@@ -389,7 +389,7 @@ them.
   answer per buffer and relation in `openstack-list--child-answers`
   under a cons of the child type and the parent ID: `pending` starts
   no second call, `done` holds the rows, and `error` waits for the
-  next refresh or collapse so a failed fetch cannot loop.  A
+  next refresh so a failed fetch cannot loop.  A
   callback reprints through `openstack-list--children-arrived`, so
   an expanded row fills in when its answer arrives.
   `openstack--refresh` drops the answer table, so `gr` reads the

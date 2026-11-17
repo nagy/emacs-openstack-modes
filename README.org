@@ -737,7 +737,8 @@ states, so =C-c C-n=, =C-c C-p=, =[mouse-9]= and =[mouse-8]= reach
 state binding.
 
 List buffers treat a row as the unit: RET or =<mouse-2>= opens the
-row, =o= opens it in another window, =c= or =Y= copies its ID, =w=
+row, =o= opens it in another window, =TAB= expands the row into the
+resources it owns, =c= or =Y= copies its ID, =w=
 opens its dashboard page, =q=
 quits the window, =gr= refreshes and =S= sorts the current
 column.  The evil motions stay untouched, so =j= and =k= move by
