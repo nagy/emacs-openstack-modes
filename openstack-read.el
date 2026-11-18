@@ -156,6 +156,7 @@ volumes and the images as different kinds of object."
 Each candidate is (LABEL . PLIST), where PLIST holds :type, :id and
 :row.  The label names the type first, so a server, a volume and a
 container with the same name stay apart."
+  (declare (side-effect-free t))
   (let (choices)
     (dolist (type (mapcar #'car openstack-resource-types)
                  (nreverse choices))
@@ -170,6 +171,7 @@ container with the same name stay apart."
 CHOICES is a list of (LABEL . PLIST) pairs.  The table answers the
 `metadata' action with the annotation function of the row of each
 choice and with one category, because the prompt mixes the types."
+  (declare (side-effect-free t))
   (lambda (string predicate action)
     (if (eq action 'metadata)
         `(metadata (category . openstack-resource)
@@ -203,6 +205,7 @@ CHOICES is a list of (LABEL . ROW) pairs, as
 `openstack-read--choices-with-rows' returns.  The function
 annotates a candidate with the fields of the row that the choice
 keeps."
+  (declare (side-effect-free t))
   (lambda (candidate)
     (when-let* ((row (cdr (assoc candidate choices))))
       (openstack-read--annotation row))))
@@ -214,6 +217,7 @@ CHOICES is a list of (LABEL . ROW) pairs.  The table answers the
 completion UI shows the state of a resource before the user
 chooses it, and with the category of TYPE, so a UI sorts and
 annotates one kind of resource as one kind."
+  (declare (side-effect-free t))
   (lambda (string predicate action)
     (if (eq action 'metadata)
         `(metadata (category . ,(openstack-read--category type))

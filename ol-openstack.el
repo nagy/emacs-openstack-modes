@@ -76,6 +76,7 @@ Signal a `user-error' when TYPE is not in
 The URL comes from `openstack--dashboard-url-of', which reads
 `:id-prefix' and `:url-suffix' from the definition of TYPE, so the
 link export never repeats those settings."
+  (declare (side-effect-free t))
   (openstack--dashboard-url-of type id))
 
 (defun openstack-org-follow (path &optional _arg)
@@ -98,6 +99,7 @@ keeps its answers in `openstack-read-type-history'."
 (defun openstack-org--description (type id)
   "Return a link description for the resource of TYPE with ID.
 Prefer the name the last fetch rendered, fall back to ID."
+  (declare (side-effect-free t))
   (let ((name (and (hash-table-p openstack--last-data)
                    (gethash "name" openstack--last-data))))
     (format "OpenStack %s %s" type
@@ -124,6 +126,7 @@ PATH is TYPE/ID, DESCRIPTION is the link text, BACKEND is the
 export backend.  The URL comes from
 `openstack-org--dashboard-url'.  An unknown type exports the
 plain path, so a document still builds."
+  (declare (side-effect-free t))
   (condition-case nil
       (pcase-let* ((`(,type . ,id) (openstack-org--split path))
                    (desc (or description path))

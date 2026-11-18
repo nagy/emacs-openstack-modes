@@ -89,6 +89,7 @@
 Ask the `openstack-id' thing, which prefers the `openstack-id'
 text property of a rendered field or list row and falls back to a
 UUID under point."
+  (declare (side-effect-free t))
   (thing-at-point 'openstack-id t))
 
 (defun openstack-xref-backend ()

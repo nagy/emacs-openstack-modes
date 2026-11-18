@@ -592,6 +592,7 @@ sibling section.")
   "Return a short message for CLI error condition ERR.
 The message carries the client's standard error when it exists,
 and falls back to the error message of the condition."
+  (declare (side-effect-free t))
   (format "OpenStack error: %s"
           (or (plist-get (cdr err) :stderr)
               (let ((data (cdr err)))
@@ -628,6 +629,7 @@ ID is a string; the URL is built from
 `openstack-url-suffix'.  The Org link export and the
 `openstack:' URL handler of `openstack-url.el' call this
 function, so every consumer builds the same URL."
+  (declare (side-effect-free t))
   (format "%s/%s/%s%s"
           (string-trim-right openstack-web-base-url "/")
           (string-trim openstack-id-prefix "/" "/")
@@ -638,6 +640,7 @@ function, so every consumer builds the same URL."
   "Return the display buffer name for resource ID.
 The name is `openstack-buffer-name' with ID appended, so distinct
 resources do not overwrite each other's buffers."
+  (declare (side-effect-free t))
   (format "%s <%s>" openstack-buffer-name id))
 
 (defun openstack--resource-id (&optional errorp)
@@ -674,6 +677,7 @@ record of an older bookmark without a mode opens the base mode."
 
 (defun openstack--id-property-at-point ()
   "Return the `openstack-id' text property at point, or nil."
+  (declare (side-effect-free t))
   (get-char-property (point) 'openstack-id))
 
 (defun openstack-id-thing ()
@@ -682,6 +686,7 @@ Read the `openstack-id' text property of a rendered field or list
 row first, then a UUID under point.  This function gives the
 value of the `openstack-id' THING, so other packages read an ID
 with (thing-at-point \='openstack-id)."
+  (declare (side-effect-free t))
   (or (openstack--id-property-at-point)
       (thing-at-point 'uuid t)))
 
@@ -690,6 +695,7 @@ with (thing-at-point \='openstack-id)."
 The bounds span the text that carries the `openstack-id' text
 property, which is a whole list row or an ID field line.  Without
 the property the bounds are those of the UUID under point."
+  (declare (side-effect-free t))
   (if-let* ((id (openstack--id-property-at-point)))
       (let ((start (if (and (> (point) (point-min))
                             (equal id (get-char-property
@@ -937,6 +943,7 @@ Only a field named in `openstack-status-fields' takes a face, and
 
 (defun openstack--field-changed-p (field value)
   "Return non-nil when FIELD holds a VALUE other than last render."
+  (declare (side-effect-free t))
   (and openstack--previous-data
        (hash-table-p openstack--previous-data)
        (not (openstack--data-equal-p
@@ -983,6 +990,7 @@ a status, ID or date face and the change face combine."
 
 (defun openstack--row-match (rows row)
   "Return the row of ROWS that carries the same ID as ROW, or nil."
+  (declare (side-effect-free t))
   (when-let* ((id (and (hash-table-p row)
                        (openstack--hash-field row "id"))))
     (cl-find-if (lambda (other)
@@ -993,6 +1001,7 @@ a status, ID or date face and the change face combine."
 (defun openstack--row-status-changes (old-row row)
   "Return the status changes of OLD-ROW that ROW now shows.
 Each element is a list of ID, FIELD, old value and new value."
+  (declare (side-effect-free t))
   (let ((id (or (and (hash-table-p row) (openstack--hash-field row "id"))
                 openstack--id)))
     (cl-loop for field in openstack-status-fields
@@ -1010,6 +1019,7 @@ PREVIOUS and DATA are the results of two consecutive refreshes: a
 hash table for a resource buffer, a list of rows for a collection
 buffer.  Each element is a list of ID, FIELD, old value and new
 value."
+  (declare (side-effect-free t))
   (cond
    ((and (hash-table-p previous) (hash-table-p data))
     (openstack--row-status-changes previous data))
@@ -1083,6 +1093,7 @@ collection."
 A buffer with a status from `openstack-transitional-states' polls
 every `openstack-refresh-fast-interval' seconds, up to the upper
 bound of `openstack-refresh-interval'."
+  (declare (side-effect-free t))
   (if (openstack--transitional-p openstack--last-data)
       (min openstack-refresh-fast-interval openstack-refresh-interval)
     openstack-refresh-interval))
@@ -1153,12 +1164,14 @@ redraws the linked buffer after a fetch.")
 
 (defun openstack-json--buffer-name (source)
   "Return the JSON view buffer name for SOURCE."
+  (declare (side-effect-free t))
   (format "%s JSON" (buffer-name source)))
 
 (defun openstack-json--string (data &optional collection)
   "Return DATA as pretty printed JSON text.
 COLLECTION marks DATA that a collection fetch returned, whose
 empty nil result prints as an empty JSON array."
+  (declare (side-effect-free t))
   (with-temp-buffer
     (if (and collection (null data))
         (insert "[]")
@@ -1201,9 +1214,7 @@ empty nil result prints as an empty JSON array."
 The buffer shows the last fetch result of the OpenStack display
 buffer in `openstack-json--source' as pretty printed JSON.  It
 is read-only; `openstack-json-view' creates it, and a refresh of
-the display buffer redraws it.
-
-\\{openstack-json-mode-map}"
+the display buffer redraws it."
   :group 'openstack
   :interactive nil
   (openstack--detach-directory)
@@ -1251,6 +1262,7 @@ refresh of this buffer redraws it."
   "Return the default file name of a JSON export.
 The name holds the resource type and the ID, or `list' for a
 collection buffer."
+  (declare (side-effect-free t))
   (let ((type (or (openstack-resource-type-for-mode major-mode)
                   "openstack")))
     (expand-file-name
@@ -1295,6 +1307,7 @@ POSITION defaults to point.  The record holds the section of the
 line, the number of lines from the start of that section to the
 line and the column of POSITION.  Return nil when no section
 covers POSITION, because then there is no place to keep."
+  (declare (side-effect-free t))
   (let ((position (or position (point))))
     (when-let* ((section (magit-section-at position)))
       (list :section section
@@ -1329,6 +1342,7 @@ Every window but the selected one contributes one cons of the
 window and its record.  The selected window needs no entry,
 because its point is the point of the buffer.  A window whose line
 has no identity contributes a nil record."
+  (declare (side-effect-free t))
   (let ((buffer (current-buffer))
         (selected (selected-window))
         records)
@@ -1422,6 +1436,7 @@ seconds, or `openstack-refresh-fast-interval' while a status
 still changes.  An in-flight fetch is never interrupted, and with
 `openstack-refresh-visible-only' a buffer that no window
 displays is never stale."
+  (declare (side-effect-free t))
   (and (not openstack--pending)
        (or (not openstack-refresh-visible-only)
            (get-buffer-window (current-buffer) t))
@@ -1709,6 +1724,7 @@ documents."
   "Return non-nil when one click follows the button at POSITION.
 A collection buffer keeps the left click for the selection of a
 row, so a reader opens a row with RET or the middle button."
+  (declare (side-effect-free t))
   (not (derived-mode-p 'openstack-list-mode)))
 
 (define-button-type 'openstack-object
@@ -1899,6 +1915,7 @@ The block is an `openstack-group' section, so `TAB' folds it."
 
 (defun openstack--record-list-p (value)
   "Return non-nil when VALUE is a non-empty list of hash tables."
+  (declare (pure t) (side-effect-free t))
   (and (listp value) value (seq-every-p #'hash-table-p value)))
 
 (defun openstack--address-list-p (field value)
@@ -2515,6 +2532,7 @@ table keeps its identity across a fetch."
 The lookup reads the major mode and the scope of every buffer, so a
 customized buffer name or a moved buffer still answers.  A table
 without a scope is the top-level collection of TYPE."
+  (declare (side-effect-free t))
   (let ((mode (plist-get (openstack-resource-definition type) :list-mode)))
     (and mode
          (seq-find (lambda (buffer)
@@ -2529,6 +2547,7 @@ without a scope is the top-level collection of TYPE."
 The function reads the rows that the buffer shows, so the sort
 column decides the order and a narrowed table reports what its
 reader sees."
+  (declare (side-effect-free t))
   (save-excursion
     (goto-char (point-min))
     (let (ids)
@@ -2707,6 +2726,7 @@ date column named in `openstack-date-fields' takes
 `openstack-date', the `ID' column takes `openstack-id', and a
 value that differs from the previous refresh takes
 `openstack-field-changed'."
+  (declare (side-effect-free t))
   (let* ((value (gethash column row))
          (previous (and (listp openstack--previous-data)
                         (openstack--row-match openstack--previous-data row)))
@@ -2734,6 +2754,7 @@ Each element pairs the row identity with a vector of cell
 strings.  The identity keeps point on the same resource when a
 refresh re-sorts the table.  Emacs 31 requires a list here: a
 cons makes `tabulated-list-print-entry' signal a type error."
+  (declare (side-effect-free t))
   (mapcar
    (lambda (pair)
      (list (car pair)
@@ -2746,6 +2767,7 @@ cons makes `tabulated-list-print-entry' signal a type error."
   "Return ENTRY with its first non-empty cell indented.
 The indentation comes from `openstack-list-expand-indent', so a
 child row reads as a row below its parent."
+  (declare (side-effect-free t))
   (let* ((cells (copy-sequence (cadr entry)))
          (index (cl-position-if (lambda (cell)
                                   (and (stringp cell)
@@ -3028,6 +3050,7 @@ nothing.")
 Prefer the pin in `openstack-list--width-window' while it still
 shows the table, then HINT, then the selected window while it shows
 the table, then the first window that shows it."
+  (declare (side-effect-free t))
   (let ((shown (get-buffer-window-list (current-buffer) nil t)))
     (cond
      ((memq openstack-list--width-window shown)
@@ -3249,6 +3272,7 @@ function and the list mode of TYPE show the same columns.  Signal
 GROUPS is a list of (PARENT-ID CHILD-TYPE ROWS) lists, and the
 table adds the column order of every expanded child type after the
 columns of the parent, so a child row shows its own columns."
+  (declare (side-effect-free t))
   (let (fields)
     (dolist (group groups (nreverse fields))
       (dolist (field (openstack-resource-list-fields (nth 1 group)))
@@ -3333,6 +3357,7 @@ so no cell takes the change face."
 The table holds the budget of its last render in
 `openstack-list--fit-width', so a frame event that changed no width
 asks for no reprint.  A buffer that never rendered needs none."
+  (declare (side-effect-free t))
   (let ((columns (mapcar #'car (append tabulated-list-format nil))))
     (and openstack-list--fit-width
          columns
@@ -3384,6 +3409,7 @@ echo area costs nothing."
 
 (defun openstack-list--id-at-point ()
   "Return the resource ID of the row at point, or nil."
+  (declare (side-effect-free t))
   (get-text-property (line-beginning-position) 'openstack-id))
 
 (defun openstack-list--region-objects ()
@@ -3496,6 +3522,7 @@ Name every row by its name field and its ID, so `imenu' and
 Show the number of rows, the current sort order and the last fetch
 error.  The header line cannot carry them, because
 `tabulated-list-mode' uses it for the column labels."
+  (declare (side-effect-free t))
   (concat " [" (number-to-string openstack-list--count)
           " " openstack-list--noun "]"
           (when openstack-list--scope
@@ -3567,9 +3594,7 @@ types that name the type of the table as their parent, so the
 subnets and ports of a network open below the network row; the
 child rows take the columns of their own type after the columns of
 the table.  Errors go to the mode line, because the header line
-holds the column labels.
-
-\\{openstack-list-mode-map}"
+holds the column labels."
   :group 'openstack-list
   (openstack--init-display-buffer)
   (setq-local openstack-collection t)

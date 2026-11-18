@@ -204,6 +204,7 @@ does, keeps the order of the arguments.  A definition without the
 keyword shows the bare ID.  PARENT-ID fills `:parent'; signal
 `user-error' when the template needs it and PARENT-ID is nil.
 Signal `openstack-resource-error' for an unknown TYPE."
+  (declare (side-effect-free t))
   (let ((template (plist-get (openstack--definition-or-error type)
                              :show-arguments)))
     (mapcar (lambda (token)

@@ -163,6 +163,7 @@ in their natural spelling."
 (defun openstack-api--parse-json (body)
   "Return BODY parsed as JSON, or nil when BODY holds no content.
 Signal an error when BODY is not valid JSON."
+  (declare (side-effect-free t))
   (if (string-empty-p (string-trim body))
       nil
     (with-temp-buffer
@@ -180,6 +181,7 @@ Signal an error when BODY is not valid JSON."
   "Return the REQUEST error condition of TYPE with ARGS as data.
 The condition carries the `:url' and `:method' of the request and
 the data plist ARGS, for example `:status' and `:body'."
+  (declare (side-effect-free t))
   (cons type
         (append (list :url (openstack-api-request-url request)
                       :method (openstack-api-request-method request))
@@ -188,6 +190,7 @@ the data plist ARGS, for example `:status' and `:body'."
 (defun openstack-api--http-error (request response)
   "Return the error condition for REQUEST answered with RESPONSE.
 RESPONSE carries an HTTP status outside the 2xx range."
+  (declare (side-effect-free t))
   (openstack-api--error request 'openstack-api-error
                         :status (openstack-api-response-status response)
                         :body (openstack-api-response-body response)))
