@@ -46,6 +46,27 @@ The buffer is put into `openstack-mode' with ID
   "OpenStack Test Child"
   "Minimal derived mode, used to test mode switches.")
 
+(defun openstack-test--autoload-definition (form)
+  "Return the symbol that FORM of an autoload file defines, or nil.
+An autoload stub defines its function, so it counts as a definition
+of the symbol that it names.  The stub quotes its name."
+  (pcase (car-safe form)
+    ((or 'autoload 'defun 'cl-defun 'defmacro 'defconst 'defvar 'defcustom
+         'define-minor-mode 'define-derived-mode
+         'define-globalized-minor-mode)
+     (let ((name (cadr form)))
+       (if (eq (car-safe name) 'quote) (cadr name) name)))))
+
+(defun openstack-test--autoload-symbols (form)
+  "Return the package symbols that form FORM names.
+Read every subform, so a function quote or a quoted list yields the
+symbol inside it."
+  (cond ((symbolp form)
+         (and (string-prefix-p "openstack-" (symbol-name form))
+              (list form)))
+        ((consp form)
+         (apply #'append (mapcar #'openstack-test--autoload-symbols form)))))
+
 ;;; Tests
 
 (ert-deftest openstack-mode-autoloads ()
@@ -149,6 +170,37 @@ source; one autoloaded require loads the definitions instead."
     (should (string-match-p
              "^;;;###autoload (require 'openstack-resources)$"
              source))))
+
+(ert-deftest openstack-autoload-cookie-names-a-definition ()
+  "Every package symbol of a copied autoload form has a definition.
+A cookie on a plain form such as `add-hook' or `add-to-list' copies
+the form into the autoload file and writes no stub, so the copied
+form names a void function until the library loads.  The cookie on
+the function that the form names writes the stub.  Read the
+generated autoload file of every source file and check that each
+symbol of a copied plain form has a definition there."
+  (dolist (file (directory-files openstack-test--source-directory t
+                                 "\\.el\\'"))
+    (let* ((autoloads (openstack-test--autoloads
+                       (file-name-nondirectory file)))
+           (forms (with-temp-buffer
+                    (insert autoloads)
+                    (goto-char (point-min))
+                    (let (result)
+                      (condition-case nil
+                          (while t
+                            (let ((form (read (current-buffer))))
+                              (when (consp form)
+                                (push form result))))
+                        (end-of-file nil))
+                      (nreverse result))))
+           (definitions (delq nil (mapcar #'openstack-test--autoload-definition
+                                          forms))))
+      (dolist (form forms)
+        (unless (memq (car form) '(autoload require
+                                   register-definition-prefixes))
+          (dolist (symbol (openstack-test--autoload-symbols form))
+            (should (memq symbol definitions))))))))
 
 (ert-deftest openstack-entry-library ()
   "The entry library provides the feature `openstack'.

@@ -41,7 +41,14 @@ states its contract.  This file holds only the rules that span files.
   and it refreshes a live detail buffer of the resource instead of a
   foreign buffer.
 - A new interactive entry point needs an `;;;###autoload` cookie.  A
-  defvar or defconst that an autoloaded form reads needs one too.
+  defvar or defconst that an autoloaded form reads needs one too.  A
+  cookie on a plain form such as `add-hook` or `add-to-list` copies
+  the form and writes no stub, so the copied form would name a void
+  function.  Keep that cookie and add one to the function that the
+  form names: the stub loads the library on the first call, and the
+  hook or handler entry reaches `xref-backend-functions` or
+  `browse-url-default-handlers` before the library loads.
+  `test/openstack-mode-test.el` checks every copied form.
 - Every face lives in `openstack-mode.el` and inherits a standard face.
 - The build compiles with warnings as errors.  Declare a function of
   another file with `declare-function` instead of adding a `require`.

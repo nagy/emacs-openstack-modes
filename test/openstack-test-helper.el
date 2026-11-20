@@ -44,6 +44,27 @@ FILE names one source file of the package, such as
 \"openstack-mode.el\"."
   (expand-file-name file openstack-test--source-directory))
 
+(defun openstack-test--autoloads (file)
+  "Return the autoload file that the package would install for FILE.
+FILE names one source file of the package.  The function copies
+FILE to a temporary directory and scrapes that copy, so it reads
+the forms that `package-generate-autoloads' would write."
+  (require 'loaddefs-gen)
+  (let ((dir (make-temp-file "openstack-autoloads-" t))
+        (source (openstack-test--source file)))
+    (unwind-protect
+        (progn
+          (copy-file source (expand-file-name (file-name-nondirectory source)
+                                              dir))
+          (loaddefs-generate dir (expand-file-name "autoloads.el" dir))
+          ;; A file without a cookie yields no autoload file.
+          (if (file-exists-p (expand-file-name "autoloads.el" dir))
+              (with-temp-buffer
+                (insert-file-contents (expand-file-name "autoloads.el" dir))
+                (buffer-string))
+            ""))
+      (delete-directory dir t))))
+
 ;;; Processes
 
 (defun openstack-test--with-fixture-program (script fn)

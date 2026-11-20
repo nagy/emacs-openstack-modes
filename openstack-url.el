@@ -43,8 +43,12 @@
 ;;
 ;;   (require 'openstack-url)
 ;;
-;; The autoload cookie on the registration form also covers users
-;; who skip that line once the package installs its autoloads.
+;; The autoload file carries two forms: the handler registration and
+;; the stub of `openstack-url-browse'.  The stub loads this library
+;; on the first `openstack:' URL, and the registration makes
+;; `browse-url' ask this scheme before the library loads.  Both are
+;; needed.  A registration alone names a void function, and a stub
+;; alone never registers the scheme.
 
 ;;; Code:
 
@@ -68,14 +72,27 @@ cache."
               (substring path (1+ slash)))
       (cons nil path))))
 
+;;;###autoload
 (defun openstack-url-browse (url &rest _args)
   "Open the OpenStack resource named by URL.
 URL takes the form `openstack:TYPE/ID' or `openstack:ID'.  ARGS
-are ignored, as `browse-url-handlers' require."
+are ignored, as `browse-url-handlers' require.
+This function carries an autoload cookie, because the `add-to-list'
+form at the end of this file reaches the autoload file through its
+own cookie.  That form names this function, so the stub here must
+exist: a handler list without a definition signals `void-function'
+on the first `openstack:' URL.  The stub loads this library then."
   (pcase-let* ((path (replace-regexp-in-string "\\`openstack:/*" "" url))
                (`(,type . ,id) (openstack-url-split path)))
     (openstack-open-id id type)))
 
+;; The cookie copies this form into the autoload file, so `browse-url'
+;; knows the scheme before this library loads.  The cookie on
+;; `openstack-url-browse' above writes the stub that the copied form
+;; calls, which loads this library on the first `openstack:' URL.
+;; Keep both cookies: the form alone names a void function, and the
+;; stub alone leaves the scheme unregistered.  The defconst needs its
+;; own cookie, because the copied form reads the variable.
 ;;;###autoload
 (add-to-list 'browse-url-default-handlers
              (cons openstack-url-regexp #'openstack-url-browse))

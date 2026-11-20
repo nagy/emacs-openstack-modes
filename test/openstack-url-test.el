@@ -39,6 +39,19 @@ would reference a void variable when the autoloads load."
     (should (string-match-p
              "^;;;###autoload\n(defconst openstack-url-regexp\\b" source))))
 
+(ert-deftest openstack-url-browse-autoloaded ()
+  "The handler registration reaches the autoload file with a stub.
+The form names `openstack-url-browse', and `browse-url' calls that
+symbol as its handler.  The autoload file needs both the
+registration and the stub: the registration alone names a void
+function, and the stub alone leaves the scheme unregistered."
+  (let ((autoloads (openstack-test--autoloads "openstack-url.el")))
+    (should (string-match-p "^(autoload 'openstack-url-browse \"openstack-url\""
+                            autoloads))
+    (should (string-match-p
+             "^(add-to-list 'browse-url-default-handlers (cons openstack-url-regexp #'openstack-url-browse)"
+             autoloads))))
+
 (ert-deftest openstack-url-split-type-and-id ()
   "A URL of the TYPE/ID form yields both parts."
   (should (equal (openstack-url-split "server/srv-1")

@@ -48,9 +48,13 @@
 ;;
 ;;   (require 'openstack-xref)
 ;;
-;; The autoload cookie on the `add-hook' form registers the backend
-;; without loading the library, so `M-.' also works for users who
-;; skip that line once the package installs its autoloads.
+;; `M-.' works without that line once the package installs its
+;; autoloads.  The autoload file carries two forms: the hook entry
+;; and the stub of `openstack-xref-backend'.  The stub loads this
+;; library on the first xref request, and the hook entry puts the
+;; backend on `xref-backend-functions' before the library loads.
+;; Both are needed.  A hook entry alone names a void function, and a
+;; stub alone never adds the hook.
 
 ;;; Code:
 
@@ -92,11 +96,18 @@ UUID under point."
   (declare (side-effect-free t))
   (thing-at-point 'openstack-id t))
 
+;;;###autoload
 (defun openstack-xref-backend ()
   "Return the OpenStack xref backend when point holds a resource ID.
 An `openstack-id' text property claims the identifier at once; a
 bare UUID claims it only when `openstack-read-type-of-id' finds
-its type, so another backend still handles a foreign UUID."
+its type, so another backend still handles a foreign UUID.
+This function carries an autoload cookie, because the `add-hook'
+form at the end of this file reaches the autoload file through its
+own cookie.  That form names this function, so the stub here must
+exist: a hook entry without a definition signals
+`void-function', and `xref-find-backend' runs that hook in every
+buffer.  The stub loads this library on the first xref request."
   (let ((id (openstack-xref-identifier-at-point)))
     (when (and id
                (or (get-char-property (point) 'openstack-id)
@@ -142,6 +153,12 @@ server or the network of a port."
        :id (plist-get reference :id))))
    (openstack-read-references identifier)))
 
+;; The cookie copies this form into the autoload file, so the
+;; backend claims a buffer before this library loads.  The cookie on
+;; `openstack-xref-backend' above writes the stub that the copied
+;; form calls, which loads this library on the first xref request.
+;; Keep both cookies: the form alone names a void function, and the
+;; stub alone leaves the hook empty.
 ;;;###autoload
 (add-hook 'xref-backend-functions #'openstack-xref-backend)
 

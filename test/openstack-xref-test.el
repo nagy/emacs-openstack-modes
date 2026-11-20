@@ -19,6 +19,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'openstack-test-helper)
 (require 'openstack-xref)
 (require 'openstack-resources)
 
@@ -168,6 +169,19 @@
   (openstack-xref-test--with-cache
     (should (null (xref-backend-references
                    'openstack "00000000-0000-4000-8000-00000000dead")))))
+
+(ert-deftest openstack-xref-backend-autoloaded ()
+  "The hook entry reaches the autoload file with a stub.
+The `add-hook' form names `openstack-xref-backend', and
+`xref-find-backend' runs that hook in every buffer.  The autoload
+file needs both the hook entry and the stub: the entry alone names
+a void function, and the stub alone leaves the hook empty."
+  (let ((autoloads (openstack-test--autoloads "openstack-xref.el")))
+    (should (string-match-p "^(autoload 'openstack-xref-backend \"openstack-xref\""
+                            autoloads))
+    (should (string-match-p
+             "^(add-hook 'xref-backend-functions #'openstack-xref-backend)"
+             autoloads))))
 
 (provide 'openstack-xref-test)
 ;;; openstack-xref-test.el ends here
