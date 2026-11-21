@@ -59,10 +59,9 @@ without Nix, see `README.org`, section "Building".
   `browse-url-default-handlers` before the library loads.
   `test/openstack-mode-test.el` checks every copied form.
 - Every face lives in `openstack-mode.el` and inherits a standard face.
-- The build compiles with warnings as errors. Declare a function of another file
-  with `declare-function` instead of adding a `require`.
-- Run `git add` on a new file before `nix build`, because a flake copies only
-  tracked files.
+- Declare a function of another file with `declare-function` instead of adding a
+  `require`. Never silence a warning to get the same effect, because a silence
+  passes the build.
 - Put a rule next to the code that must obey it. Add a note here only when the
   rule spans several files.
 
