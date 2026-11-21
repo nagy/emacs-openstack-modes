@@ -12,8 +12,7 @@ only the rules that span files.
 
 ## Build and test
 
-- `nix flake check` — the package plus package-lint, checkdoc and treefmt. This
-  is the gate for a commit.
+- `nix flake check` — the gate. Run before a commit.
 - `nix build` — the package. The checkPhase runs the suite.
 - `nix fmt` — nixfmt.
 - `nix develop` — emacs, magit-section, evil, openstackclient-full.
