@@ -71,6 +71,7 @@
             # `(use-package openstack :ensure t)' resolves the archive
             # package.  The modes themselves keep their `openstack-' prefix.
             pname = "openstack";
+            preferLocalBuild = true;
             # Nix convention for unreleased packages: <version>-unstable-<date>,
             # the date of the last commit touching the source.  This package
             # has no release yet, so the version stays at 0.  Slice the flake
