@@ -40,7 +40,7 @@ without Nix, see `README.org`, section "Building".
   `openstack-data.el`. Never build a client command from a type string in a mode.
 - A fetcher receives (ID SUCCESS-FN ERROR-FN), calls exactly one callback and
   returns its process. Never advise a private function such as
-  `openstack--render-error`.
+  `openstack--refresh-done`.
 - One command per job. A command that acts on the resource at point reads it
   through `openstack--object-at-point` and names no mode in its `interactive`
   form. A command that opens a buffer from any context names no mode either. A

@@ -613,18 +613,6 @@ and falls back to the error message of the condition."
         (and err (propertize (openstack--error-string err)
                              'face 'openstack-error))))
 
-(defun openstack--render-error (err)
-  "Insert an error message for CLI condition ERR into the buffer.
-ERR is an `openstack-cli-error' condition.  The message is
-inserted in the error face so the user can see why a resource
-failed to load."
-  (let* ((msg (condition-case nil
-                  (let ((data (cdr err)))
-                    (format "%s" (plist-get data :stderr)))
-                (error nil)))
-         (text (or msg "Unknown OpenStack CLI error")))
-    (insert (propertize text 'face 'openstack-error))))
-
 
 ;;; Helper functions
 

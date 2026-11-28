@@ -2119,13 +2119,9 @@ gives up instead."
       (should (eq (openstack-test--face-at "status")
                   'openstack-field-name)))))
 
-(ert-deftest openstack-render-error-uses-error-face ()
-  "The buffer and header line show a fetch error in `openstack-error'."
+(ert-deftest openstack-display-error-in-header-uses-error-face ()
+  "The header line shows a fetch error in `openstack-error'."
   (let ((err '(openstack-cli-error "Failed" :stderr "Auth failed")))
-    (with-temp-buffer
-      (let ((inhibit-read-only t))
-        (openstack--render-error err))
-      (should (eq (get-text-property (point-min) 'face) 'openstack-error)))
     (let ((header-line-format nil))
       (openstack--display-error-in-header err)
       (should (eq (get-text-property 0 'face header-line-format)
