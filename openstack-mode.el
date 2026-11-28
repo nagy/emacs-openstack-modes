@@ -2920,19 +2920,21 @@ a failing relation cannot loop."
             (openstack-resource-list-async
              child-type
              (lambda (rows)
-               (with-current-buffer buffer
-                 (puthash key
-                          (list :state 'done
-                                :rows (openstack-list--rows rows))
-                          (openstack-list--child-table))
-                 (openstack-list--children-arrived buffer)))
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (puthash key
+                            (list :state 'done
+                                  :rows (openstack-list--rows rows))
+                            (openstack-list--child-table))
+                   (openstack-list--children-arrived buffer))))
              (lambda (err)
-               (with-current-buffer buffer
-                 (puthash key (list :state 'error :error err)
-                          (openstack-list--child-table))
-                 (message "OpenStack %s of %s: %s"
-                          child-type id (openstack--error-string err))
-                 (openstack-list--children-arrived buffer)))
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (puthash key (list :state 'error :error err)
+                            (openstack-list--child-table))
+                   (message "OpenStack %s of %s: %s"
+                            child-type id (openstack--error-string err))
+                   (openstack-list--children-arrived buffer))))
              (openstack-resource-parent-arguments child-type id))
           (error
            (puthash key (list :state 'error :error err) table))))
