@@ -120,20 +120,84 @@ which have no resource ID."
        :description (openstack-org--description type id))
       t)))
 
+(defconst openstack-org--html-escapes
+  '(("&" . "&amp;") ("<" . "&lt;") (">" . "&gt;") ("\"" . "&quot;"))
+  "Characters that need an entity in exported HTML.
+The list stays here instead of calling `org-html-encode-plain-text',
+because that function lives in `ox-html' and this library must
+load without the HTML exporter.")
+
+(defun openstack-org--html-escape (text)
+  "Return TEXT with every HTML metacharacter replaced by an entity.
+The result is safe in element content and in a quoted attribute,
+so a hostile resource name cannot inject markup into the export."
+  (declare (side-effect-free t))
+  (replace-regexp-in-string
+   (regexp-opt (mapcar #'car openstack-org--html-escapes))
+   (lambda (match) (cdr (assoc match openstack-org--html-escapes)))
+   text t t))
+
+(defconst openstack-org--latex-escapes
+  '(("\\" . "\\textbackslash{}") ("{" . "\\{") ("}" . "\\}")
+    ("$" . "\\$") ("%" . "\\%") ("&" . "\\&")
+    ("_" . "\\_") ("#" . "\\#") ("~" . "\\textasciitilde{}")
+    ("^" . "\\textasciicircum{}"))
+  "Characters that need an escape in a LaTeX argument.
+The list stays here instead of calling `org-latex--protect-text',
+because that function lives in `ox-latex' and this library must
+load without the LaTeX exporter.")
+
+(defun openstack-org--latex-escape (text)
+  "Return TEXT with every LaTeX metacharacter escaped.
+A resource name with a brace, a percent sign or a backslash would
+otherwise end the argument or comment out the rest of the line."
+  (declare (side-effect-free t))
+  (replace-regexp-in-string
+   (regexp-opt (mapcar #'car openstack-org--latex-escapes))
+   (lambda (match) (cdr (assoc match openstack-org--latex-escapes)))
+   text t t))
+
+(defun openstack-org--md-escape-text (text)
+  "Return TEXT with the characters that end a markdown link escaped."
+  (declare (side-effect-free t))
+  (replace-regexp-in-string
+   (regexp-opt '("\\" "[" "]"))
+   (lambda (match) (concat "\\" match))
+   text t t))
+
+(defun openstack-org--md-escape-url (url)
+  "Return URL with the parentheses and backslashes escaped.
+An unescaped parenthesis ends the destination of a markdown link."
+  (declare (side-effect-free t))
+  (replace-regexp-in-string
+   (regexp-opt '("\\" "(" ")"))
+   (lambda (match) (concat "\\" match))
+   url t t))
+
 (defun openstack-org-export (path description backend _info)
   "Export the `openstack' link PATH to the dashboard.
 PATH is TYPE/ID, DESCRIPTION is the link text, BACKEND is the
 export backend.  The URL comes from
-`openstack-org--dashboard-url'.  An unknown type exports the
-plain path, so a document still builds."
+`openstack-org--dashboard-url'.  HTML and markdown keep the link;
+a backend without a link syntax keeps the description.  Every
+backend that takes the URL escapes it and the description, because
+a container or server name comes from the cloud.  An unknown type
+exports the plain path, so a document still builds."
   (declare (side-effect-free t))
   (condition-case nil
       (pcase-let* ((`(,type . ,id) (openstack-org--split path))
                    (desc (or description path))
                    (url (openstack-org--dashboard-url type id)))
         (pcase backend
-          ('html (format "<a href=\"%s\">%s</a>" url desc))
-          ('latex (format "\\href{%s}{%s}" url desc))
+          ('html (format "<a href=\"%s\">%s</a>"
+                         (openstack-org--html-escape url)
+                         (openstack-org--html-escape desc)))
+          ('latex (format "\\href{%s}{%s}"
+                          (openstack-org--latex-escape url)
+                          (openstack-org--latex-escape desc)))
+          ('md (format "[%s](%s)"
+                       (openstack-org--md-escape-text desc)
+                       (openstack-org--md-escape-url url)))
           (_ desc)))
     (user-error (or description path))))
 

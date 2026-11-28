@@ -141,7 +141,7 @@
                    "https://horizon.example.org/compute/srv-1"))))
 
 (ert-deftest ol-openstack-export ()
-  "Export builds dashboard URLs for HTML and LaTeX."
+  "Export builds dashboard URLs for HTML, LaTeX and markdown."
   (let ((openstack-web-base-url "https://horizon.example.org"))
     (should (equal
              (openstack-org-export "server/srv-1" "web-1" 'html nil)
@@ -149,8 +149,32 @@
     (should (equal
              (openstack-org-export "network/net-1" nil 'latex nil)
              "\\href{https://horizon.example.org/project/networks/net-1/detail}{network/net-1}"))
+    (should (equal (openstack-org-export "server/srv-1" "web-1" 'md nil)
+                   "[web-1](https://horizon.example.org/compute/srv-1)"))
     (should (equal (openstack-org-export "image/img-1" "ubuntu" 'ascii nil)
                    "ubuntu"))))
+
+(ert-deftest ol-openstack-export-escapes-html ()
+  "HTML export escapes the description and the URL.
+A container or server name comes from the cloud, so it must not
+reach the exported document as markup."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (should (equal
+             (openstack-org-export "container/a&b"
+                                   "x\"><script>alert(1)</script>" 'html nil)
+             (concat "<a href=\"https://horizon.example.org/project/containers/a&amp;b\">"
+                     "x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</a>")))))
+
+(ert-deftest ol-openstack-export-escapes-latex-and-markdown ()
+  "LaTeX and markdown escape the characters that end their argument."
+  (let ((openstack-web-base-url "https://horizon.example.org"))
+    (should (equal
+             (openstack-org-export "container/a_b" "50% of x" 'latex nil)
+             "\\href{https://horizon.example.org/project/containers/a\\_b}{50\\% of x}"))
+    (should (equal (openstack-org-export "server/srv-1" "a]b" 'md nil)
+                   "[a\\]b](https://horizon.example.org/compute/srv-1)"))
+    (should (equal (openstack-org-export "container/a(b)" "web-1" 'md nil)
+                   "[web-1](https://horizon.example.org/project/containers/a\\(b\\))"))))
 
 (ert-deftest ol-openstack-export-keeps-unknown-types-plain ()
   "An unknown type exports the link text, so a document still builds."
