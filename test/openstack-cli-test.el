@@ -344,6 +344,48 @@ clobber each other's stderr, and no buffer survives the run."
       (when (get-buffer openstack-cli-buffer-name)
         (kill-buffer openstack-cli-buffer-name)))))
 
+(ert-deftest openstack-cli-async-request-cancel-frees-buffers ()
+  "A cancelled request kills its stdout and stderr buffers.
+`delete-process' never reaches the `exit' status, so the sentinel
+frees the buffers outside that branch; a fetch that
+`openstack--kill-pending' cancels would otherwise leak two buffers
+per mode switch."
+  (let (proc-buffer stderr-buffer sentinel called)
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest plist)
+                 (setq proc-buffer (plist-get plist :buffer)
+                       stderr-buffer (plist-get plist :stderr))
+                 (make-openstack-cli-test--fake-process
+                  :status 'run :exit-status 0 :buffer proc-buffer)))
+              ((symbol-function 'process-get)
+               (lambda (proc prop)
+                 (plist-get (openstack-cli-test--fake-process-plist proc)
+                            prop)))
+              ((symbol-function 'process-status)
+               (lambda (proc)
+                 (openstack-cli-test--fake-process-status proc)))
+              ((symbol-function 'process-put)
+               (lambda (proc prop value)
+                 (setf (openstack-cli-test--fake-process-plist proc)
+                       (plist-put (openstack-cli-test--fake-process-plist proc)
+                                  prop value))))
+              ((symbol-function 'set-process-sentinel)
+               (lambda (_proc sentinel-fn) (setq sentinel sentinel-fn)))
+              ((symbol-function 'delete-process)
+               (lambda (proc)
+                 (setf (openstack-cli-test--fake-process-status proc) 'signal)
+                 (funcall sentinel proc "killed\n"))))
+      (let ((proc (openstack-cli-async-request
+                   '("server" "list")
+                   :success-fn (lambda (_rows) (setq called 'success))
+                   :error-fn (lambda (_err) (setq called 'error)))))
+        (should (buffer-live-p proc-buffer))
+        (should (buffer-live-p stderr-buffer))
+        (delete-process proc)
+        (should-not called)
+        (should-not (buffer-live-p proc-buffer))
+        (should-not (buffer-live-p stderr-buffer))))))
+
 (ert-deftest openstack-cli-autoloads ()
   "Both request entry points carry an autoload cookie."
   (let ((source (with-temp-buffer

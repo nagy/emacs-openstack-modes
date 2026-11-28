@@ -319,6 +319,19 @@ invoked when it finishes."
   (openstack-cli--check-callbacks success-fn error-fn)
   (openstack-cli--async-start args success-fn error-fn text))
 
+(defun openstack-cli--kill-buffers (stdout-buffer stderr-buffer)
+  "Kill STDOUT-BUFFER and STDERR-BUFFER of one asynchronous request.
+Kill the stderr pump too when it outlives the client, so
+`kill-buffer' asks no question about a running process."
+  (let ((stderr-proc (and (buffer-live-p stderr-buffer)
+                          (get-buffer-process stderr-buffer))))
+    (when (process-live-p stderr-proc)
+      (delete-process stderr-proc)))
+  (when (buffer-live-p stdout-buffer)
+    (kill-buffer stdout-buffer))
+  (when (buffer-live-p stderr-buffer)
+    (kill-buffer stderr-buffer)))
+
 (defun openstack-cli--async-start (args success-fn error-fn &optional text)
   "Run the OpenStack client with ARGS in one background process.
 Call SUCCESS-FN with the parsed JSON output, or ERROR-FN with an
@@ -328,22 +341,23 @@ the client process."
   (let* ((cmd (openstack-cli--command args text))
          (number (cl-incf openstack-cli--process-number))
          (name (format "openstack-cli-%d" number))
-         ;; Each request gets its own stderr buffer, killed by the
-         ;; sentinel once the callbacks have run; concurrent requests
-         ;; therefore cannot clobber each other's stderr.
+         ;; Each request gets its own stdout and stderr buffer, killed
+         ;; once the process is gone; concurrent requests therefore
+         ;; cannot clobber each other's output.
+         (stdout-buffer (generate-new-buffer name))
          (stderr-buffer (generate-new-buffer openstack-cli-buffer-name)))
     (let ((proc (condition-case err
                     (make-process
                      :name name
                      :command cmd
                      ;; `make-process' with no :buffer associates no
-                     ;; buffer at all, silently discarding the output;
-                     ;; give each request its own stdout buffer.
-                     :buffer (generate-new-buffer name)
+                     ;; buffer at all, silently discarding the output.
+                     :buffer stdout-buffer
                      :connection-type 'pipe
                      :stderr stderr-buffer
                      :noquery t)
                   (error
+                   (kill-buffer stdout-buffer)
                    (kill-buffer stderr-buffer)
                    (signal (car err) (cdr err))))))
       ;; Silence the stderr pump's default sentinel; its "finished"
@@ -354,40 +368,40 @@ the client process."
       (set-process-sentinel
        proc
        (lambda (proc _event)
-         (when (eq (process-status proc) 'exit)
-           ;; Run exactly once per process, even if the sentinel is
-           ;; invoked again for a later status change.
-           (unless (process-get proc 'openstack-cli--handled)
-             (process-put proc 'openstack-cli--handled t)
-             (openstack-cli--drain (get-buffer-process stderr-buffer))
-             (let* ((code (process-exit-status proc))
-                    (stderr (with-current-buffer stderr-buffer
-                              (let ((s (buffer-string)))
-                                (unless (string-empty-p s) s))))
-                    (proc-buffer (process-buffer proc))
-                    (output (when (buffer-live-p proc-buffer)
-                              (with-current-buffer proc-buffer
-                                (buffer-string))))
-                    (output (or output "")))
-               (when (buffer-live-p proc-buffer)
-                 (kill-buffer proc-buffer))
-               (when (buffer-live-p stderr-buffer)
-                 (kill-buffer stderr-buffer))
-               (if (zerop code)
-                 (condition-case err
-                     (funcall success-fn
-                              (if text
-                                  output
-                                (openstack-cli--parse-json output)))
-                   (error
-                    (funcall error-fn
-                             (cons 'openstack-cli-error
-                                   (list :args args :stderr stderr
-                                         :reason err)))))
-               (funcall error-fn
-                        (cons 'openstack-cli-error
-                              (list :args args :exit-code code
-                                    :stderr stderr)))))))))
+         ;; Run exactly once per process, even if the sentinel is
+         ;; invoked again for a later status change.
+         (unless (process-get proc 'openstack-cli--handled)
+           (process-put proc 'openstack-cli--handled t)
+           (unwind-protect
+               (when (eq (process-status proc) 'exit)
+                 (openstack-cli--drain (get-buffer-process stderr-buffer))
+                 (let* ((code (process-exit-status proc))
+                        (stderr (with-current-buffer stderr-buffer
+                                  (let ((s (buffer-string)))
+                                    (unless (string-empty-p s) s))))
+                        (output (if (buffer-live-p stdout-buffer)
+                                    (with-current-buffer stdout-buffer
+                                      (buffer-string))
+                                  "")))
+                   (if (zerop code)
+                       (condition-case err
+                           (funcall success-fn
+                                    (if text
+                                        output
+                                      (openstack-cli--parse-json output)))
+                         (error
+                          (funcall error-fn
+                                   (cons 'openstack-cli-error
+                                         (list :args args :stderr stderr
+                                               :reason err)))))
+                     (funcall error-fn
+                              (cons 'openstack-cli-error
+                                    (list :args args :exit-code code
+                                          :stderr stderr))))))
+             ;; A request that a caller cancelled, as
+             ;; `openstack--kill-pending' does, never reaches `exit',
+             ;; and a callback may signal; the buffers go either way.
+             (openstack-cli--kill-buffers stdout-buffer stderr-buffer)))))
       proc)))
 
 (defun openstack-cli--parse-json (text)
