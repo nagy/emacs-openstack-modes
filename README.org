@@ -16,30 +16,18 @@ resource-specific modes can depend on it.
 | =flake.lock=                       | Pinned flake inputs                                                                      |
 | =flake.nix=                        | Nix flake with =melpaBuild=, runs ERT tests and checkdoc                                 |
 | =ol-openstack.el=                  | Org link type =openstack:= for resources                                                 |
+| =openstack-api.el=                 | REST layer: asynchronous request, timeout, cancellation and JSON                         |
 | =openstack-cli.el=                 | CLI layer: sync/async access to =openstack-program=                                      |
 | =openstack-console.el=             | Console log view of a server, over the text path                                         |
 | =openstack-data.el=                | Data layer: the resource registry, sync and async show/list, the cache and the accessors |
 | =openstack-error.el=               | The package-wide parent condition =openstack-error=                                      |
 | =openstack-evil.el=                | Optional evil bindings for show and list buffers                                         |
-| =openstack-mode.el=                | Display layer: section-based base mode, collection base mode, the resource macro        |
+| =openstack-mode.el=                | Display layer: section-based base mode, collection base mode, the resource macro         |
 | =openstack-read.el=                | ID completion, type and name lookups                                                     |
 | =openstack-resources.el=           | The resource types, one macro call each                                                  |
 | =openstack-url.el=                 | =openstack:= URL scheme for =browse-url=                                                 |
 | =openstack-xref.el=                | xref backend: =M-.= on a resource ID                                                     |
 | =openstack.el=                     | Entry library: loads the data layer, the base mode, the cache and the resource types     |
-| =test/ol-openstack-test.el=        | ERT test suite for the Org link type                                                     |
-| =test/openstack-api-test.el=       | ERT test suite for the native API layer                                                  |
-| =test/openstack-cli-test.el=       | ERT test suite for the CLI layer (mocked)                                                |
-| =test/openstack-console-test.el=   | ERT test suite for the console log view                                                  |
-| =test/openstack-data-test.el=      | ERT test suite for the data layer and its cache                                          |
-| =test/openstack-evil-test.el=      | ERT test suite for the evil bindings                                                     |
-| =test/openstack-list-mode-test.el= | ERT test suite for the collection base mode                                              |
-| =test/openstack-mode-test.el=      | ERT tests: base mode, section tree, collections, resource registry                      |
-| =test/openstack-read-test.el=      | ERT test suite for the ID completion                                                     |
-| =test/openstack-resource-test.el=  | ERT tests: the resource show and list modes                                              |
-| =test/openstack-test-helper.el=    | Shared test helpers: source lookup, fixture client program, process wait                 |
-| =test/openstack-url-test.el=       | ERT test suite for the URL scheme                                                        |
-| =test/openstack-xref-test.el=      | ERT test suite for the xref backend                                                      |
 
 * Usage
 
@@ -345,7 +333,7 @@ names the network as its parent:
 
 The =fixed_ips= field prints as an indented block of records, one
 per IP address and subnet, and the =network_id= field opens the
-network.  `openstack-go-to-parent= opens the port list scoped to
+network.  =openstack-go-to-parent= opens the port list scoped to
 the network.  Horizon serves the port detail view below the
 network panel: =project/networks/ports/ID/detail=.
 
@@ -761,8 +749,8 @@ Org export renders the link as its Horizon URL.
 Enable the link type in your init file:
 
 #+begin_src elisp
-  (with-eval-after-load \='org
-    (require \='ol-openstack))
+  (with-eval-after-load 'org
+    (require 'ol-openstack))
 #+end_src
 
 Customization (=M-x customize-group openstack=):
@@ -1027,23 +1015,29 @@ volumes, images, networks, ...) derive from it and set
 their own fetcher and renderer.  The fetcher of a generated mode
 calls the data layer (=openstack-show-fetch= wraps
 =openstack-resource-show-async=), so a mode and a library consumer
-read the same data through the same definition.  The
-=openstack-server= package
-is the reference implementation of that contract:
+read the same data through the same definition.  The server
+definition is the reference implementation of that contract:
 
 #+begin_src elisp
-  ;; openstack-server.el (excerpt)
-  (defun openstack-server--fetch (id success-fn error-fn)
-    "Fetch the data of server ID."
-    (openstack-resource-show-async "server" id success-fn error-fn))
-
-  (define-derived-mode openstack-server-mode openstack-mode
-    "OpenStack Server"
-    "Major mode for displaying an OpenStack server resource."
-    (setq-local openstack-fetch-function #'openstack-server--fetch)
-    (setq-local openstack-render-function #'openstack-server--render)
-    (setq-local openstack-id-prefix "compute"))
+  ;; openstack-resources.el (excerpt)
+  (openstack-define-resource "server"
+    :noun "servers"
+    :id-prefix "compute"
+    :fields '("name" "status" "host_status" "vm_state"
+              "OS-EXT-AZ:availability_zone" "project_id"
+              "flavor" "addresses" "image"
+              "created_at" "updated_at")
+    :parent '(:type "project" :field "project_id"
+              :arguments ("--project" :id))
+    :list-fields '("ID" "Name" "Status" "Host" "Task State"
+                   "Networks" "Image Name" "Flavor"))
 #+end_src
+
+The macro writes the modes from that one form: the show mode sets
+=openstack-fetch-function= to a fetcher that wraps
+=openstack-show-fetch= with the type, and =openstack-render-function=
+to the renderer of the definition.  No generated mode carries a
+type string of its own.
 
 The fetch runs asynchronously, so Emacs never blocks on the
 client.  Display buffers refresh themselves through
@@ -1052,7 +1046,7 @@ seconds (see =openstack-auto-revert=); =revert-buffer= (=g=)
 forces a refresh.  Unchanged data is not re-rendered, so point
 and marks survive a refresh.  The client authenticates on every
 call; a token cache belongs to the native API layer, because an
-`openstack' run validates its token against the identity server
+=openstack= run validates its token against the identity server
 anyway.
 
 A display buffer shows data from a cloud, not a file: it starts
@@ -1066,7 +1060,7 @@ The repository ships =mock-openstack=, a fake =openstack= client
 emitting canned JSON, so the modes can be tried without a cloud:
 
 #+begin_src elisp
-  (require \='openstack-server)
+  (require 'openstack)
   (setq openstack-program
         (expand-file-name "mock-openstack" "/path/to/repo"))
   (openstack-server-display "b40b9091-4b4a-4a89-a1d1-2f0d6d1b8f01")
@@ -1088,8 +1082,8 @@ unit, and =test/openstack-test-helper.el= holds the shared helpers.
 run there too) plus =checks.package-lint=, =checks.checkdoc= and the
 treefmt formatting check; both policy checks lint the test tree as
 well.
-`postPatch` rewrites `openstack-program` to the store path of the
-nixpkgs `openstackclient-full` binary.  The version follows
+=postPatch= rewrites =openstack-program= to the store path of the
+nixpkgs =openstackclient-full= binary.  The version follows
 =0-unstable-YYYY-MM-DD= from the last source commit.
 
 * License
