@@ -149,8 +149,13 @@ refills them.
 the cached resources of every type at once, each candidate
 starting with its type: =server web-1 (UUID)= or =volume data-1
 (UUID)=.  A typed ID that no candidate names resolves its type
-through the cache, which runs =RESOURCE list= for each type in
-=openstack-resource-types= until one holds the ID.
+through the cache only, so the lookup never runs the client;
+=M-x openstack-read-refresh= fills the cache of every type first.
+
+When the cache holds no such ID, the command signals a
+=user-error= instead of sweeping =RESOURCE list= over every type.
+That sweep costs one client call per type, each of them a fresh
+authentication.
 
 The xref backend makes =M-.= open the resource whose ID sits at
 point, in any buffer: a log line, a mail, an Org document or a

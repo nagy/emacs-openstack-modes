@@ -38,7 +38,9 @@
 ;;   openstack-read-name        - the name of an ID
 ;;
 ;; They let a link, an xref jump or a prompt resolve an ID that the
-;; user did not choose from a list.
+;; user did not choose from a list.  Both read the cache only, so a
+;; lookup never blocks the editor: `openstack-read-refresh' fills
+;; the cache, and an ID that it does not hold is unknown.
 ;;
 ;; Entry points:
 ;;
@@ -262,7 +264,7 @@ prompt opens a server, a volume or a subnet without naming a type
 first.  Annotate each candidate with the fields of
 `openstack-read-annotation-fields'.  Return a plist with :type and
 :id.  A typed ID that no candidate names resolves its type through
-`openstack-read-type-of-id', which may run the client."
+`openstack-read-type-of-id', which reads the cache only."
   (let* ((choices (openstack-read--any-choices))
          (answer (completing-read (or prompt "OpenStack resource: ")
                                   (openstack-read--any-choices-table choices)
@@ -304,25 +306,17 @@ Search the cache only, so the call never runs the client."
             (mapcar #'car openstack-resource-types)))
 
 (defun openstack-read-type-of-id (id)
-  "Return the resource type of the resource with ID, or nil.
-Search the cache first; when no cached row matches, fetch the
-list of each type in `openstack-resource-types'.  A client
-failure yields nil instead of an error."
-  (or (seq-some (lambda (type)
-                  (when (seq-some (lambda (row)
-                                    (equal id (openstack-read--row-id row)))
-                                  (openstack-resource-cached-rows type))
-                    type))
-                (mapcar #'car openstack-resource-types))
-      (seq-some (lambda (type)
-                  (when (condition-case nil
-                            (seq-some
-                             (lambda (row)
-                               (equal id (openstack-read--row-id row)))
-                             (openstack-read-rows type))
-                          (error nil))
-                    type))
-                (mapcar #'car openstack-resource-types))))
+  "Return the resource type of the cached resource with ID, or nil.
+Read the cache only: no client call, so a lookup from an xref jump
+or a link never blocks the editor.  Fill the cache with
+`openstack-read-refresh' when the ID is unknown."
+  (declare (side-effect-free t))
+  (seq-some (lambda (type)
+              (when (seq-some (lambda (row)
+                                (equal id (openstack-read--row-id row)))
+                              (openstack-resource-cached-rows type))
+                type))
+            (mapcar #'car openstack-resource-types)))
 
 (defun openstack-read--row-values (row)
   "Return the string field values of list ROW."
@@ -372,17 +366,23 @@ every type in `openstack-resource-types'."
 (defun openstack-open-id (id &optional type)
   "Display the OpenStack resource with ID.
 TYPE names the resource type of ID.  Without TYPE, resolve it
-through `openstack-read-type-of-id', which may run the client.
+through `openstack-read-type-of-id', which reads the cache only.
 Interactive use reads any cached resource through
 `openstack-read-resource', so one prompt opens a server, a volume
-or a subnet."
+or a subnet.  Signal `user-error' for an unknown TYPE and for an
+ID that no cached type holds.  Run `openstack-read-refresh' to
+fill the cache when the cloud holds the ID."
   (interactive
    (let ((resource (openstack-read-resource)))
      (list (plist-get resource :id) (plist-get resource :type))))
   (let ((type (or type (openstack-read-type-of-id id))))
     (unless type
-      (user-error "Unknown OpenStack resource ID: %s" id))
-    (funcall (nth 2 (openstack-resource-type type)) id)))
+      (user-error "Unknown OpenStack resource ID: %s; %s"
+                  id "run M-x openstack-read-refresh"))
+    (let ((display (nth 2 (openstack-resource-type type))))
+      (unless display
+        (user-error "Unknown OpenStack resource type: %s" type))
+      (funcall display id))))
 
 (provide 'openstack-read)
 ;;; openstack-read.el ends here

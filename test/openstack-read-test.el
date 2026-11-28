@@ -149,27 +149,23 @@ A Swift container has a name and no UUID."
       (should (equal (openstack-read-id "server") "srv-1")))))
 
 (ert-deftest openstack-read-type-of-id ()
-  "The type lookup reads the cache before it runs the client."
+  "The type lookup reads the cache only."
   (let ((openstack-resource--list-cache nil))
     (openstack-read-test--with-client calls
+      (openstack-read-rows "server")
+      (openstack-read-rows "network")
       (should (equal (openstack-read-type-of-id "srv-1") "server"))
       ;; The table order stops at the first type that holds the ID.
-      (should (equal calls '(("server" "list"))))
       (should (equal (openstack-read-type-of-id "net-1") "network"))
-      (should (equal (length calls) 4))
-      ;; A cached hit costs no client call.
-      (let ((before (length calls)))
-        (should (equal (openstack-read-type-of-id "net-1") "network"))
-        (should (equal (length calls) before)))
       (should (null (openstack-read-type-of-id "nope")))
-      (should (equal (length calls)
-                     (length openstack-resource-types))))))
+      ;; The lookup ran no client call of its own.
+      (should (equal calls '(("network" "list") ("server" "list")))))))
 
-(ert-deftest openstack-read-type-of-id-failure-is-nil ()
-  "A failing client yields nil from the type lookup."
+(ert-deftest openstack-read-type-of-id-never-runs-the-client ()
+  "A cold cache yields nil instead of a sweep over every type."
   (let ((openstack-resource--list-cache nil))
     (cl-letf (((symbol-function 'openstack-cli-request)
-               (lambda (_args) (error "No cloud"))))
+               (lambda (_args) (error "The client must not run"))))
       (should (null (openstack-read-type-of-id "srv-1"))))))
 
 (ert-deftest openstack-read-name-and-ids ()
@@ -197,14 +193,20 @@ A Swift container has a name and no UUID."
                      (+ 3 (length openstack-resource-types)))))))
 
 (ert-deftest openstack-open-id ()
-  "A known ID opens the display command of its type."
+  "A cached ID opens the display command of its type."
   (let ((openstack-resource--list-cache nil)
         (seen nil))
     (openstack-read-test--with-client calls
+      (openstack-read-rows "network")
       (cl-letf (((symbol-function 'openstack-network-display)
                  (lambda (id) (setq seen (cons "network" id)) :buffer)))
         (should (eq (openstack-open-id "net-1") :buffer))
         (should (equal seen '("network" . "net-1")))))))
+
+(ert-deftest openstack-open-id-unknown-type ()
+  "A type that no definition names signals a `user-error'."
+  (let ((openstack-resource--list-cache nil))
+    (should-error (openstack-open-id "abc" "nope") :type 'user-error)))
 
 (ert-deftest openstack-open-id-with-type ()
   "An explicit type skips the lookup."
@@ -220,7 +222,8 @@ A Swift container has a name and no UUID."
 (ert-deftest openstack-open-id-unknown ()
   "An unknown ID signals a `user-error'."
   (let ((openstack-resource--list-cache nil))
-    (openstack-read-test--with-client calls
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) (error "The client must not run"))))
       (should-error (openstack-open-id "nope") :type 'user-error))))
 
 (ert-deftest openstack-read-display-prompts-use-completion ()

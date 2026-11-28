@@ -34,7 +34,7 @@
     row))
 
 (defmacro openstack-xref-test--with-cache (&rest body)
-  "Run BODY with a fresh cache and a stubbed CLI client."
+  "Run BODY with a warm cache and a stubbed CLI client."
   (declare (indent 0))
   `(let ((openstack-resource--list-cache nil))
      (cl-letf (((symbol-function 'openstack-cli-request)
@@ -46,6 +46,8 @@
                      (list (openstack-xref-test--row
                             openstack-xref-test--uuid "provider")))
                     (_ nil)))))
+       (openstack-read-rows "server")
+       (openstack-read-rows "network")
        ,@body)))
 
 ;;; Tests
@@ -103,16 +105,44 @@
       (should (equal (xref-location-line location) 1)))))
 
 (ert-deftest openstack-xref-definitions-unknown ()
-  "An ID that no type carries yields no item."
+  "An ID that no cached row carries signals a `user-error'."
   (openstack-xref-test--with-cache
-    (should (null (xref-backend-definitions 'openstack "00000000-0000")))))
+    (should-error (xref-backend-definitions 'openstack "00000000-0000")
+                  :type 'user-error)))
+
+(ert-deftest openstack-xref-hints-at-a-cold-cache ()
+  "An xref jump to an uncached UUID says how to cache it."
+  ;; Any other command over the same UUID stays quiet, because every
+  ;; buffer runs the probe.
+  (let ((openstack-resource--list-cache nil)
+        (this-command 'xref-find-definitions)
+        (seen nil))
+    (with-temp-buffer
+      (insert "id " openstack-xref-test--uuid " here")
+      (goto-char (point-min))
+      (search-forward "6f1e2d3c")
+      (cl-letf (((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (setq seen (apply #'format format-string args)))))
+        (should (null (openstack-xref-backend)))
+        (should (string-match-p "openstack-read-refresh" seen)))))
+  (let ((openstack-resource--list-cache nil)
+        (this-command 'xref-find-references)
+        (seen nil))
+    (with-temp-buffer
+      (insert "id " openstack-xref-test--uuid " here")
+      (goto-char (point-min))
+      (search-forward "6f1e2d3c")
+      (cl-letf (((symbol-function 'message)
+                 (lambda (&rest _args) (setq seen t))))
+        (should (null (openstack-xref-backend)))
+        (should-not seen)))))
 
 (ert-deftest openstack-xref-completion-table ()
   "The completion table offers the cached IDs."
   (openstack-xref-test--with-cache
-    (openstack-read-rows "server")
     (should (equal (xref-backend-identifier-completion-table 'openstack)
-                   '("srv-1")))))
+                   (list "srv-1" openstack-xref-test--uuid)))))
 
 (ert-deftest openstack-xref-location-marker ()
   "The marker opens the display buffer of the location."
@@ -155,6 +185,8 @@
                     (list (openstack-xref-test--row
                            openstack-xref-test--uuid "provider")))
                    (_ nil)))))
+      (openstack-read-rows "server")
+      (openstack-read-rows "network")
       (let* ((items (xref-backend-references 'openstack
                                              openstack-xref-test--uuid))
              (item (car items)))

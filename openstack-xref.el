@@ -101,7 +101,9 @@ UUID under point."
   "Return the OpenStack xref backend when point holds a resource ID.
 An `openstack-id' text property claims the identifier at once; a
 bare UUID claims it only when `openstack-read-type-of-id' finds
-its type, so another backend still handles a foreign UUID.
+its type, so another backend still handles a foreign UUID.  When
+`xref-find-definitions' asks and the cache does not hold the ID,
+the probe says how to teach it.
 This function carries an autoload cookie, because the `add-hook'
 form at the end of this file reaches the autoload file through its
 own cookie.  That form names this function, so the stub here must
@@ -109,10 +111,16 @@ exist: a hook entry without a definition signals
 `void-function', and `xref-find-backend' runs that hook in every
 buffer.  The stub loads this library on the first xref request."
   (let ((id (openstack-xref-identifier-at-point)))
-    (when (and id
-               (or (get-char-property (point) 'openstack-id)
-                   (openstack-read-type-of-id id)))
-      'openstack)))
+    (when id
+      (cond ((get-char-property (point) 'openstack-id) 'openstack)
+            ((openstack-read-type-of-id id) 'openstack)
+            ;; A probe stays quiet for a foreign UUID, because every
+            ;; buffer runs it.  The user who asks for a definition
+            ;; over the UUID needs the hint.
+            ((eq this-command 'xref-find-definitions)
+             (message "OpenStack: %s is not in the list cache; %s"
+                      id "run M-x openstack-read-refresh")
+             nil)))))
 
 ;;; Backend
 
@@ -127,8 +135,14 @@ buffer.  The stub loads this library on the first xref request."
   (openstack-read-ids))
 
 (cl-defmethod xref-backend-definitions ((_backend (eql openstack)) identifier)
-  "Return the definition of the resource with IDENTIFIER, or nil."
-  (when-let* ((type (openstack-read-type-of-id identifier)))
+  "Return the definition of the resource with IDENTIFIER.
+Signal a `user-error' when the list cache holds no row of
+IDENTIFIER: the type lookup runs no client call, so a jump to a
+resource that the cache does not know cannot resolve."
+  (let ((type (openstack-read-type-of-id identifier)))
+    (unless type
+      (user-error "OpenStack: %s is not in the list cache; %s"
+                  identifier "run M-x openstack-read-refresh"))
     (list (xref-make
            (format "OpenStack %s %s" type
                    (or (openstack-read-name identifier) identifier))
@@ -136,11 +150,10 @@ buffer.  The stub loads this library on the first xref request."
 
 (cl-defmethod xref-backend-references ((_backend (eql openstack)) identifier)
   "Return the cached resources that mention IDENTIFIER in a field.
-Warm the list cache through `openstack-read-type-of-id' first,
-then read the cached `RESOURCE list' rows.  The scan finds the
-direct relations a list row reports, such as the image of a
-server or the network of a port."
-  (ignore-errors (openstack-read-type-of-id identifier))
+Read the cached `RESOURCE list' rows only, so the scan runs no
+client call.  It finds the direct relations a list row reports,
+such as the image of a server or the network of a port; fill the
+cache with `openstack-read-refresh' to widen it."
   (mapcar
    (lambda (reference)
      (xref-make
