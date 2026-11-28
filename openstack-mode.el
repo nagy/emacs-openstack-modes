@@ -731,10 +731,14 @@ The pattern repeats the scheme of `openstack-url-regexp', because
 the optional URL layer requires this file and must not be a load
 dependency of it.")
 
-(defconst openstack--url-regexp "\\(?:openstack:\\|https?://\\)[^ \t\n\"'<>()]+"
+(defconst openstack--url-regexp "\\(?:openstack:\\|https?://\\)[^] \t\n\"'<>()[|]+"
   "Regexp that matches a URL that a reader placed as plain text.
 The two families are the `openstack:TYPE/ID' link and the dashboard
-page that `openstack-dashboard-url' builds.")
+page that `openstack-dashboard-url' builds.  The excluded
+characters cover the delimiters around a URL in prose and in a
+markup link, so `[[openstack:server/ID][name]]' yields the URL
+alone and not the Org link syntax after it.  A literal `]' leads
+the character class because that is where a regexp allows one.")
 
 (defun openstack--dashboard-prefix (type)
   "Return the dashboard path prefix of resource TYPE.

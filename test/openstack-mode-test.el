@@ -342,6 +342,18 @@ project and no version-controlled tree."
       (should (equal '("subnet" "sub-1" property)
                      (openstack--object-at-point))))))
 
+(ert-deftest openstack-mode-object-at-point-org-link ()
+  "An Org link yields the URL alone, not the rest of the link syntax.
+The brackets around the link and its description delimit the URL,
+so `openstack-copy-id' copies an ID and not `ID][name]]'."
+  (with-temp-buffer
+    (insert "see [[openstack:server/srv-9][web-9]] and more")
+    (goto-char (point-min))
+    (search-forward "srv-9")
+    (should (equal "openstack:server/srv-9" (openstack--url-at-point)))
+    (should (equal '("server" "srv-9" url)
+                   (openstack--object-at-point)))))
+
 (ert-deftest openstack-mode-object-reference-keeps-its-type ()
   "A reference picks the dashboard path of its own resource type."
   (let ((openstack-web-base-url "https://horizon.example.org"))
