@@ -322,6 +322,80 @@ row stop before its newline and the runs of two rows never join."
       (openstack-list-test--render reversed)
       (should (equal (tabulated-list-get-id) "id-2")))))
 
+(defun openstack-list-test--many-rows (count status)
+  "Return COUNT rows with a distinct ID and the given STATUS."
+  (cl-loop for number below count
+           collect (let ((row (make-hash-table :test #'equal)))
+                     (puthash "ID" (format "id-%d" number) row)
+                     (puthash "Name" (format "web-%d" number) row)
+                     (puthash "Size" (number-to-string number) row)
+                     (puthash "Status" status row)
+                     row)))
+
+(ert-deftest openstack-list-render-marks-changes-across-many-rows ()
+  "A re-render of a 1000-row table marks every changed cell.
+The render pipeline binds the ID index of the previous rows, so the
+render finds the row it compares in one lookup; a scan of the
+previous rows per cell would take seconds here."
+  (with-temp-buffer
+    (openstack-list-mode)
+    (let* ((old (openstack-list-test--many-rows 1000 "BUILD"))
+           (new (openstack-list-test--many-rows 1000 "ACTIVE"))
+           (openstack--previous-data old)
+           (openstack--previous-index (openstack--row-index old)))
+      (with-no-warnings
+        (openstack-list-render "(no rows)" new '("ID" "Name" "Status")))
+      (should (equal openstack-list--count 1000))
+      (goto-char (point-min))
+      (search-forward "ACTIVE")
+      (should (equal (get-text-property (match-beginning 0) 'face)
+                     '(openstack-field-changed openstack-status-ok)))
+      ;; The last row of the table takes the change face too.
+      (goto-char (point-max))
+      (search-backward "ACTIVE")
+      (should (equal (get-text-property (match-beginning 0) 'face)
+                     '(openstack-field-changed openstack-status-ok))))))
+
+(ert-deftest openstack-list-status-changes-across-many-rows ()
+  "The status scan of a 1000-row table reports every changed row."
+  (let* ((old (openstack-list-test--many-rows 1000 "BUILD"))
+         (new (openstack-list-test--many-rows 1000 "ACTIVE"))
+         (openstack--previous-data old)
+         (openstack--previous-index (openstack--row-index old)))
+    (should (= (length (openstack--status-changes old new)) 1000))
+    (should (null (openstack--status-changes new new)))))
+
+(ert-deftest openstack-list-refresh-indexes-previous-rows ()
+  "The refresh pipeline hands the render an ID index of the old rows.
+Without the index a cell of a 1000-row table scans 1000 previous
+rows, so count the field reads of a real refresh: the indexed path
+stays in the thousands, the scan reaches millions."
+  (let* ((old (openstack-list-test--many-rows 1000 "BUILD"))
+         (new (openstack-list-test--many-rows 1000 "ACTIVE"))
+         (reads 0)
+         (buf (generate-new-buffer " *openstack-list-test*")))
+    (unwind-protect
+        (with-current-buffer buf
+          (openstack-list-mode)
+          (setq-local openstack--rendered t
+                      openstack--last-data old
+                      openstack--fetch-marker (list nil)
+                      openstack-render-function
+                      (lambda (_id data)
+                        (openstack-list-render "(no rows)" data
+                                               '("ID" "Name" "Status"))))
+          (let ((original (symbol-function 'openstack--hash-field))
+                (inhibit-read-only t))
+            (cl-letf (((symbol-function 'openstack--hash-field)
+                       (lambda (table name)
+                         (setq reads (1+ reads))
+                         (funcall original table name))))
+              (openstack--refresh-done buf openstack--fetch-marker
+                                       nil new nil)))
+          (should (equal openstack-list--count 1000))
+          (should (< reads 100000)))
+      (kill-buffer buf))))
+
 ;;; Sorting
 
 (ert-deftest openstack-list-sort-reorders-and-flips ()

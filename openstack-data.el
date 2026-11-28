@@ -351,6 +351,16 @@ unknown TYPE."
   (mapcar (lambda (argument) (if (eq argument :id) id argument))
           (plist-get (openstack-resource-parent type) :arguments)))
 
+(defun openstack--rows (rows)
+  "Return client list ROWS as a list.
+The client answers nil or an empty string for an empty list and a
+bare hash table when the list holds one resource, so normalize the
+single-object case here: every caller reads one shape."
+  (declare (side-effect-free t))
+  (cond ((null rows) nil)
+        ((listp rows) rows)
+        ((hash-table-p rows) (list rows))))
+
 (defun openstack-resource-list (type &optional extra)
   "Return the parsed `RESOURCE list' data of resource TYPE.
 The command takes the list arguments of the definition, plus
@@ -359,10 +369,11 @@ of the client, a list of hash tables with the column names of the
 client.  Signal `openstack-resource-error' for an unknown TYPE,
 and `openstack-cli-error' when the client fails."
   (openstack--definition-or-error type)
-  (openstack-cli-request
-   (append (openstack--cli-arguments type "list")
-           (openstack-resource-arguments type)
-           extra)))
+  (openstack--rows
+   (openstack-cli-request
+    (append (openstack--cli-arguments type "list")
+            (openstack-resource-arguments type)
+            extra))))
 
 (defun openstack-resource-list-async (type success-fn error-fn &optional extra)
   "Fetch all resources of TYPE asynchronously.
@@ -449,8 +460,16 @@ pipeline treat unchanged data as no change."
             a)
            t)))
    ((and (consp a) (consp b))
-    (and (openstack--data-equal-p (car a) (car b))
-         (openstack--data-equal-p (cdr a) (cdr b))))
+    ;; Walk the list with a loop, not with cdr recursion: a JSON list
+    ;; holds one element per row, and a recursion of ~1600 levels
+    ;; exhausts `max-lisp-eval-depth' on a table of that size.
+    (let ((same t))
+      (while (and same (consp a) (consp b))
+        (unless (openstack--data-equal-p (car a) (car b))
+          (setq same nil))
+        (setq a (cdr a)
+              b (cdr b)))
+      (and same (null a) (null b))))
    (t (equal a b))))
 
 (defun openstack-resource--notify (type id kind old new event)
@@ -483,7 +502,6 @@ and `openstack-cli-error' when the fetch fails."
     (if (and (not force) entry (openstack-resource--cache-fresh-p entry))
         old
       (let ((rows (openstack-resource-list type)))
-        (setq rows (and (listp rows) rows))
         (setq openstack-resource--list-cache
               (openstack-resource--cache-put openstack-resource--list-cache
                                              type rows))

@@ -505,6 +505,12 @@ Bound around rendering by `openstack--refresh-done', so the
 renderers can mark the fields whose value changed.  Deliberately
 not buffer-local.")
 
+(defvar openstack--previous-index nil
+  "Hash table that maps a resource ID of `openstack--previous-data' to its row.
+Bound beside `openstack--previous-data' by the render pipeline, so
+a table marks the changed cells of a render in one lookup per cell
+instead of one scan of every previous row per cell.")
+
 (defvar openstack-state-change-functions nil
   "Abnormal hook run when a refresh changes a status value.
 Each function receives a plist with :buffer, :id, :field, :old
@@ -989,14 +995,31 @@ a status, ID or date face and the change face combine."
           (special special))))
 
 (defun openstack--row-match (rows row)
-  "Return the row of ROWS that carries the same ID as ROW, or nil."
+  "Return the row of ROWS that carries the same ID as ROW, or nil.
+ROWS is `openstack--previous-data' when the render pipeline bound
+it, which also binds its ID index in `openstack--previous-index'."
   (declare (side-effect-free t))
   (when-let* ((id (and (hash-table-p row)
                        (openstack--hash-field row "id"))))
-    (cl-find-if (lambda (other)
-                  (and (hash-table-p other)
-                       (equal id (openstack--hash-field other "id"))))
-                rows)))
+    (let ((index (and (eq rows openstack--previous-data)
+                      openstack--previous-index)))
+      (if index
+          (gethash id index)
+        (cl-find-if (lambda (other)
+                      (and (hash-table-p other)
+                           (equal id (openstack--hash-field other "id"))))
+                    rows)))))
+
+(defun openstack--row-index (rows)
+  "Return a hash table that maps the ID of each row of ROWS to that row.
+A row without an ID field stays out of the index, so a collection
+that has no IDs, such as the Swift containers, matches no row."
+  (declare (side-effect-free t))
+  (let ((index (make-hash-table :test #'equal)))
+    (dolist (row rows index)
+      (when (hash-table-p row)
+        (when-let* ((id (openstack--hash-field row "id")))
+          (puthash id row index))))))
 
 (defun openstack--row-status-changes (old-row row)
   "Return the status changes of OLD-ROW that ROW now shows.
@@ -1389,8 +1412,10 @@ ran."
         (unless (or err
                     (and openstack--rendered
                          (openstack--data-equal-p data openstack--last-data)))
-          (let ((openstack--previous-data
-                 (and openstack--rendered openstack--last-data)))
+          (let* ((previous (and openstack--rendered openstack--last-data))
+                 (openstack--previous-data previous)
+                 (openstack--previous-index
+                  (and (listp previous) (openstack--row-index previous))))
             (setq openstack--last-data data
                   openstack--rendered t)
             (if openstack-render-manages-buffer
@@ -2657,14 +2682,11 @@ The sorters read the typed cell values through it.")
 
 (defun openstack-list--rows (rows)
   "Return ROWS as a list of hash tables.
-The client returns an empty string or nil for an empty list, and
-a single hash table when the list holds one resource; normalize
-both cases."
+Normalize the shapes of an empty and a single-resource list through
+`openstack--rows', the one place that reads a client list answer,
+then drop an element that is not a row."
   (declare (pure t) (side-effect-free t))
-  (cl-remove-if-not #'hash-table-p
-                    (cond ((null rows) nil)
-                          ((listp rows) rows)
-                          (t (list rows)))))
+  (cl-remove-if-not #'hash-table-p (openstack--rows rows)))
 
 (defun openstack-list--row-text (row)
   "Return the display text of the fields of ROW, one string."
@@ -3349,7 +3371,10 @@ table shows both."
 column widths depend on the window width.  The rows stay the same,
 so no cell takes the change face."
   (when (and openstack--rendered openstack--last-data)
-    (let ((openstack--previous-data openstack--last-data))
+    (let* ((openstack--previous-data openstack--last-data)
+           (openstack--previous-index
+            (and (listp openstack--last-data)
+                 (openstack--row-index openstack--last-data))))
       (funcall openstack-render-function nil openstack--last-data))))
 
 (defun openstack-list--refit-needed-p (window)

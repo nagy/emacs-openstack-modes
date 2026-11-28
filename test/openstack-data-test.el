@@ -99,8 +99,8 @@ EXTRA follows it."
   (let ((seen nil)
         (openstack-container-list-arguments '("--long")))
     (cl-letf (((symbol-function 'openstack-cli-request)
-               (lambda (args) (setq seen args) :rows)))
-      (should (eq (openstack-resource-list "container") :rows))
+               (lambda (args) (setq seen args) '((:row)))))
+      (should (equal (openstack-resource-list "container") '((:row))))
       (should (equal seen '("container" "list" "--long")))
       (openstack-resource-list "container" '("--prefix" "p"))
       (should (equal seen '("container" "list" "--long" "--prefix" "p")))
@@ -157,6 +157,37 @@ definition carries list arguments, keeps both."
       (should (equal seen '("fake-client" "list" "--long"))))))
 
 ;;; Cache
+
+(defun openstack-data-test--rows (count)
+  "Return COUNT list rows, each with a distinct ID and an ACTIVE status."
+  (cl-loop for number below count
+           collect (let ((row (make-hash-table :test #'equal)))
+                     (puthash "ID" (format "id-%d" number) row)
+                     (puthash "Status" "ACTIVE" row)
+                     row)))
+
+(ert-deftest openstack-data-equal-handles-a-big-list ()
+  "Two answers of 2000 rows compare, and a change is found.
+The comparison walks the list with a loop; a cdr recursion exhausts
+`max-lisp-eval-depth' on a table of this size."
+  (let ((old (openstack-data-test--rows 2000))
+        (new (openstack-data-test--rows 2000)))
+    (should (openstack--data-equal-p old new))
+    (puthash "Status" "ERROR" (car (last new)))
+    (should-not (openstack--data-equal-p old new))))
+
+(ert-deftest openstack-resource-list-cached-normalizes-a-single-object ()
+  "A one-row list that the client prints as an object reaches the cache."
+  (let ((openstack-resource--list-cache nil)
+        (row (make-hash-table :test #'equal)))
+    (puthash "ID" "srv-1" row)
+    (cl-letf (((symbol-function 'openstack-cli-request)
+               (lambda (_args) row)))
+      (should (equal (openstack-resource-list-cached "server")
+                     (list row)))
+      ;; The cached entry reads back as the same one-row list.
+      (should (equal (openstack-resource-cached-rows "server")
+                     (list row))))))
 
 (ert-deftest openstack-resource-list-cached-fetches-once ()
   "A fresh entry comes back without a client call, FORCE refetches."
